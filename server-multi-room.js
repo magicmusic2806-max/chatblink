@@ -125,6 +125,8 @@ function serveRooms(req, res, requestUrl, authenticatedUser = null, newKey = nul
     if (error) return res.writeHead(404).end("Not found");
     const user = authenticatedUser || sessionUser(req), loginError = clean(requestUrl.searchParams.get("error"));
     let output = source;
+    const canonicalPath = requestUrl.pathname === "/rooms" ? "/rooms" : requestUrl.pathname.startsWith("/room/") ? requestUrl.pathname : "/";
+    if (!output.includes('rel="canonical"')) output = output.replace("</head>", `<link rel="canonical" href="https://chatblink.chat${canonicalPath}"></head>`);
     if (user) {
       const bootstrap = JSON.stringify(publicUser(user)).replace(/</g, "\\u003c");
       const tokenBootstrap = JSON.stringify(issueAuthToken(user)).replace(/</g, "\\u003c");
@@ -181,7 +183,7 @@ async function handleRequest(req, res) {
 
   if (urlPath === "/" || urlPath === "/index.html" || urlPath === "/rooms" || urlPath === "/dms" || urlPath.startsWith("/room/")) return serveRooms(req, res, requestUrl);
   if (urlPath.startsWith("/uploads/")) { const name = urlPath.slice(9); if (!/^[a-f0-9-]{36}\.(jpg|png|gif|webp|webm|mp4|m4a|ogg)$/.test(name)) return res.writeHead(404).end("Not found"); return fs.readFile(path.join(UPLOAD_DIR, name), (error, data) => { if (error) return res.writeHead(404).end("Not found"); const types = { ".jpg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp", ".webm": "audio/webm", ".mp4": "audio/mp4", ".m4a": "audio/mp4", ".ogg": "audio/ogg" }; res.writeHead(200, { "Content-Type": types[path.extname(name)] || "application/octet-stream", "Cache-Control": "private, max-age=86400" }).end(data); }); }
-  const relative = urlPath.replace(/^\/+/, ""), file = path.resolve(PUBLIC_DIR, relative); if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + path.sep)) return res.writeHead(403).end("Forbidden"); fs.readFile(file, (error, data) => { if (error) return res.writeHead(404).end("Not found"); const types = { ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif" }; res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-store" }).end(data); });
+  const relative = urlPath.replace(/^\/+/, ""), file = path.resolve(PUBLIC_DIR, relative); if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + path.sep)) return res.writeHead(403).end("Forbidden"); fs.readFile(file, (error, data) => { if (error) return res.writeHead(404).end("Not found"); const types = { ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml; charset=utf-8" }; res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-store" }).end(data); });
 }
 
 const server = http.createServer((req, res) => { handleRequest(req, res).catch(error => { console.error(`Request failed: ${error && error.stack || error}`); if (res.headersSent) return res.end(); res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" }).end("Something went wrong."); }); });

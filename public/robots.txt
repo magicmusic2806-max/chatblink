@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /uploads/
+Disallow: /dms
+
+Sitemap: https://chatblink.chat/sitemap.xml
