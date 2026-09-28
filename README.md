@@ -36,7 +36,7 @@ Runtime state lives in `data/` and must never be committed or shared:
 The app is a single long-running Node process with WebSockets and on-disk state, so it needs a host that supports both (not a static/serverless host like Netlify). Render is the simplest fit:
 
 1. Push this folder to a GitHub repository.
-2. In Render, choose **New → Blueprint** and select the repository (the included `render.yaml` configures the service, a 1 GB persistent disk, and `NEARBY_DATA_DIR=/var/data`).
+2. In Render, choose **New → Blueprint** and select the repository (the included `render.yaml` configures the service, a 1 GB persistent disk, and `NEARBY_DATA_DIR=/var/data`). The blueprint uses the `0.5c-512mb` compute plan (the Starter-equivalent tier) so the disk can attach; adjust it in `render.yaml` if needed.
 3. Apply; Render builds with `npm install` and runs `npm start`, giving you HTTPS/WSS automatically. The persistent disk keeps accounts, rooms, and uploads across deploys and restarts.
 
 Alternatives with the same requirements: Railway or Fly.io (attach a volume and point `NEARBY_DATA_DIR` at it), or any VPS running `npm start` behind a TLS reverse proxy.
