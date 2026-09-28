@@ -1,0 +1,14 @@
+{
+  "default": ["country", "region", "district", "city_or_town"],
+  "IN": ["country", "state_or_union_territory", "district", "city_or_town"],
+  "US": ["country", "state", "county_or_equivalent", "city_or_town"],
+  "GB": ["country", "constituent_country", "county_or_unitary_authority", "district_or_borough", "city_or_town"],
+  "CA": ["country", "province_or_territory", "regional_district_or_county", "city_or_town"],
+  "AU": ["country", "state_or_territory", "local_government_area", "city_or_town"],
+  "DE": ["country", "state", "district", "city_or_town"],
+  "FR": ["country", "region", "department", "arrondissement", "city_or_commune"],
+  "BR": ["country", "state", "intermediate_region", "municipality"],
+  "JP": ["country", "prefecture", "district_or_subprefecture", "city_or_town"],
+  "ID": ["country", "province", "regency_or_city", "district", "city_or_village"],
+  "MX": ["country", "state", "municipality", "city_or_town"]
+}

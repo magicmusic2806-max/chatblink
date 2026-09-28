@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8" />
+ <meta name="viewport" content="width=device-width,initial-scale=1" />
+ <meta name="theme-color" content="#111827" />
+ <title>Nearby — Global chat</title>
+ <link rel="preconnect" href="https://fonts.googleapis.com" />
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+ <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+ <link rel="stylesheet" href="/global.css" />
+</head>
+<body>
+ <div class="ambient" aria-hidden="true"></div>
+ <main class="auth-shell" id="authView">
+  <section class="auth-story">
+   <a class="brand" href="#"><span class="brand-mark">N</span><span>nearby<span>.</span></span></a>
+   <div class="story-copy">
+    <p class="eyebrow">ONE ROOM · EVERYWHERE</p>
+    <h1>Talk to someone<br />you haven’t met yet.</h1>
+    <p>A lightweight global conversation. No feeds, followers, or performance—just people talking in real time.</p>
+   </div>
+   <div class="story-status"><i></i><span>Global room is open</span></div>
+  </section>
+
+  <section class="auth-panel">
+   <div class="mobile-brand"><span class="brand-mark">N</span><strong>nearby.</strong></div>
+   <div class="auth-card">
+    <div class="auth-tabs" role="tablist" aria-label="Account access">
+     <button class="auth-tab active" data-auth-tab="login" role="tab">Log in</button>
+     <button class="auth-tab" data-auth-tab="signup" role="tab">Sign up</button>
+    </div>
+
+    <section class="auth-pane active" id="loginPane">
+     <header><h2>Welcome back</h2><p>Log in to enter the global room.</p></header>
+     <button class="google-button" data-google-action="login"><span class="google-g">G</span> Continue with Google</button>
+     <div class="divider"><span>or use your account</span></div>
+     <form id="loginForm" novalidate>
+      <label>Username or email<input name="identifier" autocomplete="username" required placeholder="you@example.com" /></label>
+      <label>Password<span class="password-wrap"><input name="password" type="password" autocomplete="current-password" required placeholder="Your password" /><button type="button" class="reveal" aria-label="Show password">Show</button></span></label>
+      <div class="form-error" id="loginError" role="alert" hidden></div>
+      <button class="primary-button" type="submit">Enter global chat <span>→</span></button>
+     </form>
+     <p class="switch-copy">New here? <button data-switch="signup">Create an account</button></p>
+    </section>
+
+    <section class="auth-pane" id="signupPane">
+     <header><h2>Create your account</h2><p>Choose how people will know you in chat.</p></header>
+     <button class="google-button" data-google-action="signup"><span class="google-g">G</span> Sign up with Google</button>
+     <div class="divider"><span>or sign up manually</span></div>
+     <form id="signupForm" novalidate>
+      <div class="form-grid">
+       <label class="wide">Username<input name="username" required minlength="3" maxlength="24" autocomplete="username" placeholder="Pick a unique name" /></label>
+       <label>Age<input name="age" type="number" required min="18" max="120" inputmode="numeric" placeholder="18+" /></label>
+       <label>Gender<select name="gender" required><option value="">Choose</option><option value="woman">Woman</option><option value="man">Man</option><option value="nonbinary">Non-binary</option><option value="prefer_not">Prefer not to say</option></select></label>
+       <label class="wide">Email<input name="email" type="email" autocomplete="email" required placeholder="you@example.com" /></label>
+       <label class="wide">Password<span class="password-wrap"><input name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" /><button type="button" class="reveal" aria-label="Show password">Show</button></span></label>
+      </div>
+      <label class="consent"><input name="adultConfirmed" type="checkbox" required /><span>I confirm that I am 18 or older and agree to the Terms and Privacy Policy.</span></label>
+      <div class="form-error" id="signupError" role="alert" hidden></div>
+      <button class="primary-button" type="submit">Create account <span>→</span></button>
+     </form>
+     <p class="switch-copy">Already have an account? <button data-switch="login">Log in</button></p>
+    </section>
+   </div>
+   <p class="auth-foot">18+ only · Be respectful · Never share sensitive personal information</p>
+  </section>
+ </main>
+
+ <main class="chat-shell" id="chatView" hidden>
+  <aside class="chat-sidebar">
+   <a class="brand light" href="#"><span class="brand-mark">N</span><span>nearby<span>.</span></span></a>
+   <div class="room-label">ROOMS</div>
+   <button class="global-room active"><span class="globe">◎</span><span><strong>Global</strong><small><i></i><b id="sidebarOnline">0</b> online</small></span></button>
+   <div class="sidebar-spacer"></div>
+   <button class="account-chip" id="accountButton"><span class="user-avatar" id="sidebarInitial">?</span><span><strong id="sidebarUsername">Member</strong><small>Signed in</small></span><span>•••</span></button>
+  </aside>
+  <section class="chat-main">
+   <header class="chat-topbar">
+    <button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button>
+    <span class="room-icon">◎</span><div><h1>Global</h1><p>One room for everyone, everywhere</p></div>
+    <span class="live-count"><i></i><b id="onlineCount">0</b> online</span>
+    <button class="logout-button" id="logoutButton">Log out</button>
+   </header>
+   <div class="chat-welcome"><p class="eyebrow">GLOBAL CONVERSATION</p><h2>Say something worth replying to.</h2><p>Messages disappear when the server restarts. The latest 100 stay visible while it runs.</p></div>
+   <section class="message-list" id="messageList" aria-live="polite"></section>
+   <footer class="composer-area">
+    <form class="composer" id="chatForm"><textarea id="chatInput" maxlength="500" rows="1" placeholder="Message the global room…"></textarea><button type="submit" aria-label="Send message">↑</button></form>
+    <p>Be kind. You’re talking to real people.</p>
+   </footer>
+  </section>
+ </main>
+ <div class="toast" id="toast" role="status"></div>
+ <script src="/global.js"></script>
+</body>
+</html>

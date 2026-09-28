@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f4f1e8" />
+  <title>Nearby — Your local town square</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="grain"></div>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <a class="brand" href="#"><span class="brand-mark">N</span><span>nearby<span class="brand-dot">.</span></span></a>
+        <button class="icon-button mobile-only" id="closeSidebar" aria-label="Close room list">×</button>
+      </div>
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24"><path d="m21 21-4.4-4.4m2.4-5.1A7.5 7.5 0 1 1 4 11.5a7.5 7.5 0 0 1 15 0Z" /></svg>
+        <input id="roomSearch" type="search" placeholder="Search any place" autocomplete="off" /><kbd>⌘ K</kbd>
+      </div>
+      <div class="sidebar-heading"><span>Near you</span><button class="location-button" id="locateButton">⌖ Bengaluru</button></div>
+      <nav class="room-list" id="roomList" aria-label="Chat rooms"></nav>
+      <div class="sidebar-foot">
+        <button class="profile-chip" id="profileButton">
+          <span class="avatar" id="sidebarAvatar">Y</span><span><strong id="sidebarName">Your profile</strong><small id="sidebarLocation">Set up to join</small></span><span class="more">•••</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="chat-panel">
+      <header class="chat-header">
+        <button class="icon-button mobile-only" id="openSidebar" aria-label="Open room list">☰</button>
+        <div class="place-icon" id="placeIcon">IN</div>
+        <div class="place-title"><div><h1 id="roomName">Indiranagar</h1><span class="verified">✓</span></div><p id="roomMeta">Bengaluru, Karnataka · <span>1.2 km away</span></p></div>
+        <div class="online-pill"><i></i><span id="onlineCount">284</span> online</div>
+        <button class="icon-button" aria-label="Room information">ⓘ</button>
+      </header>
+
+      <section class="room-intro">
+        <div class="intro-copy"><span class="eyebrow">YOUR DIGITAL TOWN SQUARE</span><h2 id="welcomeTitle">Good evening, Indiranagar.</h2><p>Ask a question, share what’s happening, or simply say hello.</p></div>
+        <div class="pulse-card"><span class="pulse-label"><i></i> LIVE PULSE</span><strong id="pulseText">Lively right now</strong><span id="pulseDetail">42 messages in the last hour</span></div>
+      </section>
+
+      <div class="channel-bar">
+        <div class="channel-tabs" role="tablist">
+          <button class="channel-tab active" data-channel="local"><span>⌂</span> Local <b>Locals only</b></button>
+          <button class="channel-tab" data-channel="open"><span>◎</span> Open <b>Everyone</b></button>
+        </div>
+        <p class="channel-note" id="channelNote">Verified locals can talk here <span>•</span> Last 100 messages</p>
+      </div>
+
+      <section class="messages" id="messages" aria-live="polite"></section>
+
+      <footer class="composer-area">
+        <div class="visitor-notice" id="visitorNotice" hidden><span>👋</span><p>You’re visiting this room. Switch to <button id="switchOpen">Open</button> to join.</p></div>
+        <form class="composer" id="messageForm">
+          <button type="button" class="attach-button" aria-label="Add attachment">＋</button>
+          <textarea id="messageInput" rows="1" maxlength="500" placeholder="Message your neighbours…"></textarea>
+          <span class="local-badge" id="composerBadge">LOCAL</span>
+          <button class="send-button" type="submit" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="m5 12 14-7-4.5 14-2.7-5.3L5 12Zm6.8 1.7L19 5" /></svg></button>
+        </form>
+        <p class="community-line">Be kind. You’re talking to real people nearby. <button>Community rules</button></p>
+      </footer>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="onboardingModal">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+      <div class="modal-brand"><span class="brand-mark">N</span></div><span class="eyebrow">WELCOME TO NEARBY</span>
+      <h2 id="onboardingTitle">Meet the people around you.</h2><p>Create a lightweight profile. You can add more later.</p>
+      <form id="onboardingForm">
+        <label>What should we call you?<input name="name" required maxlength="30" placeholder="Your name" /></label>
+        <label>Your age<input name="age" required type="number" min="16" max="120" placeholder="Age" /></label>
+        <label class="photo-field"><span>Profile photo <em>Optional</em></span><span class="photo-picker"><span id="photoPreview">＋</span><span><strong>Add a photo</strong><small>JPG or PNG, up to 2 MB</small></span></span><input name="photo" id="photoInput" type="file" accept="image/png,image/jpeg" /></label>
+        <label>Your home area<select name="homeRoom" id="homeRoomSelect"></select></label>
+        <button class="primary-button" type="submit">Enter your town square <span>→</span></button>
+        <small class="privacy-copy">Your precise location is never shown to other people.</small>
+      </form>
+    </section>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

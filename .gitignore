@@ -1,0 +1,10 @@
+node_modules/
+
+# Runtime state and secrets (never commit or share)
+data/users.json
+data/chatrooms.json
+data/auth-secret.txt
+data/rooms.json
+data/uploads/
+
+*.log

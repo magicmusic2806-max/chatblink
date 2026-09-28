@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: chatblink
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NEARBY_DATA_DIR
+        value: /var/data
+      - key: NODE_VERSION
+        value: "20"
+    disk:
+      name: chatblink-data
+      mountPath: /var/data
+      sizeGB: 1

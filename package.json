@@ -1,0 +1,19 @@
+{
+  "name": "chatblink",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node server-multi-room.js",
+    "dev": "node --watch server-multi-room.js",
+    "test": "node tests/auth-e2e.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
