@@ -11,6 +11,7 @@ input,select,textarea{font-size:16px}
 .kicker{letter-spacing:.17em;font-size:11px;font-weight:800;color:#7687aa}
 .fineprint{font-size:12px;color:#8d96a8;text-align:center}
 .optional{color:#9aa2b4;font-weight:600}
+.field-hint{font-size:11px;font-weight:600;color:#8a93a7}
 
 .auth-shell{position:fixed;inset:0;z-index:40;display:flex;overflow:auto;padding:16px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom));background:#0b1223b0;backdrop-filter:blur(8px)}
 .auth-story{display:none}
