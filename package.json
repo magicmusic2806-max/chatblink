@@ -8,6 +8,7 @@
     "test": "node tests/auth-e2e.js"
   },
   "dependencies": {
+    "firebase-admin": "^14.5.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

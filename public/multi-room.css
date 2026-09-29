@@ -108,6 +108,37 @@ input,select,textarea{font-size:16px}
 .rooms-view .topbar{flex:none}
 .rooms-view .room-icon{display:grid}
 .dms-view{display:flex;flex-direction:column;overflow:hidden;background:#f7f8fb}
+.explore-view,.profile-view{display:flex;flex-direction:column;overflow:hidden;background:#f7f8fb}
+.explore-view .topbar,.profile-view .topbar{flex:none}
+.explore-view .room-icon,.profile-view .room-icon{display:grid}
+.explore-body{flex:1;overflow:auto;width:100%;max-width:1000px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+.explore-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.explore-card{border:1px solid #e7eaf1;background:white;border-radius:16px;padding:14px;text-align:left;display:flex;gap:12px;align-items:center;cursor:pointer;width:100%}
+.explore-card .avatar{width:54px;height:54px;font-size:24px;flex:none;position:relative}
+.explore-info{min-width:0;display:flex;flex-direction:column}
+.explore-name{font-weight:800;font-size:15px;display:flex;align-items:center;gap:6px}
+.explore-meta{font-size:11px;color:#8a93a7;margin-top:2px}
+.explore-bio{font-size:12px;color:#5a6579;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.explore-photos{font-size:10px;font-weight:800;color:#4f8cff;margin-top:6px}
+.profile-view .dm-back{margin:0 12px}
+.profile-body{flex:1;overflow:auto;width:100%;max-width:900px;margin:0 auto;padding:12px}
+.profile-gallery{background:white;border:1px solid #e7eaf1;border-radius:20px;padding:10px;margin-bottom:14px}
+.gallery-main{width:100%;max-height:460px;object-fit:contain;border-radius:14px;background:#f2f4f9;display:block}
+.gallery-empty{height:220px;display:grid;place-items:center;color:#98a1b3;font-size:13px}
+.gallery-thumbs{display:flex;gap:8px;margin-top:10px;overflow-x:auto}
+.gallery-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:10px;cursor:pointer;flex:none;border:2px solid transparent}
+.gallery-thumbs img.active{border-color:#5367df}
+.profile-details{background:white;border:1px solid #e7eaf1;border-radius:20px;padding:16px}
+.profile-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.profile-actions .primary,.profile-actions .secondary{width:auto;margin-top:0;padding:12px 18px;min-width:140px}
+.photo-manager{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:8px 0}
+.photo-cell{position:relative}
+.photo-cell img{width:100%;height:74px;object-fit:cover;border-radius:10px;display:block}
+.photo-cell button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:0;background:#e5484d;color:white;font-size:13px;font-weight:800;line-height:1}
+.user-meta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.user-meta span{background:#f2f4f9;border-radius:20px;padding:4px 10px;font-size:11px;color:#4a556b}
+.user-bio{font-size:13px;color:#5a6579;line-height:1.5;margin:8px 0 0}
+.profile-view .topbar h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dms-view .topbar{flex:none}
 .dms-view .room-icon{display:grid}
 .dms-body{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;max-width:1000px;margin:0 auto;padding:12px;gap:12px}
@@ -278,6 +309,7 @@ input,select,textarea{font-size:16px}
 .picker-grid.gif{grid-template-columns:repeat(3,1fr)}
 .picker-grid.gif img{height:96px}
 .rooms-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;padding:20px}
+.explore-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
 .room-card{padding:16px}
 .modal-backdrop{align-items:center;padding:20px}
 .modal{width:min(100%,460px);border-radius:19px;padding:28px}
