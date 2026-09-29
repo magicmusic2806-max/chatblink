@@ -129,6 +129,14 @@ input,select,textarea{font-size:16px}
 .dm-chat-head b{font:800 17px Manrope}
 .dms-view .dm-thread{flex:1;max-height:none;margin-bottom:10px}
 .dm-unread{min-width:18px;height:18px;border-radius:9px;background:#ef476f;color:white;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 5px;margin-left:auto}
+.people-search{width:100%;border:1px solid #dfe3ec;border-radius:10px;padding:10px 12px;outline:none;margin-bottom:10px}
+.people-search:focus{border-color:#6477e9;box-shadow:0 0 0 3px #6477e918}
+.presence-dot{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:#42d59e;border:2px solid #fff;box-sizing:border-box}
+.rc-online{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:800;color:#8a93a7}
+.rc-online i{width:7px;height:7px;border-radius:50%;background:#cbd3e1}
+.rc-online.on i{background:#42d59e}
+.dm-chat-head .avatar{position:relative}
+.dm-thread-item .avatar{position:relative}
 .rooms-grid{flex:1;overflow:auto;display:grid;grid-template-columns:1fr;gap:10px;padding:12px;align-content:start;overscroll-behavior:contain}
 .room-card{text-align:left;border:1px solid #e7eaf1;background:white;border-radius:16px;padding:14px;display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;min-height:72px;cursor:pointer}
 .rc-side{display:flex;align-items:center;gap:8px}
