@@ -151,10 +151,10 @@ function serveRooms(req, res, requestUrl, authenticatedUser = null, newKey = nul
       const keyBootstrap = newKey ? `window.__NEARBY_NEW_KEY__=${JSON.stringify(newKey).replace(/</g, "\\u003c")};` : "";
       output = output.replace('<main class="auth-shell" id="authView">', '<main class="auth-shell" id="authView" hidden>')
         .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=37"></script>`);
+        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=38"></script>`);
     } else {
       output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=37"></script>');
+        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=38"></script>');
       if (loginError && requestUrl.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${loginError.replace(/[&<>"']/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}</div>`);
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" }).end(output);

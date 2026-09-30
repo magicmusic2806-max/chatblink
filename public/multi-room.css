@@ -36,9 +36,10 @@ input,select,textarea{font-size:16px}
 .switch button{border:0;background:none;color:#5066dd;font-weight:800;padding:6px}
 
 .app{height:100vh;height:100dvh;display:grid;grid-template-columns:1fr;overflow:hidden}
+.app>*{min-height:0}
 .avatar{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#6c7de5;font-weight:800;padding:0;border:0}
 
-.chat{--accent:#4f8cff;--soft:#eaf2ff;min-width:0;display:grid;grid-template-rows:auto 1fr auto;background:#f8f9fc}
+.chat{--accent:#4f8cff;--soft:#eaf2ff;min-width:0;min-height:0;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:#f8f9fc}
 .topbar{height:60px;background:white;border-bottom:1px solid #e7eaf0;display:flex;align-items:center;gap:8px;padding:0 10px;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
 .room-icon{display:none;font-size:22px;width:42px;height:42px;place-items:center;border-radius:13px;background:var(--soft)}
 .topbar>div:not(.top-actions){flex:1;min-width:0}
@@ -54,7 +55,7 @@ input,select,textarea{font-size:16px}
 .icon-btn{position:relative;width:38px;height:38px;border:1px solid #e2e6ee;background:white;border-radius:11px;display:grid;place-items:center;color:#5a6579}
 .icon-badge{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:#ef476f;color:white;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 4px;line-height:1}
 .icon-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.messages{padding:10px;overflow-y:auto;overscroll-behavior:contain}
+.messages{padding:10px;overflow-y:auto;min-height:0;overscroll-behavior:contain}
 .empty{height:100%;display:grid;place-items:center;text-align:center;color:#818b9e}
 .empty span{font-size:30px}
 .empty h3{color:#313b4f;margin:8px 0 4px}
@@ -112,7 +113,7 @@ input,select,textarea{font-size:16px}
 .explore-view,.profile-view{display:flex;flex-direction:column;overflow:hidden;background:#f7f8fb}
 .explore-view .topbar,.profile-view .topbar{flex:none}
 .explore-view .room-icon,.profile-view .room-icon{display:grid}
-.explore-body{flex:1;overflow:auto;width:100%;max-width:1000px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+.explore-body{flex:1;min-height:0;overflow:auto;width:100%;max-width:1000px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:12px}
 .explore-grid{display:grid;grid-template-columns:1fr;gap:12px}
 .explore-card{border:1px solid #e7eaf1;background:white;border-radius:16px;padding:14px;text-align:left;display:flex;gap:12px;align-items:center;cursor:pointer;width:100%}
 .explore-card .avatar{width:54px;height:54px;font-size:24px;flex:none;position:relative}
@@ -122,7 +123,7 @@ input,select,textarea{font-size:16px}
 .explore-bio{font-size:12px;color:#5a6579;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .explore-photos{font-size:10px;font-weight:800;color:#4f8cff;margin-top:6px}
 .profile-view .dm-back{margin:0 12px}
-.profile-body{flex:1;overflow:auto;width:100%;max-width:900px;margin:0 auto;padding:12px}
+.profile-body{flex:1;min-height:0;overflow:auto;width:100%;max-width:900px;margin:0 auto;padding:12px}
 .profile-gallery{background:white;border:1px solid #e7eaf1;border-radius:20px;padding:10px;margin-bottom:14px}
 .gallery-main{width:100%;max-height:460px;object-fit:contain;border-radius:14px;background:#f2f4f9;display:block}
 .gallery-empty{height:220px;display:grid;place-items:center;color:#98a1b3;font-size:13px}
@@ -159,7 +160,7 @@ input,select,textarea{font-size:16px}
 .dm-chat-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .dm-chat-head .avatar{width:38px;height:38px;font-size:16px;flex:none}
 .dm-chat-head b{font:800 17px Manrope}
-.dms-view .dm-thread{flex:1;max-height:none;margin-bottom:10px}
+.dms-view .dm-thread{flex:1;min-height:0;max-height:none;margin-bottom:10px}
 .dm-unread{min-width:18px;height:18px;border-radius:9px;background:#ef476f;color:white;font-size:10px;font-weight:800;display:grid;place-items:center;padding:0 5px;margin-left:auto}
 .people-search{width:100%;border:1px solid #dfe3ec;border-radius:10px;padding:10px 12px;outline:none;margin-bottom:10px}
 .people-search:focus{border-color:#6477e9;box-shadow:0 0 0 3px #6477e918}
@@ -169,7 +170,7 @@ input,select,textarea{font-size:16px}
 .rc-online.on i{background:#42d59e}
 .dm-chat-head .avatar{position:relative}
 .dm-thread-item .avatar{position:relative}
-.rooms-grid{flex:1;overflow:auto;display:grid;grid-template-columns:1fr;gap:10px;padding:12px;align-content:start;overscroll-behavior:contain}
+.rooms-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:1fr;gap:10px;padding:12px;align-content:start;overscroll-behavior:contain}
 .room-card{text-align:left;border:1px solid #e7eaf1;background:white;border-radius:16px;padding:14px;display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;min-height:72px;cursor:pointer}
 .rc-side{display:flex;align-items:center;gap:8px}
 .rc-delete{border:0;background:#fff0f3;color:#c33b55;border-radius:8px;padding:7px 9px;font-size:11px;font-weight:800}
