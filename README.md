@@ -69,13 +69,13 @@ Uploaded files are served publicly from `/uploads/<name>` (uuid + validated exte
 
 ## WebSocket protocol
 
-Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). Server messages: `history {messages, online, users}`, `message`, `presence {online, users}`, `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`.
+Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that clients hold whenever they don't have a room socket, so room requests, DMs, bans and room-list changes arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `presence {online, users}`, `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `rooms-changed`, `room-ban {roomId, banned}`, `room-deleted {roomId}`.
 Client messages: `{type:"message", kind:"text|emoji|sticker|gif|image|voice", content}` and `{type:"dm", to, kind, content}`.
 Limits: 20 messages/10 s per socket (room + DM share the budget); GIF URLs must be `/gifs/<name>.gif` or allowlisted Giphy/Tenor hosts; image/voice room messages only in request-only user-created rooms; DM media only after the recipient grants permission. Server pings every 30 s and drops dead sockets.
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing any file in `public/`, bump the version in **three places**: both `multi-room.js?v=NN` references in `server-multi-room.js` (authenticated and unauthenticated page injection) and the CSS `?v=NN` links in `rooms.html`. Current version: **v37**.
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing any file in `public/`, bump the version in **three places**: both `multi-room.js?v=NN` references in `server-multi-room.js` (authenticated and unauthenticated page injection) and the CSS `?v=NN` links in `rooms.html`. Current version: **v41**.
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).

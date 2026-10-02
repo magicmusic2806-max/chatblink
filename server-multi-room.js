@@ -151,10 +151,10 @@ function serveRooms(req, res, requestUrl, authenticatedUser = null, newKey = nul
       const keyBootstrap = newKey ? `window.__NEARBY_NEW_KEY__=${JSON.stringify(newKey).replace(/</g, "\\u003c")};` : "";
       output = output.replace('<main class="auth-shell" id="authView">', '<main class="auth-shell" id="authView" hidden>')
         .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=39"></script>`);
+        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=41"></script>`);
     } else {
       output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=39"></script>');
+        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=41"></script>');
       if (loginError && requestUrl.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${loginError.replace(/[&<>"']/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}</div>`);
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" }).end(output);
@@ -197,14 +197,14 @@ async function handleRequest(req, res) {
     if (urlPath === "/api/rooms" && req.method === "GET") return json(res, 200, { rooms: roomStore.rooms.map(room => roomView(room, user)) });
     const banMatch = urlPath.match(/^\/api\/rooms\/([^/]+)\/bans(?:\/([^/]+))?$/);
     if (banMatch) { const banRoom = findRoom(banMatch[1]); if (!banRoom) return json(res, 404, { error: "Room not found." }); const actorRole = user.role || "user"; if (!(actorRole === "admin" || actorRole === "mod" || banRoom.ownerId === user.id)) return json(res, 403, { error: "Only the room creator, mods, or the admin can manage bans." }); if (req.method === "GET") return json(res, 200, { users: (banRoom.bans || []).map(id => userStore.users.find(item => item.id === id)).filter(Boolean).map(publicUser) }); if (req.method === "POST" && banMatch[2]) { try { const target = userStore.users.find(item => item.id === banMatch[2]); if (!target) return json(res, 404, { error: "User not found." }); const body = await readBody(req), unban = clean(body.action) === "unban"; if (!unban && !canBanUser(banRoom, user, target)) return json(res, 403, { error: "You cannot ban this user." }); if (unban) banRoom.bans = (banRoom.bans || []).filter(id => id !== target.id); else banRoom.bans = [...new Set([...(banRoom.bans || []), target.id])]; await saveRooms(); notifyUser(target.id, { type: "room-ban", roomId: banRoom.id, banned: !unban }); return json(res, 200, { ok: true, banned: !unban }); } catch (error) { return json(res, 400, { error: error.message }); } } }
-    if (urlPath === "/api/rooms" && req.method === "POST") { try { if (rateLimited(req, "room-create", 5)) throw new Error("Too many rooms created recently. Try again later."); const body = await readBody(req), name = clean(body.name).slice(0, 40), access = body.access === "request" ? "request" : "open", presets = { ocean: {accent:"#0284c7",soft:"#e7f7ff"}, sunset: {accent:"#f97316",soft:"#fff0e7"}, berry: {accent:"#d946ef",soft:"#fcecff"}, forest: {accent:"#16a34a",soft:"#eaf8ec"} }, pack = presets[body.theme] || presets.ocean; if (name.length < 3) throw new Error("Room name must be at least 3 characters."); if (clean(body.vibe) && clean(body.vibe).length < 3) throw new Error("Short vibe must be at least 3 characters."); if (roomStore.rooms.filter(room => room.ownerId === user.id).length >= MAX_ROOMS_PER_USER) throw new Error(`You can create up to ${MAX_ROOMS_PER_USER} rooms.`); const room = { id: slugify(name), name, icon: access === "request" ? "🔐" : "✦", vibe: clean(body.vibe).slice(0, 100) || `A community room created by ${user.username}.`, accent:pack.accent, soft:pack.soft, emojis:ALL_EMOJIS, stickers:ALL_STICKERS, gifs:ALL_GIFS, access, builtIn: false, ownerId: user.id, members: [], requests: [], createdAt: new Date().toISOString() }; roomStore.rooms.push(room); await saveRooms(); return json(res, 201, { room: roomView(room, user) }); } catch (error) { return json(res, 400, { error: error.message }); } }
+    if (urlPath === "/api/rooms" && req.method === "POST") { try { if (rateLimited(req, "room-create", 5)) throw new Error("Too many rooms created recently. Try again later."); const body = await readBody(req), name = clean(body.name).slice(0, 40), access = body.access === "request" ? "request" : "open", presets = { ocean: {accent:"#0284c7",soft:"#e7f7ff"}, sunset: {accent:"#f97316",soft:"#fff0e7"}, berry: {accent:"#d946ef",soft:"#fcecff"}, forest: {accent:"#16a34a",soft:"#eaf8ec"} }, pack = presets[body.theme] || presets.ocean; if (name.length < 3) throw new Error("Room name must be at least 3 characters."); if (clean(body.vibe) && clean(body.vibe).length < 3) throw new Error("Short vibe must be at least 3 characters."); if (roomStore.rooms.filter(room => room.ownerId === user.id).length >= MAX_ROOMS_PER_USER) throw new Error(`You can create up to ${MAX_ROOMS_PER_USER} rooms.`); const room = { id: slugify(name), name, icon: access === "request" ? "🔐" : "✦", vibe: clean(body.vibe).slice(0, 100) || `A community room created by ${user.username}.`, accent:pack.accent, soft:pack.soft, emojis:ALL_EMOJIS, stickers:ALL_STICKERS, gifs:ALL_GIFS, access, builtIn: false, ownerId: user.id, members: [], requests: [], createdAt: new Date().toISOString() }; roomStore.rooms.push(room); await saveRooms(); broadcastAll({ type: "rooms-changed" }); return json(res, 201, { room: roomView(room, user) }); } catch (error) { return json(res, 400, { error: error.message }); } }
     const match = urlPath.match(/^\/api\/rooms\/([^/]+)(?:\/(?:request|requests(?:\/([^/]+))?))?$/), room = match && findRoom(match[1]);
     if (!room) return json(res, 404, { error: "Room not found." });
     if (urlPath.endsWith("/request") && req.method === "POST") { if (room.access !== "request") return json(res, 400, { error: "This room is open." }); if (room.ownerId !== user.id && !room.members.includes(user.id) && !room.requests.includes(user.id)) { if (room.requests.length >= MAX_PENDING_REQUESTS) return json(res, 429, { error: "This room has too many pending requests. Try again later." }); room.requests.push(user.id); await saveRooms(); notifyUser(room.ownerId, { type: "room-updated", roomId: room.id }); return json(res, 200, { status: "pending" }); } return json(res, 200, { status: room.members.includes(user.id) ? "member" : "pending" }); }
     if (match && urlPath.endsWith("/requests") && req.method === "GET") { if (room.ownerId !== user.id) return json(res, 403, { error: "Only the room creator can view requests." }); return json(res, 200, { requests: room.requests.map(id => userStore.users.find(item => item.id === id)).filter(Boolean).map(publicUser) }); }
     if (match && match[2] && req.method === "POST") { if (room.ownerId !== user.id) return json(res, 403, { error: "Only the room creator can manage requests." }); const body = await readBody(req), targetId = match[2]; room.requests = room.requests.filter(id => id !== targetId); if (body.action === "approve" && !room.members.includes(targetId)) room.members.push(targetId); await saveRooms(); notifyUser(targetId, { type: "room-updated", roomId: room.id }); return json(res, 200, { ok: true }); }
     const deleteMatch = urlPath.match(/^\/api\/rooms\/([^/]+)$/);
-    if (deleteMatch && req.method === "DELETE") { const target = findRoom(deleteMatch[1]); if (!target) return json(res, 404, { error: "Room not found." }); if (target.builtIn) return json(res, 400, { error: "Built-in rooms cannot be deleted." }); if (target.ownerId !== user.id && user.role !== "admin") return json(res, 403, { error: "Only the room creator or the admin can delete this room." }); roomStore.rooms = roomStore.rooms.filter(room => room.id !== target.id); roomMessages.delete(target.id); await saveRooms(); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.roomId === target.id) client.send(JSON.stringify({ type: "room-deleted", roomId: target.id })); return json(res, 200, { ok: true }); }
+    if (deleteMatch && req.method === "DELETE") { const target = findRoom(deleteMatch[1]); if (!target) return json(res, 404, { error: "Room not found." }); if (target.builtIn) return json(res, 400, { error: "Built-in rooms cannot be deleted." }); if (target.ownerId !== user.id && user.role !== "admin") return json(res, 403, { error: "Only the room creator or the admin can delete this room." }); roomStore.rooms = roomStore.rooms.filter(room => room.id !== target.id); roomMessages.delete(target.id); await saveRooms(); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.roomId === target.id) client.send(JSON.stringify({ type: "room-deleted", roomId: target.id })); broadcastAll({ type: "rooms-changed" }); return json(res, 200, { ok: true }); }
     return json(res, 404, { error: "Room action not found." });
   }
 
@@ -220,13 +220,14 @@ server.on("upgrade", (req, socket, head) => {
   try {
     if (!sameOrigin(req)) return socket.destroy();
     const user = sessionUser(req), roomId = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).searchParams.get("room"), room = roomId && findRoom(roomId);
-    if (!user || !canEnter(room, user)) return socket.destroy();
+    if (!user || (roomId !== "__notify" && !canEnter(room, user))) return socket.destroy();
     wss.handleUpgrade(req, socket, head, ws => { ws.user = user; ws.roomId = roomId; wss.emit("connection", ws); });
   } catch { socket.destroy(); }
 });
 function clientsIn(roomId) { return [...wss.clients].filter(client => client.readyState === WebSocket.OPEN && client.roomId === roomId); }
 function broadcast(roomId, payload) { const text = JSON.stringify(payload); for (const client of clientsIn(roomId)) client.send(text); }
 function notifyUser(userId, payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) client.send(text); }
+function broadcastAll(payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(text); }
 function refreshUserPresence(userId) { const rooms = new Set(); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) rooms.add(client.roomId); for (const roomId of rooms) broadcastPresence(roomId); }
 function safeMediaUrl(value) { const candidate = String(value || "").trim(); if (/^\/gifs\/[a-z0-9-]+\.gif$/i.test(candidate)) return candidate; try { const url = new URL(candidate); return url.protocol === "https:" && ["media.giphy.com", "i.giphy.com", "media.tenor.com", "media1.tenor.com"].some(host => url.hostname === host || url.hostname.endsWith(`.${host}`)) ? url.href : null; } catch { return null; } }
 function presencePayload(roomId) { const clients = clientsIn(roomId), seen = new Map(); for (const client of clients) { if (client.user && !seen.has(client.user.id)) seen.set(client.user.id, publicUser(client.user)); } return { type: "presence", online: clients.length, users: [...seen.values()] }; }
@@ -237,8 +238,10 @@ wss.on("connection", ws => {
   const joinedRoom = findRoom(ws.roomId);
   if (joinedRoom && !joinedRoom.builtIn && joinedRoom.access === "open" && !joinedRoom.members.includes(ws.user.id)) { joinedRoom.members.push(ws.user.id); saveRooms(); }
   const messages = roomMessages.get(ws.roomId) || []; roomMessages.set(ws.roomId, messages);
-  ws.send(JSON.stringify({ type: "history", messages: messages.slice(-MAX_MESSAGES), online: clientsIn(ws.roomId).length, users: presencePayload(ws.roomId).users }));
-  broadcastPresence(ws.roomId);
+  if (ws.roomId !== "__notify") {
+    ws.send(JSON.stringify({ type: "history", messages: messages.slice(-MAX_MESSAGES), online: clientsIn(ws.roomId).length, users: presencePayload(ws.roomId).users }));
+    broadcastPresence(ws.roomId);
+  }
   ws.on("message", raw => {
     let event; try { event = JSON.parse(raw.toString()); } catch { return; }
     if (event.type === "dm") {
@@ -275,7 +278,7 @@ wss.on("connection", ws => {
     messages.push(message); if (messages.length > MAX_MESSAGES) messages.splice(0, messages.length - MAX_MESSAGES);
     broadcast(ws.roomId, { type: "message", message });
   });
-  ws.on("close", () => broadcastPresence(ws.roomId));
+  ws.on("close", () => { if (ws.roomId !== "__notify") broadcastPresence(ws.roomId); });
 });
 const heartbeat = setInterval(() => {
   for (const client of wss.clients) {
