@@ -151,10 +151,10 @@ function serveRooms(req, res, requestUrl, authenticatedUser = null, newKey = nul
       const keyBootstrap = newKey ? `window.__NEARBY_NEW_KEY__=${JSON.stringify(newKey).replace(/</g, "\\u003c")};` : "";
       output = output.replace('<main class="auth-shell" id="authView">', '<main class="auth-shell" id="authView" hidden>')
         .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=41"></script>`);
+        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=42"></script>`);
     } else {
       output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=41"></script>');
+        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=42"></script>');
       if (loginError && requestUrl.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${loginError.replace(/[&<>"']/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}</div>`);
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" }).end(output);
@@ -220,7 +220,7 @@ server.on("upgrade", (req, socket, head) => {
   try {
     if (!sameOrigin(req)) return socket.destroy();
     const user = sessionUser(req), roomId = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).searchParams.get("room"), room = roomId && findRoom(roomId);
-    if (!user || (roomId !== "__notify" && !canEnter(room, user))) return socket.destroy();
+    if (roomId !== "__notify" && (!user || !canEnter(room, user))) return socket.destroy();
     wss.handleUpgrade(req, socket, head, ws => { ws.user = user; ws.roomId = roomId; wss.emit("connection", ws); });
   } catch { socket.destroy(); }
 });
@@ -228,7 +228,9 @@ function clientsIn(roomId) { return [...wss.clients].filter(client => client.rea
 function broadcast(roomId, payload) { const text = JSON.stringify(payload); for (const client of clientsIn(roomId)) client.send(text); }
 function notifyUser(userId, payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) client.send(text); }
 function broadcastAll(payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(text); }
-function refreshUserPresence(userId) { const rooms = new Set(); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) rooms.add(client.roomId); for (const roomId of rooms) broadcastPresence(roomId); }
+function broadcastRoomOnline(roomId) { if (roomId === "__notify" || !findRoom(roomId)) return; broadcastAll({ type: "room-online", roomId, online: clientsIn(roomId).length }); }
+function broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user) client.send(text); }
+function refreshUserPresence(userId) { const rooms = new Set(); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) rooms.add(client.roomId); for (const roomId of rooms) broadcastPresence(roomId); broadcastUsersChanged(); }
 function safeMediaUrl(value) { const candidate = String(value || "").trim(); if (/^\/gifs\/[a-z0-9-]+\.gif$/i.test(candidate)) return candidate; try { const url = new URL(candidate); return url.protocol === "https:" && ["media.giphy.com", "i.giphy.com", "media.tenor.com", "media1.tenor.com"].some(host => url.hostname === host || url.hostname.endsWith(`.${host}`)) ? url.href : null; } catch { return null; } }
 function presencePayload(roomId) { const clients = clientsIn(roomId), seen = new Map(); for (const client of clients) { if (client.user && !seen.has(client.user.id)) seen.set(client.user.id, publicUser(client.user)); } return { type: "presence", online: clients.length, users: [...seen.values()] }; }
 function broadcastPresence(roomId) { broadcast(roomId, presencePayload(roomId)); }
@@ -242,7 +244,10 @@ wss.on("connection", ws => {
     ws.send(JSON.stringify({ type: "history", messages: messages.slice(-MAX_MESSAGES), online: clientsIn(ws.roomId).length, users: presencePayload(ws.roomId).users }));
     broadcastPresence(ws.roomId);
   }
+  broadcastRoomOnline(ws.roomId);
+  if (ws.user) broadcastUsersChanged();
   ws.on("message", raw => {
+    if (!ws.user) return;
     let event; try { event = JSON.parse(raw.toString()); } catch { return; }
     if (event.type === "dm") {
       const now = Date.now();
@@ -278,7 +283,7 @@ wss.on("connection", ws => {
     messages.push(message); if (messages.length > MAX_MESSAGES) messages.splice(0, messages.length - MAX_MESSAGES);
     broadcast(ws.roomId, { type: "message", message });
   });
-  ws.on("close", () => { if (ws.roomId !== "__notify") broadcastPresence(ws.roomId); });
+  ws.on("close", () => { if (ws.roomId !== "__notify") { broadcastPresence(ws.roomId); broadcastRoomOnline(ws.roomId); } if (ws.user) broadcastUsersChanged(); });
 });
 const heartbeat = setInterval(() => {
   for (const client of wss.clients) {
