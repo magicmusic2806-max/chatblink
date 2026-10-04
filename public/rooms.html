@@ -11,7 +11,7 @@
  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Chatblink","url":"https://chatblink.chat/","description":"18+ chat rooms with topic-based communities, private messages, photos and voice notes."}</script>
  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
- <link rel="stylesheet" href="/multi-room.css?v=42"><link rel="stylesheet" href="/profile-key.css?v=42">
+ <link rel="stylesheet" href="/multi-room.css?v=43"><link rel="stylesheet" href="/profile-key.css?v=43">
 </head>
 <body>
  <main class="auth-shell" id="authView">
@@ -49,7 +49,7 @@
   <div class="modal-backdrop" id="onlineModal" hidden><section class="modal"><button class="modal-close" data-close-online>×</button><p class="kicker">IN THIS ROOM</p><h2>Online now</h2><div id="onlineList"></div><div id="bannedWrap" hidden><p class="kicker">BANNED</p><div id="bannedList"></div></div></section></div>
   <div class="modal-backdrop" id="userModal" hidden><section class="modal"><button class="modal-close" data-close-user>×</button><div id="userCard"></div><button type="button" class="primary" id="userMessage">Message</button><button type="button" class="secondary" id="userViewProfile">View full profile</button><button type="button" class="secondary" id="userHide">Hide messages</button><button type="button" class="secondary danger" id="userBan" hidden>Ban from this room</button></section></div>
   <div class="modal-backdrop" id="keyModal" hidden><section class="modal"><button class="modal-close" data-close-key>×</button><p class="kicker">ACCOUNT RECOVERY</p><h2>Your profile key</h2><p class="fineprint">Save this key to sign in from another browser or after clearing site data.</p><code id="keyModalValue"></code><div class="key-actions"><button type="button" id="copyKeyModal">Copy key</button></div></section></div>
-  <div class="modal-backdrop" id="adminModal" hidden><section class="modal"><button class="modal-close" data-close-admin>×</button><p class="kicker">ADMIN</p><h2>User roles</h2><div id="adminList"></div></section></div>
+  <div class="modal-backdrop" id="adminModal" hidden><section class="modal"><button class="modal-close" data-close-admin>×</button><p class="kicker">ADMIN</p><h2>Manage users</h2><p class="fineprint">Promote moderators or delete an account entirely. Deleting removes the account, its rooms and its messages for everyone.</p><div id="adminList"></div></section></div>
   <div class="modal-backdrop" id="confirmModal" hidden><section class="modal"><p class="kicker">PLEASE CONFIRM</p><h2 id="confirmTitle">Are you sure?</h2><p class="fineprint" id="confirmText">This cannot be undone.</p><div class="confirm-actions"><button type="button" class="secondary" id="confirmCancel">Cancel</button><button type="button" class="primary danger-primary" id="confirmOk">Delete</button></div></section></div>
   <div class="menu-drop" id="menuDrop" hidden><button data-menu="key">Profile key</button><button data-menu="profile">Profile</button><button data-menu="admin" hidden>Admin panel</button><button data-menu="logout">Log out</button></div>
  <div class="toast" id="toast"></div>

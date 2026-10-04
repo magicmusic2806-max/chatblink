@@ -28,7 +28,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. DM photos/voice require the other person's permanent permission (request → grant, revocable).
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details.
-- **Moderation:** the account named `dynamic` (case-insensitive) is the admin — promoted at startup and at signup. Admin panel promotes/demotes mods. Mods and room creators can ban users per room; bans block that user's messages in that room only (they can still read and DM). Only the admin can ban mods. Role tags (ADMIN/MOD) render next to names.
+- **Moderation:** the account named `dynamic` (case-insensitive) is the admin — promoted at startup and at signup. Admin panel promotes/demotes mods and can delete an account outright (its rooms, bans, DM grants and sessions go with it). Mods and room creators can ban users per room; bans block that user's messages in that room only (they can still read and DM). Only the admin can ban mods. Role tags (ADMIN/MOD) render next to names.
 - **SEO:** `robots.txt`, `sitemap.xml`, per-page canonical URLs, Open Graph/JSON-LD, Google Search Console verification (meta tag + `googlee03d569365db2c0a.html`).
 
 ## Environment variables
@@ -62,7 +62,7 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 | `GET /api/rooms/:id/bans` · `POST .../bans/:userId` | List bans / `{action:"ban"|"unban"}` (owner, mod, admin only) |
 | `DELETE /api/rooms/:id` | Delete a user-created room (creator or admin) |
 | `POST /api/upload` | `{kind:"image"|"voice", data:<base64>}` → `{url:"/uploads/<uuid>.<ext>"}`; images ≤6 MB (jpg/png/gif/webp), voice ≤4 MB (webm/ogg/mp4), magic-byte validated |
-| `GET /api/admin/users` · `POST /api/admin/role/:id` | Admin only: list users / `{role:"mod"|"user"}` |
+| `GET /api/admin/users` · `POST /api/admin/role/:id` · `DELETE /api/admin/users/:id` | Admin only: list users / `{role:"mod"|"user"}` / delete an account outright (also removes the rooms it owns) |
 | `GET /api/export?token` · `POST /api/restore?token` | Only when `MIGRATE_TOKEN` is set |
 
 Uploaded files are served publicly from `/uploads/<name>` (uuid + validated extension).
@@ -75,7 +75,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget); GIF URLs must 
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing any file in `public/`, bump the version in **three places**: both `multi-room.js?v=NN` references in `server-multi-room.js` (authenticated and unauthenticated page injection) and the CSS `?v=NN` links in `rooms.html`. Current version: **v41**.
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing any file in `public/`, bump the version in **three places**: both `multi-room.js?v=NN` references in `server-multi-room.js` (authenticated and unauthenticated page injection) and the CSS `?v=NN` links in `rooms.html`. Current version: **v43**.
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).

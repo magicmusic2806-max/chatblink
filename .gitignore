@@ -8,3 +8,6 @@ data/rooms.json
 data/uploads/
 
 *.log
+
+# Local editor/agent scratch (Forge checkpoints and memory)
+.forge/
