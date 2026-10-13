@@ -93,15 +93,20 @@ Every push to `main` that is not docs-only deploys production through
 machine, but a push is no longer inert the way it was on Render — which is exactly the trap this
 closes: a push that changed `multi-room.js` used to leave the live site on old code.
 
-Two repository secrets are needed once, under **Settings → Secrets and variables → Actions**:
+Two repository secrets are needed once, under **Settings → Secrets and variables → Actions**. Both are
+already configured for this repository (2026-10-13), so a push to `main` deploys production today:
 
-- `CLOUDFLARE_API_TOKEN` — Cloudflare dashboard → **Account API tokens**
-  (`dash.cloudflare.com/?to=/:account/api-tokens`) → Create Token → Permission policies → Custom →
-  **Edit Cloudflare Workers**, scoped to this account and the `chatblink.chat` zone.
-- `CLOUDFLARE_ACCOUNT_ID` — dashboard → Workers & Pages (side panel), or `npx wrangler whoami`.
+- `CLOUDFLARE_ACCOUNT_ID` — `30b5babe08ed525ed0597be53d2aca66`; `npx wrangler whoami` prints it.
+- `CLOUDFLARE_API_TOKEN` — an **account-owned** token named `chatblink-ci-deploy`, no expiry, scoped to
+  `Workers Routes Write` on all zones plus the account's Developer Platform policies, created under
+  **Account API tokens** (`dash.cloudflare.com/?to=/:account/api-tokens`). Rebuilding it from the
+  **Edit Cloudflare Workers** template gives a narrower token; either works.
 
-Until both exist the deploy job fails on purpose and says so in the log, rather than dying on a
-cryptic 401. After adding them, either re-run the failed job from the Actions tab or push again.
+The value is shown once at creation, so the GitHub secret is the only copy — rotate by rolling the token
+in the dashboard and re-setting the secret. Without the secrets the job fails on purpose and says so in
+the log, rather than dying on a cryptic 401. To check the wiring after any change, re-run a *push* run
+whose `headSha` still equals `main` (`gh run view <id> --json headSha`) — never an older one, which would
+deploy stale code over the live site.
 
 The workflow deliberately leaves two things alone: **Worker secrets** (`AUTH_SECRET` stays on the
 Worker where `npx wrangler secret put` put it, and deploys preserve it) and the **D1 schema**
@@ -152,7 +157,7 @@ are not part of the initial setup above.
 www is the alias rather than a second site: session cookies are host-only, so serving the app there
 would create a separate login. `worker/index.js` redirects every www request to the apex instead
 (301 for reads, 308 for other methods so a POST is not turned into a GET), and the plain-http side
-of both names is left to the zone's Always Use HTTPS setting.
+of both names is handled by the zone's Always Use HTTPS setting (on since 2026-10-13, see §5).
 
 There is deliberately no `chatblink.chat/*` zone route alongside the custom domains. It started as
 belt-and-braces against the stale proxied record left from Render, and once the custom domain created
@@ -166,13 +171,14 @@ redirect to the apex.
   the domain answers from the Worker — 200s, the DO-served `/api/config`, the client bundle, 404s,
   and that a WebSocket upgrade reaches the Durable Object — and fails if a routing header shows
   the domain is still landing on the old host.
-- **Force HTTPS at the edge:** SSL/TLS → Edge Certificates → **Always Use HTTPS** on, ideally with
-  HSTS. Without it `http://chatblink.chat` is served over plaintext (verified: it answers `200`),
-  `isSecure()` sees http and session cookies go out without `Secure` — Render forced HTTPS for free,
-  so losing it is a cutover regression. This is deliberately not done in the Worker: only the edge can
-  redirect the static assets that bypass the Worker. `npm run test:prod` warns while it is off.
-  Check: `curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}\n" http://chatblink.chat/` should print
-  `301`/`308` and the https URL, not `200`.
+- **Force HTTPS at the edge:** ✅ done 2026-10-13 — SSL/TLS → Edge Certificates → **Always Use HTTPS**
+  is on and verified: `http://chatblink.chat/` and `/rooms` answer `301` to the https URL instead of
+  serving `200` over plaintext. Without it `isSecure()` sees http and session cookies go out without
+  `Secure` — Render forced HTTPS for free, so leaving it off was a cutover regression. It is deliberately
+  not done in the Worker: only the edge can redirect the static assets that bypass the Worker.
+  `npm run test:prod` warns while it is off. Re-check:
+  `curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}\n" http://chatblink.chat/` must print `301`/`308`
+  and the https URL, never `200`. HSTS is still off, worth turning on now that the redirect is proven.
 - **`www`:** declared as a custom domain in `wrangler.jsonc` and redirected to the apex by
   `worker/index.js`, so it is not a second site. `npm run test:prod` checks the redirect end to end;
   `npm run test:canonical` covers the rule itself, including that a POST is not downgraded to a GET.
