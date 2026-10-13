@@ -24,6 +24,16 @@
   "durable_objects": {
     "bindings": [{ "name": "HUB", "class_name": "ChatHub" }]
   },
+  // Declares the apex as a Worker custom domain, so `wrangler deploy` keeps the live domain
+  // attached instead of that living only in the dashboard. Requires the zone to be active in this
+  // account and no other DNS record on the same name, or the deploy fails.
+  // The route is belt-and-braces: a route matches at the edge before the DNS record's origin, so
+  // the site keeps working even while a stale proxied record still points somewhere else.
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "chatblink.chat/*", "zone_name": "chatblink.chat" },
+    { "pattern": "chatblink.chat", "custom_domain": true }
+  ],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatHub"] }],
   "d1_databases": [
     {

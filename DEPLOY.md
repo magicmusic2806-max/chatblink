@@ -105,9 +105,24 @@ curl.exe -sS -o NUL -D - https://chatblink.chat/ | findstr /I "HTTP/ x-render"
    canonical URLs and cookie security use.
 
 Keep Render running until the custom domain has been verified for a day or two, then
-suspend/delete it. Add the custom domain from the dashboard rather than as a `routes` entry in
-`wrangler.jsonc`: a `custom_domain` route for a zone that is not in the account yet makes
-`wrangler deploy` fail, which would take the whole Worker down with it.
+suspend/delete it.
+
+The apex is declared in `wrangler.jsonc` under `routes` — a `chatblink.chat/*` zone route plus a
+`custom_domain` entry — so `wrangler deploy` keeps the live domain attached instead of it living
+only in the dashboard. A correct deploy lists both:
+
+```
+Deployed chatblink triggers
+  https://chatblink.chatblink.workers.dev
+  chatblink.chat/* (zone name: chatblink.chat)
+  chatblink.chat (custom domain)
+```
+
+Add those entries only once the zone is active in this account; on a zone that is not in the
+account the deploy fails on them, which is why they are not part of the initial setup above. The
+zone route is the belt-and-braces half: a route matches at the edge before the DNS record's
+origin, so the site stays on the Worker even while a stale proxied record still points at the old
+host — exactly the state that made `chatblink.chat` 503 while the Worker was healthy.
 
 ## 5. After cutting over
 
