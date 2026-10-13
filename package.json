@@ -5,14 +5,20 @@
   "scripts": {
     "start": "node server-multi-room.js",
     "dev": "node --watch server-multi-room.js",
-    "test": "node tests/auth-e2e.js"
+    "test": "node tests/auth-e2e.js",
+    "dev:worker": "wrangler dev --port 8787",
+    "test:worker": "node tests/worker-smoke.js",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute chatblink --local --file=schema.sql",
+    "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql"
   },
   "dependencies": {
     "firebase-admin": "^14.5.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "playwright": "^1.47.0"
+    "playwright": "^1.47.0",
+    "wrangler": "^4.150.0"
   },
   "engines": {
     "node": ">=20"

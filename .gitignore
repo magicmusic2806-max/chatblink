@@ -11,3 +11,10 @@ data/uploads/
 
 # Local editor/agent scratch (Forge checkpoints and memory)
 .forge/
+
+# Cloudflare local dev state and secrets
+.dev.vars
+.wrangler/
+
+# Generated from live account data (never commit)
+migration/seed.sql

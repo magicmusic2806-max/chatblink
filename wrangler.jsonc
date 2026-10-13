@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chatblink",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": [
+      "/",
+      "/index.html",
+      "/rooms",
+      "/dms",
+      "/explore",
+      "/room/*",
+      "/profile/*",
+      "/api/*",
+      "/auth/*",
+      "/enter",
+      "/uploads/*"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "ChatHub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatHub"] }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chatblink",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "chatblink-uploads" }],
+  "vars": { "PUBLIC_ORIGIN": "https://chatblink.chat" },
+  "observability": { "enabled": true }
+}
