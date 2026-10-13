@@ -45,6 +45,28 @@ async function servePage(request, env, url, user, token, newKey = null, extraHea
   return new Response(output, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", ...extraHeaders } });
 }
 
+// Uploads normally live in R2. Workers KV is a drop-in substitute because
+// activating R2 requires a payment method on file: both bindings are named
+// UPLOADS and the store is detected by capability (R2 has createMultipartUpload).
+const uploadsAreR2 = env => typeof env.UPLOADS.createMultipartUpload === "function";
+
+async function putUpload(env, name, bytes, contentType) {
+  const cacheControl = "private, max-age=86400";
+  if (uploadsAreR2(env)) return env.UPLOADS.put(name, bytes, { httpMetadata: { contentType, cacheControl } });
+  return env.UPLOADS.put(name, bytes, { metadata: { contentType, cacheControl } });
+}
+
+async function getUpload(env, name) {
+  if (uploadsAreR2(env)) {
+    const object = await env.UPLOADS.get(name);
+    return object ? { body: object.body, headers: { "ETag": object.httpEtag } } : null;
+  }
+  const { value } = await env.UPLOADS.getWithMetadata(name, "arrayBuffer");
+  if (!value) return null;
+  // Names are UUIDs and content never changes, so a synthetic validator is stable.
+  return { body: value, headers: { "ETag": `W/"${name}"` } };
+}
+
 async function handleUpload(request, env) {
   const guard = await internal(env, "/__internal/upload", request);
   if (!guard.ok) return guard;
@@ -58,7 +80,7 @@ async function handleUpload(request, env) {
     const type = (kind === "voice" ? AUDIO_TYPES : IMAGE_TYPES).find(item => matchesMediaType(bytes, item));
     if (!type) throw new Error(kind === "voice" ? "Unsupported audio format." : "Unsupported image format.");
     const name = `${crypto.randomUUID()}.${type.ext}`;
-    await env.UPLOADS.put(name, bytes, { httpMetadata: { contentType: UPLOAD_CONTENT_TYPES[type.ext], cacheControl: "private, max-age=86400" } });
+    await putUpload(env, name, bytes, UPLOAD_CONTENT_TYPES[type.ext]);
     return json(201, { url: `/uploads/${name}` });
   } catch (error) { return json(400, { error: error.message }); }
 }
@@ -76,10 +98,10 @@ export default {
     if (path.startsWith("/uploads/")) {
       const name = path.slice("/uploads/".length);
       if (!UPLOAD_NAME.test(name)) return notFound();
-      const object = await env.UPLOADS.get(name);
-      if (!object) return notFound();
-      const headers = new Headers({ "Cache-Control": "private, max-age=86400", "ETag": object.httpEtag, "Content-Type": UPLOAD_CONTENT_TYPES[name.split(".").pop()] || "application/octet-stream" });
-      return new Response(object.body, { headers });
+      const file = await getUpload(env, name);
+      if (!file) return notFound();
+      const headers = new Headers({ "Cache-Control": "private, max-age=86400", ...file.headers, "Content-Type": UPLOAD_CONTENT_TYPES[name.split(".").pop()] || "application/octet-stream" });
+      return new Response(file.body, { headers });
     }
 
     if (path.startsWith("/api/")) return forward(env, request);

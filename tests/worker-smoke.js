@@ -188,6 +188,26 @@ async function main() {
   const outsiderError = await new Promise(resolve => { outsider.once("error", resolve); outsider.once("open", () => resolve(null)); });
   ok("anonymous websocket into a room is refused", outsiderError !== null);
 
+  head("uploads");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+  const upload = await post("/api/upload", { kind: "image", data: png.toString("base64") }, cookie);
+  const uploaded = await upload.json();
+  ok("image upload returns 201", upload.status === 201, `status ${upload.status} ${JSON.stringify(uploaded)}`);
+  ok("upload returns a /uploads/ url", typeof uploaded.url === "string" && uploaded.url.startsWith("/uploads/"), `${uploaded.url}`);
+  const stored = await fetch(`${BASE}${uploaded.url}`);
+  const storedBytes = Buffer.from(await stored.arrayBuffer());
+  ok("uploaded file is served back", stored.status === 200, `status ${stored.status}`);
+  ok("stored bytes match the upload byte for byte", storedBytes.equals(png), `${storedBytes.length} vs ${png.length} bytes`);
+  ok("stored file keeps its content type", (stored.headers.get("content-type") || "") === "image/png", `${stored.headers.get("content-type")}`);
+  const notAnImage = await post("/api/upload", { kind: "image", data: Buffer.from("this is not an image").toString("base64") }, cookie);
+  ok("a non-image payload is rejected", notAnImage.status === 400, `status ${notAnImage.status}`);
+  const oversized = await post("/api/upload", { kind: "image", data: Buffer.alloc(7 * 1024 * 1024).toString("base64") }, cookie);
+  ok("an oversized image is rejected", oversized.status === 400, `status ${oversized.status}`);
+  const anonymousUpload = await post("/api/upload", { kind: "image", data: png.toString("base64") });
+  ok("anonymous upload is refused", anonymousUpload.status === 401 || anonymousUpload.status === 403, `status ${anonymousUpload.status}`);
+  const missingFile = await fetch(`${BASE}/uploads/${stamp}-nope.png`);
+  ok("a missing upload returns 404", missingFile.status === 404, `status ${missingFile.status}`);
+
   head("persistence");
   alice.close(); bob.close();
   await sleep(400);

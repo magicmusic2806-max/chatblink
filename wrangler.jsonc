@@ -29,10 +29,15 @@
     {
       "binding": "DB",
       "database_name": "chatblink",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "8bc42a6e-e283-4e7b-998c-f6c654c899c1"
     }
   ],
-  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "chatblink-uploads" }],
+  // Uploads use Workers KV: free tier, no card required. R2 is the better store
+  // (no per-write cost, real object semantics) but activating it asks for a
+  // payment method, so to switch later: uncomment r2_buckets, delete kv_namespaces,
+  // redeploy - worker/index.js detects either binding automatically.
+  "kv_namespaces": [{ "binding": "UPLOADS", "id": "f7d06646751d4cea890dfd53a2d5d3d5" }],
+  // "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "chatblink-uploads" }],
   "vars": { "PUBLIC_ORIGIN": "https://chatblink.chat" },
   "observability": { "enabled": true }
 }
