@@ -10,6 +10,7 @@
     "test:worker": "node tests/worker-smoke.js",
     "test:retention": "node tests/message-retention.js",
     "test:quotas": "node tests/quota-caps.js",
+    "test:all": "node tests/run-all.js",
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 execute chatblink --local --file=schema.sql",
     "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql"
