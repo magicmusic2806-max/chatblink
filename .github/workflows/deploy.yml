@@ -1,0 +1,77 @@
+# Deploys the Worker on every push to main.
+#
+# This is the only path to production: Render used to auto-deploy on push, and after the Cloudflare
+# cutover nothing did - a push that changed the client bundle left the live site on old code.
+#
+# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   created from the "Edit Cloudflare Workers" template on the
+#                          Account API tokens page (dash.cloudflare.com/?to=/:account/api-tokens)
+#   CLOUDFLARE_ACCOUNT_ID  the account that owns the chatblink.chat zone
+#
+# What this deliberately does not do:
+#   - Worker secrets (AUTH_SECRET, ...) stay on the Worker, where `npx wrangler secret put` puts them
+#     and where a deploy leaves them alone.
+#   - The remote D1 schema stays a manual step (`npm run db:remote`): DDL should not run on a push.
+#
+# Plain steps rather than cloudflare/wrangler-action: wrangler is already pinned in package.json, so
+# `npm ci` plus `npx wrangler deploy` deploys with exactly the version the suites were run against,
+# and there is no third-party action to keep current.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one that is already uploading a new version.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: the browser test suite is not part of this pipeline, and
+      # without it npm ci pulls ~1 GB of browsers on every single deploy.
+      - run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      # Server-free and instant: it imports worker/index.js and drives its handler, so a module that
+      # cannot even be loaded never reaches production. `npm run test:all` is the fuller gate if this
+      # pipeline ever grows one (it starts wrangler dev, so it is slower and easier to flake).
+      - run: npm run test:canonical
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID under Settings -> Secrets and variables -> Actions, then re-run this job. See DEPLOY.md, 'Deploying from CI'."
+            exit 1
+          fi
+          npx wrangler --version
+          npx wrangler deploy 2>&1 | tee /tmp/deploy.log
+          {
+            echo "### Deployed $(date -u +%Y-%m-%dT%H:%MZ)"
+            echo '```'
+            grep -E "Deployed|workers\.dev|custom domain|Version ID" /tmp/deploy.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

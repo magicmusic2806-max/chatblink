@@ -134,12 +134,12 @@ npm test
 
 ## Deployment (current)
 
-Full instructions live in **[DEPLOY.md](DEPLOY.md)**. In short: `npx wrangler login`, create the D1 database (paste its id into `wrangler.jsonc`) and the `chatblink-uploads` R2 bucket, load `schema.sql`, `npx wrangler secret put AUTH_SECRET`, then `npm run deploy`. Point the `chatblink.chat` nameservers at Cloudflare and add the custom domain in the dashboard.
+Full instructions live in **[DEPLOY.md](DEPLOY.md)**. In short: `npx wrangler login`, create the D1 database and the uploads KV namespace (paste both ids into `wrangler.jsonc`), load `schema.sql`, `npx wrangler secret put AUTH_SECRET`, then deploy — either `npm run deploy`, or just push to `main`, which [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) deploys from CI once the two `CLOUDFLARE_*` secrets are set. The nameservers are then the only thing left to point at Cloudflare.
 
-- **Cost:** $0 — Workers, Durable Objects (SQLite backend), D1 and R2 are all within the free tier. No card required.
+- **Cost:** $0 — Workers, Durable Objects (SQLite backend), D1 and the uploads KV namespace are all within the free tier; no card required. R2 (the upgrade path for uploads) does ask for one, which is the only reason uploads are on KV. See `wrangler.jsonc`.
 - **Repo:** `https://github.com/magicmusic2806-max/chatblink` (public).
 - **Still running (temporarily):** the Render service `chatblink-sg` (Singapore, ~$7.25/month) is the old host. Keep it up until the Cloudflare custom domain has been verified, then suspend/delete it. `render.yaml` is reference only — the live service was created by hand.
-- **Domains:** `chatblink.chat` (apex) and `www.chatblink.chat`; DNS was at Spaceship and moves to Cloudflare nameservers for the cutover.
+- **Domains:** `chatblink.chat` (apex) and `www.chatblink.chat`, both declared in `wrangler.jsonc` as Worker custom domains, with `www` redirecting to the apex in `worker/index.js`; DNS was at Spaceship and moved to Cloudflare nameservers for the cutover.
 
 ## Repo layout
 

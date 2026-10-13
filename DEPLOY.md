@@ -40,11 +40,12 @@ anything else.
 ```powershell
 npx wrangler login                       # opens a browser, authorizes wrangler
 npx wrangler d1 create chatblink         # prints a database_id
-npx wrangler r2 bucket create chatblink-uploads
+npx wrangler kv namespace create chatblink-uploads   # prints a namespace id, for uploads
 ```
 
-Paste the printed `database_id` into `wrangler.jsonc` (it currently holds the placeholder
-`00000000-0000-0000-0000-000000000000`), then create the tables:
+Paste the printed `database_id` into `wrangler.jsonc` under `d1_databases`, and the namespace id under
+`kv_namespaces` — the ids in there belong to the live deployment, so treat them as operational state.
+Then create the tables:
 
 ```powershell
 npx wrangler d1 execute chatblink --remote --file=schema.sql
@@ -59,7 +60,7 @@ string and wait for it to redeploy. That unlocks the token-gated export endpoint
 node tools/migrate.js pull https://chatblink.chat <MIGRATE_TOKEN>   # writes data/ (users, rooms, auth-secret.txt, uploads/)
 node tools/migrate.js sql                                          # regenerates migration/seed.sql from data/
 npx wrangler d1 execute chatblink --remote --file=migration/seed.sql
-node tools/migrate.js uploads                                      # prints one command per file; run them to copy uploads into R2
+node tools/migrate.js uploads                                      # one command per file: copies the uploads into KV (add --r2 to target R2)
 ```
 
 `data/auth-secret.txt` arrives with the pull. Use it as the Worker secret so that entry
@@ -84,6 +85,32 @@ That gives you `https://chatblink.<your-subdomain>.workers.dev`. Check it there 
 - open the same room in a second browser — the message appears live, online counts move
 - reload: the message is still there (this is what Render could not do)
 - `GET /api/explore` while signed in returns profiles
+
+### Deploying from CI
+
+Every push to `main` that is not docs-only deploys production through
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). `npm run deploy` still works from this
+machine, but a push is no longer inert the way it was on Render — which is exactly the trap this
+closes: a push that changed `multi-room.js` used to leave the live site on old code.
+
+Two repository secrets are needed once, under **Settings → Secrets and variables → Actions**:
+
+- `CLOUDFLARE_API_TOKEN` — Cloudflare dashboard → **Account API tokens**
+  (`dash.cloudflare.com/?to=/:account/api-tokens`) → Create Token → Permission policies → Custom →
+  **Edit Cloudflare Workers**, scoped to this account and the `chatblink.chat` zone.
+- `CLOUDFLARE_ACCOUNT_ID` — dashboard → Workers & Pages (side panel), or `npx wrangler whoami`.
+
+Until both exist the deploy job fails on purpose and says so in the log, rather than dying on a
+cryptic 401. After adding them, either re-run the failed job from the Actions tab or push again.
+
+The workflow deliberately leaves two things alone: **Worker secrets** (`AUTH_SECRET` stays on the
+Worker where `npx wrangler secret put` put it, and deploys preserve it) and the **D1 schema**
+(`npm run db:remote` stays manual, so DDL never runs on an ordinary push).
+
+Cloudflare's own **Workers Builds** (Workers & Pages → `chatblink` → Settings → Builds → connect the
+repository) does the same job with no token stored in GitHub, because it authenticates from inside the
+account. Either is fine; the Action is used here because the pipeline lives in the repo and can grow
+gates.
 
 ## 4. Point chatblink.chat at it
 
