@@ -41,9 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      # node 26 matches the development machine (node 26.1 / npm 11), so npm ci resolves the lockfile
+      # the same way it does locally; package.json only requires >= 20.
+      # setup-node@v7 rather than v4: the older majors run on the now-deprecated Node 20 runtime.
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 26
           cache: npm
 
       # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: the browser test suite is not part of this pipeline, and
