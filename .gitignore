@@ -12,6 +12,11 @@ data/uploads/
 # Local editor/agent scratch (Forge checkpoints and memory)
 .forge/
 
+# The Forge desktop app, which sits alongside this project in the working directory. It is its own
+# project and carries private agent state (identity, memory, checkpoints, backups), so it must
+# never be committed here - a blanket `git add -A` will otherwise pull it into this repo.
+_forgeapp/
+
 # Cloudflare local dev state and secrets
 .dev.vars
 .wrangler/

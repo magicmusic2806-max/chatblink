@@ -111,6 +111,20 @@ suspend/delete it. Add the custom domain from the dashboard rather than as a `ro
 
 ## 5. After cutting over
 
+- **Verify the cutover:** `npm run test:prod` is read-only and safe against production. It checks
+  the domain answers from the Worker — 200s, the DO-served `/api/config`, the client bundle, 404s,
+  and that a WebSocket upgrade reaches the Durable Object — and fails if a routing header shows
+  the domain is still landing on the old host.
+- **Force HTTPS at the edge:** SSL/TLS → Edge Certificates → **Always Use HTTPS** on, ideally with
+  HSTS. Without it `http://chatblink.chat` is served over plaintext, `isSecure()` sees http and
+  session cookies go out without `Secure` — Render forced HTTPS for free, so losing it is a
+  cutover regression. Check: `curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}\n" http://chatblink.chat/`
+  should print `301`/`308` and the https URL, not `200`.
+- **`www`:** there is no DNS record for `www.chatblink.chat` unless you add one. Sessions are
+  host-only cookies, so `www` would be a second, separate site — add it as a Worker custom domain
+  *and* redirect it to the apex, rather than serving the app on both.
+- **Retire Render:** once the domain has been verified for a day or two delete the service;
+  `render.yaml` is reference only and nothing in this repo depends on it.
 - **Cache busting:** `CLIENT_VERSION` in `worker/index.js` is appended to `multi-room.js`
   automatically — bump it when you change client-side JS.
 - **Secrets:** `AUTH_SECRET` (required), `MIGRATE_TOKEN` (only while migrating). Manage with

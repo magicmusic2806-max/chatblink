@@ -11,6 +11,7 @@
     "test:retention": "node tests/message-retention.js",
     "test:quotas": "node tests/quota-caps.js",
     "test:all": "node tests/run-all.js",
+    "test:prod": "node tests/prod-check.js",
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 execute chatblink --local --file=schema.sql",
     "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql"

@@ -108,6 +108,15 @@ To run a single suite by hand, start the Worker first (`npm run db:local` once, 
 npm run test:worker        # or test:retention
 ```
 
+`tests/prod-check.js` (`npm run test:prod`) is the post-deploy check for the live domain. It is read-only — it creates no accounts, rooms or messages — so it is safe to run against production, and it fails if `chatblink.chat` is being served by anything other than the Worker:
+
+```powershell
+npm run test:prod                          # https://chatblink.chat
+node tests/prod-check.js http://127.0.0.1:8787
+```
+
+It cannot check an authenticated socket (that needs a real session), so sign in as a test account and open one room in two tabs after a cutover to confirm live delivery.
+
 `KEEP=1` on the retention test leaves its room in place, which is handy for inspecting the
 Durable Object's SQLite under `.wrangler/state/v3/do/` by hand.
 
