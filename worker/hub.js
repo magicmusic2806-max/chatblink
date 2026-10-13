@@ -4,10 +4,16 @@ import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } f
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
 
 const MAX_MESSAGES = 100;
+const TRIM_INTERVAL = 25;
 const MAX_ROOMS_PER_USER = 20;
 const MAX_PENDING_REQUESTS = 200;
 const MESSAGE_LIMIT_PER_WINDOW = 20;
 const MESSAGE_WINDOW_MS = 10000;
+// Per-user daily budgets, because the free tier meters the whole account: one client holding the
+// per-window limit drains the DO's 100k rows written/day in ~14h, and one IP drains KV's 1k
+// writes/day in under 4. Set either var to 0 to switch that budget off.
+const MESSAGE_DAILY_CAP = 1000;
+const UPLOAD_DAILY_CAP = 20;
 const MESSAGE_KINDS = ["text", "emoji", "sticker", "gif", "image", "voice"];
 const DM_KINDS = ["text", "image", "voice"];
 const MESSAGE_TABLE = "CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, username TEXT, role TEXT, photo TEXT, kind TEXT, content TEXT, created_at INTEGER NOT NULL)";
@@ -15,7 +21,8 @@ const MESSAGE_INDEX = "CREATE INDEX IF NOT EXISTS messages_room ON messages (roo
 const ROOM_PRESETS = { ocean: { accent: "#0284c7", soft: "#e7f7ff" }, sunset: { accent: "#f97316", soft: "#fff0e7" }, berry: { accent: "#d946ef", soft: "#fcecff" }, forest: { accent: "#16a34a", soft: "#eaf8ec" } };
 
 const attachment = socket => { try { return socket.deserializeAttachment() || {}; } catch { return {}; } };
-const setAttachment = (socket, patch) => { const next = { ...attachment(socket), ...patch }; try { socket.serializeAttachment(next); } catch {} return next; };
+// 0 means "budget off", so only fall back when the var is absent or unparseable.
+const budget = (value, fallback) => { const parsed = Number(value); return value === undefined || value === null || value === "" || !Number.isFinite(parsed) || parsed < 0 ? fallback : parsed; };
 
 const builtInRooms = () => BUILT_INS.map(room => ({ ...room, emojis: [...room.emojis], stickers: [...room.stickers], gifs: [...room.gifs], members: [], requests: [], bans: [] }));
 
@@ -26,6 +33,12 @@ export class ChatHub {
     this.users = [];
     this.rooms = builtInRooms();
     this.attempts = new Map();
+    this.pendingTrim = new Map();
+    this.messageWindows = new Map();
+    this.daily = new Map();
+    this.dailyDay = 0;
+    this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
+    this.uploadDailyCap = budget(env.UPLOAD_DAILY_CAP, UPLOAD_DAILY_CAP);
     state.blockConcurrencyWhile(async () => {
       state.storage.sql.exec(MESSAGE_TABLE);
       state.storage.sql.exec(MESSAGE_INDEX);
@@ -100,6 +113,7 @@ export class ChatHub {
     if (!user) return json(401, { error: "Sign in first." });
     if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
     if (this.rateLimited(ipOf(request), "upload", 30)) return json(429, { error: "Too many uploads. Try again later." });
+    if (this.dailyLimited("upload", user.id, this.uploadDailyCap)) return json(429, { error: "You have reached today's upload limit. Try again tomorrow." });
     return json(200, { ok: true });
   }
 
@@ -149,6 +163,23 @@ export class ChatHub {
     record.count++;
     this.attempts.set(id, record);
     return record.count > limit;
+  }
+  windowLimited(connectionId, now) {
+    const record = this.messageWindows.get(connectionId) || { start: now, count: 0 };
+    if (now - record.start > MESSAGE_WINDOW_MS) { record.start = now; record.count = 0; }
+    record.count++;
+    this.messageWindows.set(connectionId, record);
+    return record.count > MESSAGE_LIMIT_PER_WINDOW;
+  }
+  // Counts the attempt and reports whether this user has spent their daily budget for `scope`.
+  // Deliberately not persisted: a storage write here would cost exactly what the budget protects.
+  dailyLimited(scope, userId, limit) {
+    if (!limit) return false;
+    const day = Math.floor(Date.now() / 86400000);
+    if (this.dailyDay !== day) { this.daily.clear(); this.dailyDay = day; }
+    const key = `${scope}:${userId}`, count = (this.daily.get(key) || 0) + 1;
+    this.daily.set(key, count);
+    return count > limit;
   }
   async createAccount(body) {
     const username = clean(body.username), age = Number(body.age);
@@ -200,7 +231,17 @@ export class ChatHub {
   addMessage(roomId, message) {
     const sql = this.state.storage.sql;
     sql.exec("INSERT INTO messages (room_id, id, user_id, username, role, photo, kind, content, created_at) VALUES (?,?,?,?,?,?,?,?,?)", roomId, message.id, message.userId, message.username, message.role, message.photo, message.kind, message.content, message.createdAt);
-    sql.exec("DELETE FROM messages WHERE room_id = ? AND seq NOT IN (SELECT seq FROM messages WHERE room_id = ? ORDER BY seq DESC LIMIT ?)", roomId, roomId, MAX_MESSAGES);
+    // The retention DELETE rescans the room, so running it on every insert costs ~MAX_MESSAGES rows
+    // read per message and burns through the Durable Object row-read quota long before the message
+    // count itself matters. Run it once per TRIM_INTERVAL inserts instead, and always on the first
+    // insert of an instance so a room can never grow unbounded across hibernation (the counter is
+    // in-memory, so it resets with the object).
+    const pending = this.pendingTrim.get(roomId) || 0;
+    if (pending === 0 || pending >= TRIM_INTERVAL) { this.trimMessages(roomId); this.pendingTrim.set(roomId, 1); }
+    else this.pendingTrim.set(roomId, pending + 1);
+  }
+  trimMessages(roomId) {
+    this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ? AND seq NOT IN (SELECT seq FROM messages WHERE room_id = ? ORDER BY seq DESC LIMIT ?)", roomId, roomId, MAX_MESSAGES);
   }
 
   async handleSocket(request, url) {
@@ -211,7 +252,7 @@ export class ChatHub {
     if (roomId !== "__notify" && (!user || !this.canEnter(room, user))) return new Response("Forbidden", { status: 403 });
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    server.serializeAttachment({ userId: user ? user.id : null, roomId, messageWindowStart: Date.now(), messageCount: 0 });
+    server.serializeAttachment({ userId: user ? user.id : null, roomId, connectionId: crypto.randomUUID() });
     this.state.acceptWebSocket(server);
     if (room && !room.builtIn && room.access === "open" && user && !room.members.includes(user.id)) { room.members.push(user.id); await saveRoom(this.env, room); }
     if (roomId !== "__notify") {
@@ -229,11 +270,10 @@ export class ChatHub {
     if (!user) return;
     let event; try { event = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw)); } catch { return; }
     const now = Date.now();
-    let windowStart = meta.messageWindowStart || now, count = meta.messageCount || 0;
-    if (now - windowStart > MESSAGE_WINDOW_MS) { windowStart = now; count = 0; }
-    count++;
-    setAttachment(socket, { messageWindowStart: windowStart, messageCount: count });
-    if (count > MESSAGE_LIMIT_PER_WINDOW) return;
+    // Kept in memory: the attachment this used to live in cost a persisted write on every single
+    // message, potentially doubling a message's row-write cost. Eviction only happens after ~10s
+    // of quiet, already longer than the window, so a counter lost to it would have expired anyway.
+    if (this.windowLimited(meta.connectionId || meta.userId, now)) return;
     if (event.type === "dm") {
       const target = this.userById(clean(event.to));
       if (!target) return;
@@ -260,12 +300,14 @@ export class ChatHub {
     if (kind === "emoji" && !media.emojis.includes(content)) return;
     if (kind === "sticker" && !media.stickers.includes(content)) return;
     const message = { id: crypto.randomUUID(), userId: user.id, username: user.username, role: user.role || "user", photo: user.profile?.photo || null, kind, content, createdAt: Date.now() };
+    if (this.dailyLimited("message", user.id, this.messageDailyCap)) return;
     this.addMessage(meta.roomId, message);
     this.broadcast(meta.roomId, { type: "message", message });
   }
 
   async webSocketClose(socket) {
     const meta = attachment(socket);
+    if (meta.connectionId) this.messageWindows.delete(meta.connectionId);
     try { socket.close(1000, "closed"); } catch {}
     if (meta.roomId && meta.roomId !== "__notify") { this.broadcastPresence(meta.roomId); this.broadcastRoomOnline(meta.roomId); }
     if (meta.userId) this.broadcastUsersChanged();
@@ -376,6 +418,7 @@ export class ChatHub {
         for (const room of orphaned) {
           this.rooms = this.rooms.filter(item => item.id !== room.id);
           this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
+          this.pendingTrim.delete(room.id);
           await deleteRoom(this.env, room.id);
           this.broadcastAll({ type: "room-deleted", roomId: room.id });
         }
@@ -549,6 +592,7 @@ export class ChatHub {
       if (room.ownerId !== user.id && user.role !== "admin") return json(403, { error: "Only the room creator or the admin can delete this room." });
       this.rooms = this.rooms.filter(item => item.id !== room.id);
       this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
+      this.pendingTrim.delete(room.id);
       await deleteRoom(this.env, room.id);
       this.broadcastAll({ type: "room-deleted", roomId: room.id });
       this.broadcastAll({ type: "rooms-changed" });

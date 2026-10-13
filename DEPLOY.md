@@ -109,15 +109,37 @@ suspend/delete it.
 
 ## Free tier, and where the ceilings are
 
-- Workers: 100,000 requests/day; static assets are served from the edge.
-- Durable Objects: available on the free plan **only** with the SQLite backend — which is
-  what `wrangler.jsonc` declares (`new_sqlite_classes`). Free allowance is 100,000
-  requests/day and 13,000 GB-s/day of duration. Incoming WebSocket messages bill at a 20:1
-  ratio, so ~2,000 chat messages count as 100 requests.
+- Workers: 100,000 requests/day account-wide. Static assets that don't match `run_worker_first`
+  are free and unlimited, and once the budget is spent they 429 instead of falling back to assets.
+- Durable Objects (SQLite backend — what `new_sqlite_classes` declares): 100,000 requests/day,
+  100,000 **rows written**/day, 5,000,000 rows read/day, 13,000 GB-s/day, 5 GB storage. Incoming
+  WebSocket messages bill at a 20:1 ratio, and outgoing messages are free, so the request budget
+  alone would cover ~2,000,000 chat messages/day.
 - D1: ~5 GB storage, ~5M row reads/day, ~100k row writes/day.
+- Workers KV (uploads): 1,000 writes/day — the tightest budget in the project. R2 removes it;
+  see the note in `wrangler.jsonc`.
 - R2: ~10 GB storage, no egress fees.
 
-Practical effect: the ceiling that matters is the Workers request budget (100k/day, shared
-with WebSocket messages at 20:1). A busy room sends thousands of messages for a few hundred
-billed requests, so this comfortably covers a community site. If you ever exceed it, the
-day's overage simply fails until 00:00 UTC rather than charging you.
+What actually binds, in order:
+
+1. **Uploads** — 1,000 KV writes/day. The per-IP limit allowed 30 per 10 minutes (4,320/day), so
+   one IP could spend the whole day's budget. Each user now also gets `UPLOAD_DAILY_CAP`
+   (default 20) uploads/day.
+2. **Chat messages** — 100,000 DO rows written/day = one write per stored message, which is the
+   floor. Each user also gets `MESSAGE_DAILY_CAP` (default 1000) messages/day, because one client
+   sustaining 2 msg/s could otherwise reach ~172,000/day. The retention `DELETE` is amortised
+   (`TRIM_INTERVAL`) so it no longer adds ~100 row reads to every message.
+3. **Requests** never bind, at 20:1 they cover millions of messages.
+
+Per-user budgets are counted in memory rather than in storage — a write used to track them would
+cost exactly what they protect. They reset only if the Durable Object is evicted (after ~10s of
+quiet, which is longer than the rate-limit window, so nothing is really lost). Tune them in the
+`vars` block of `wrangler.jsonc`, or per deploy:
+
+```powershell
+npx wrangler deploy --var MESSAGE_DAILY_CAP:500 --var UPLOAD_DAILY_CAP:10
+```
+
+Set either to `0` to switch that budget off. Overrunning a budget fails the rest of the day's
+remainder until 00:00 UTC rather than charging you; Workers Paid ($5/mo) raises the row budget to
+50M/month ≈ 1.6M messages/day.

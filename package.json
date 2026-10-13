@@ -8,6 +8,8 @@
     "test": "node tests/auth-e2e.js",
     "dev:worker": "wrangler dev --port 8787",
     "test:worker": "node tests/worker-smoke.js",
+    "test:retention": "node tests/message-retention.js",
+    "test:quotas": "node tests/quota-caps.js",
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 execute chatblink --local --file=schema.sql",
     "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql"

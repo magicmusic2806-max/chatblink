@@ -94,13 +94,25 @@ Limits: 20 messages/10 s per socket (room + DM share the budget); GIF URLs must 
 
 ## Tests
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 38 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live broadcast, presence, history persistence, catalog validation, origin/authorization guards). Start the Worker first, then run it:
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 47 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live broadcast, presence, history persistence, catalog validation, origin/authorization guards). `tests/message-retention.js` covers the room history cap and `tests/quota-caps.js` the per-user daily budgets. Start the Worker first, then run them:
 
 ```powershell
 npm run db:local          # once, to create local D1 tables
 npm run dev:worker        # in its own terminal — it never exits
 npm run test:worker
+npm run test:retention
 ```
+
+`tests/quota-caps.js` needs the budgets turned down, so give it its own server on another port:
+
+```powershell
+npx wrangler dev --port 8801 --var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2
+# in its own terminal, then:
+npm run test:quotas
+```
+
+`KEEP=1` on the retention test leaves its room in place, which is handy for inspecting the
+Durable Object's SQLite under `.wrangler/state/v3/do/` by hand.
 
 `tests/auth-e2e.js` drives a real browser with Playwright against the legacy Node server, and creates throwaway accounts:
 
