@@ -51,6 +51,13 @@
   // redeploy - worker/index.js detects either binding automatically.
   "kv_namespaces": [{ "binding": "UPLOADS", "id": "f7d06646751d4cea890dfd53a2d5d3d5" }],
   // "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "chatblink-uploads" }],
-  "vars": { "PUBLIC_ORIGIN": "https://chatblink.chat" },
+  "vars": {
+    "PUBLIC_ORIGIN": "https://chatblink.chat",
+    // Web Push. The public key is handed to browsers via /api/config so they can subscribe; the
+    // matching private key is the Worker secret VAPID_PRIVATE_KEY (see worker/lib/push.js). The
+    // subject must be a mailto: or https: URL - push services use it to contact the sender.
+    "VAPID_PUBLIC_KEY": "BAX3a-gxqR-JdcIEnAAEUOHCa-vcI_kyUad0603DEK7pzexPv5BJLsxPN7uVL8a24xlMjJhFi-HhWQtIJrZPWPs",
+    "VAPID_SUBJECT": "mailto:hello@chatblink.chat"
+  },
   "observability": { "enabled": true }
 }

@@ -370,3 +370,19 @@ input,select,textarea{font-size:16px}
 @keyframes roomLoaderRise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes roomLoaderFill{0%{width:0}58%{width:64%}100%{width:100%}}
 @media (prefers-reduced-motion:reduce){.room-loader-run .room-loader-icon,.room-loader-run .room-loader-name,.room-loader-run .room-loader-tag{animation:none}.room-loader-run .room-loader-bar i{animation-duration:2s;animation-timing-function:linear}}
+
+/* Notification permission gate. It appears once, after the profile step, before the app is used -
+   and never blocks entry: "Not now" is always there, so the choice is the user's. */
+.push-gate{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.42);backdrop-filter:blur(3px)}
+.push-gate[hidden]{display:none}
+.push-gate-card{width:min(380px,100%);display:grid;justify-items:center;gap:9px;padding:26px 24px;border-radius:20px;background:#fff;box-shadow:0 24px 60px rgba(15,23,42,.3);text-align:center;animation:pushGateIn .28s cubic-bezier(.22,1.1,.36,1) both}
+.push-gate-icon{font-size:38px;line-height:1}
+.push-gate-card h2{margin:0;font-size:18px;color:#1f2937}
+.push-gate-card p{margin:0;font-size:13.5px;line-height:1.55;color:#5b6577}
+.push-gate-note{color:#b45309}
+.push-gate-actions{display:grid;gap:6px;width:100%;margin-top:6px}
+.push-gate-allow{background:#4f46e5;color:#fff;border:0;border-radius:12px;padding:12px 14px;font:inherit;font-weight:600;cursor:pointer}
+.push-gate-allow:disabled{opacity:.6;cursor:default}
+.push-gate-later{background:transparent;color:#5b6577;border:0;border-radius:12px;padding:10px 14px;font:inherit;cursor:pointer}
+@keyframes pushGateIn{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.push-gate-card{animation:none}}

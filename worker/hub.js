@@ -2,6 +2,7 @@ import { BUILT_INS, ALL_EMOJIS, ALL_STICKERS, ALL_GIFS, roomMedia, safeUploadUrl
 import { clean, safeDecode, json, publicUser, profileDoc, parseCookies, ipOf, isSecure, sameOrigin, bearerToken, sessionCookie, readJson, constantTimeEqual } from "./lib/core.js";
 import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } from "./lib/crypto.js";
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
+import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, pushToUser, pushToAll, pushConfigured } from "./lib/push.js";
 
 const MAX_MESSAGES = 100;
 const TRIM_INTERVAL = 25;
@@ -284,6 +285,9 @@ export class ChatHub {
       if (!content) return;
       const payload = { type: "dm", from: publicUser(user), to: target.id, kind, content, at: Date.now() }, text = JSON.stringify(payload);
       for (const peer of this.sockets()) { const id = attachment(peer).userId; if (id === target.id || id === user.id) { try { peer.send(text); } catch {} } }
+      // Only when the recipient has no socket open: a tab that is already showing the message does
+      // not need a notification about it.
+      if (!this.onlineUserIds().has(target.id)) this.background(pushToUser(this.env, target.id, { title: `${user.username} sent you a message`, body: kind === "text" ? content.slice(0, 120) : kind === "image" ? "Sent you a photo" : "Sent you a voice note", url: "/dms", tag: `dm-${user.id}` }));
       return;
     }
     if (event.type !== "message") return;
@@ -317,8 +321,52 @@ export class ChatHub {
 
   /* ------------------------------------------------------------------- API */
 
+  /**
+   * Pushes must never hold up the work that triggered them: this single Durable Object serves every
+   * room, so blocking its event loop on a push-service round-trip would stall everybody else. Hand
+   * the promise to the runtime when it offers waitUntil, and let it settle on its own otherwise.
+   */
+  background(promise) {
+    const work = Promise.resolve(promise).catch(() => {});
+    if (this.state && typeof this.state.waitUntil === "function") this.state.waitUntil(work);
+  }
+
   async api(request, url, path) {
-    if (path === "/api/config") return json(200, { giphyApiKey: this.env.GIPHY_API_KEY || null });
+    // The VAPID public key is what a browser needs in order to subscribe; the private key is a Worker
+    // secret and never leaves the server.
+    if (path === "/api/config") return json(200, { giphyApiKey: this.env.GIPHY_API_KEY || null, vapidPublicKey: this.env.VAPID_PUBLIC_KEY || null, pushEnabled: pushConfigured(this.env) });
+
+    if (path === "/api/push/subscribe" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      const subscription = parseSubscription(await readJson(request).catch(() => null));
+      if (!subscription) return json(400, { error: "That subscription is not usable." });
+      await saveSubscription(this.env, user.id, subscription);
+      return json(201, { ok: true });
+    }
+
+    if (path === "/api/push/unsubscribe" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      const body = await readJson(request).catch(() => ({}));
+      const endpoint = clean(body.endpoint);
+      if (endpoint) await removeSubscription(this.env, user.id, endpoint);
+      return json(200, { ok: true });
+    }
+
+    // Sends to this account's own devices, so "are notifications working?" is answerable without
+    // waiting for somebody to send a message.
+    if (path === "/api/push/test" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      const devices = await subscriptionsFor(this.env, user.id);
+      if (!devices.length) return json(400, { error: "No notifications are registered for this account yet." });
+      const sent = await pushToUser(this.env, user.id, { title: "Chatblink", body: "Notifications work on this device.", url: "/rooms", tag: "push-test" });
+      return json(200, { sent, devices: devices.length });
+    }
     if (path === "/api/auth/me") { const user = await this.sessionUser(request); return user ? json(200, { user: publicUser(user) }) : json(401, { error: "Not signed in" }); }
 
     if (path === "/api/users" && request.method === "GET") {
@@ -443,6 +491,9 @@ export class ChatHub {
       if (this.rateLimited(ipOf(request), "signup", 10)) return json(429, { error: "Too many attempts. Try again later." });
       try {
         const result = await this.createAccount(await readJson(request));
+        // A one-off community milestone. this.users is the full account list, so this is true exactly
+        // once - there is no counter that can drift or fire a second time.
+        if (this.users.length === 500) this.background(pushToAll(this.env, { title: "Chatblink just reached 500 members", body: "Thank you for being here - new rooms are opening all the time.", url: "/rooms", tag: "milestone-500" }));
         const token = await this.token(result.user);
         return json(201, { user: publicUser(result.user), token, profileKey: result.profileKey }, { "Set-Cookie": sessionCookie(token, Math.floor(30 * 24 * 60 * 60), isSecure(request)) });
       } catch (error) { return json(400, { error: error.message }); }
@@ -553,6 +604,9 @@ export class ChatHub {
         await saveRoom(this.env, room);
         this.rooms.push(room);
         this.broadcastAll({ type: "rooms-changed" });
+        // A new room is one of the few genuine broadcast moments, so every device that has
+        // notifications on hears about it.
+        this.background(pushToAll(this.env, { title: `${user.username} opened a room`, body: `${room.name} - ${room.vibe}`, url: `/room/${room.id}`, tag: "new-room" }));
         return json(201, { room: this.roomView(room, user) });
       } catch (error) { return json(400, { error: error.message }); }
     }

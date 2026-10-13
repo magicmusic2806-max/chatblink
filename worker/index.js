@@ -43,11 +43,11 @@ async function servePage(request, env, url, user, token, newKey = null, extraHea
     const keyBootstrap = newKey ? `window.__NEARBY_NEW_KEY__=${JSON.stringify(newKey).replace(/</g, "\\u003c")};` : "";
     output = output.replace('<main class="auth-shell" id="authView">', '<main class="auth-shell" id="authView" hidden>')
       .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-      .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${userBootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=${CLIENT_VERSION}"></script>`);
+      .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${userBootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=${CLIENT_VERSION}"></script><script src="/push-setup.js?v=${CLIENT_VERSION}"></script>`);
   } else {
     const error = clean(url.searchParams.get("error"));
     output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-      .replace('<script src="/multi-room.js"></script>', `<script src="/multi-room.js?v=${CLIENT_VERSION}"></script>`);
+      .replace('<script src="/multi-room.js"></script>', `<script src="/multi-room.js?v=${CLIENT_VERSION}"></script><script src="/push-setup.js?v=${CLIENT_VERSION}"></script>`);
     if (error && url.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${escapeHtml(error)}</div>`);
   }
   return new Response(output, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", ...extraHeaders } });
