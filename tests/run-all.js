@@ -30,6 +30,12 @@ const offline = [{ name: "canonical", file: "tests/canonical-host.js" }];
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// A `wrangler dev` left over from a killed run keeps its port, and `ready()` would then be satisfied by
+// that stale server - silently testing old code and the wrong budgets. Fail fast and say why instead.
+const portBusy = async port => {
+  try { await fetch(`http://127.0.0.1:${port}/api/config`, { signal: AbortSignal.timeout(1500) }); return true; } catch { return false; }
+};
+
 async function ready(port) {
   for (let attempt = 0; attempt < READY_TRIES; attempt++) {
     await sleep(READY_WAIT_MS);
