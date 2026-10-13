@@ -36,12 +36,19 @@ async function push(url, token, payload) {
   console.log(`HTTP ${response.status}`, await response.text());
 }
 
-function uploadScript() {
+// Uploads live in the KV namespace bound as UPLOADS (see wrangler.jsonc).
+// Pass --r2 if you have enabled R2 and switched the binding back.
+const KV_NAMESPACE = "f7d06646751d4cea890dfd53a2d5d3d5";
+
+function uploadScript(mode = "kv") {
   const directory = path.join(DATA_DIR, "uploads");
   if (!fs.existsSync(directory)) return "echo no uploads to copy";
   return fs.readdirSync(directory).map(name => {
     const type = UPLOAD_TYPES[name.split(".").pop()] || "application/octet-stream";
-    return `npx wrangler@latest r2 object put "chatblink-uploads/${name}" --file "${path.join(directory, name)}" --content-type ${type} --remote`;
+    const file = path.join(directory, name);
+    if (mode === "r2") return `npx wrangler r2 object put "chatblink-uploads/${name}" --file "${file}" --content-type ${type} --remote`;
+    const metadata = JSON.stringify({ contentType: type, cacheControl: "private, max-age=86400" }).replace(/"/g, '\\"');
+    return `npx wrangler kv key put "${name}" --path "${file}" --namespace-id ${KV_NAMESPACE} --metadata "${metadata}" --remote`;
   }).join("\n");
 }
 
@@ -51,7 +58,7 @@ async function main() {
   if (command === "pull") return pull(args[0], args[1]);
   if (command === "push") return push(args[0], args[1], { users, rooms: rooms.length ? rooms : [] });
   if (command === "payload") return console.log(JSON.stringify({ users, rooms }));
-  if (command === "uploads") return console.log(uploadScript());
+  if (command === "uploads") return console.log(uploadScript(args.includes("--r2") ? "r2" : "kv"));
   if (command === "sql") {
     const statements = [insert("users", USER_COLUMNS, users.map(userRow)), insert("rooms", ROOM_COLUMNS, rooms.map(roomRow))].filter(Boolean).join("\n");
     fs.mkdirSync("migration", { recursive: true });
@@ -61,7 +68,7 @@ async function main() {
     console.log("Apply remotely: npx wrangler d1 execute chatblink --remote --file=migration/seed.sql");
     return;
   }
-  console.log("Usage:\n  node tools/migrate.js pull  <oldUrl> <token>   # copy data/ off the old host\n  node tools/migrate.js sql                      # -> migration/seed.sql for D1\n  node tools/migrate.js push  <newUrl> <token>   # POST /api/migrate\n  node tools/migrate.js uploads                  # print the R2 copy commands");
+  console.log("Usage:\n  node tools/migrate.js pull  <oldUrl> <token>   # copy data/ off the old host\n  node tools/migrate.js sql                      # -> migration/seed.sql for D1\n  node tools/migrate.js push  <newUrl> <token>   # POST /api/migrate\n  node tools/migrate.js uploads [--r2]           # print the KV (or R2) copy commands");
 }
 
 main().catch(error => { console.error(error.message); process.exit(1); });
