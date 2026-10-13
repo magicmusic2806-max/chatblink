@@ -7,7 +7,7 @@
  *
  * It answers "is the domain actually being served by the Worker?", which is the question that
  * matters after a cutover — a suspended host with the domain still pointed at it looks healthy
- * from inside Cloudflare but 503s for users.
+ * from inside Cloudflare but 503s for users. It also checks that www redirects to the apex.
  */
 const WebSocket = require("ws");
 
@@ -18,6 +18,8 @@ const ok = (label, condition, detail = "") => {
   if (condition) console.log(`  PASS  ${label}${detail ? ` (${detail})` : ""}`);
   else { failures++; console.log(`  FAIL  ${label}${detail ? ` :: ${detail}` : ""}`); }
 };
+// For things only the Cloudflare dashboard can change, so the gap stays visible without failing.
+const warn = message => console.log(`  WARN  ${message}`);
 
 const get = async path => { const response = await fetch(`${BASE}${path}`, { redirect: "manual" }); return { response, body: await response.text() }; };
 
@@ -52,6 +54,24 @@ async function main() {
 
   const missing = await get("/uploads/00000000-0000-0000-0000-000000000000.png");
   ok("unknown upload is a 404", missing.response.status === 404, `status ${missing.response.status}`);
+
+  // Host-based behaviour exists only at the edge: locally `wrangler dev` answers whatever host you
+  // ask for, from the custom domain in wrangler.jsonc, so these are pointless against a local URL.
+  if (HOST === "chatblink.chat") {
+    const alias = await fetch(`https://www.${HOST}/rooms?mode=signup`, { redirect: "manual" });
+    ok("www redirects to the apex and keeps the path", alias.status === 301 && alias.headers.get("location") === `https://${HOST}/rooms?mode=signup`, `${alias.status} -> ${alias.headers.get("location")}`);
+
+    const followed = await fetch(`https://www.${HOST}/`);
+    ok("following that redirect lands on the apex", followed.status === 200 && followed.url.startsWith(`https://${HOST}/`), `${followed.status} ${followed.url}`);
+
+    // Only the zone's Always Use HTTPS setting can do this (it also covers the static assets that
+    // bypass the Worker), so it is reported rather than failed while the setting is off.
+    const plain = await fetch(`http://${HOST}/`, { redirect: "manual" });
+    if (plain.status === 200) warn(`http://${HOST}/ is served over plaintext - turn on SSL/TLS -> Edge Certificates -> Always Use HTTPS (and HSTS)`);
+    else ok("plain-http requests are redirected to https at the edge", plain.status === 301 || plain.status === 308, `status ${plain.status}`);
+  } else {
+    console.log("  SKIP  www alias and edge-https checks (only meaningful against the apex)");
+  }
 
   // A session is required for every socket, so the correct answer here is a refusal - what it
   // proves is that the upgrade reached the Worker and the Durable Object ran its own checks.

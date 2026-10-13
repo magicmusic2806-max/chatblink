@@ -1,10 +1,13 @@
 /**
- * Runs every end-to-end suite, each against its own local `wrangler dev`, and reports a summary.
+ * Runs every end-to-end suite and reports a summary.
  *
  * Usage:  node tests/run-all.js
  *
- * The quota-cap suite needs deliberately small budgets, so it gets a second server on another
- * port with --var overrides; everything else runs against the defaults.
+ * Most suites run against their own local `wrangler dev`. The quota-cap suite needs deliberately
+ * small budgets, so it gets a second server on another port with --var overrides; everything else
+ * runs against the defaults. `tests/canonical-host.js` needs no server at all - it drives the
+ * Worker's fetch handler directly, because `wrangler dev` always reports request.url as its own
+ * local address and so cannot exercise hostname-based logic.
  */
 const { spawn, spawnSync } = require("child_process");
 const path = require("path");
@@ -21,6 +24,9 @@ const servers = [
     { name: "quotas", file: "tests/quota-caps.js" }
   ] }
 ];
+
+// No server and no port: these load the Worker module and call it in-process.
+const offline = [{ name: "canonical", file: "tests/canonical-host.js" }];
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -42,6 +48,14 @@ async function main() {
   spawnSync("npm", ["run", "db:local"], { cwd: ROOT, shell: true, stdio: "ignore" });
 
   const results = [];
+
+  console.log(`\n=== ${offline.map(suite => suite.name).join(" + ")} (no server needed) ===`);
+  for (const suite of offline) {
+    // NODE_NO_WARNINGS: importing the Worker module re-parses it as ESM, which Node warns about.
+    const run = spawnSync(process.execPath, [suite.file], { cwd: ROOT, stdio: "inherit", env: { ...process.env, NODE_NO_WARNINGS: "1" } });
+    results.push({ name: suite.name, code: run.status === null ? 99 : run.status });
+  }
+
   for (const config of servers) {
     const args = ["wrangler", "dev", "--port", String(config.port), ...config.vars.flatMap(pair => ["--var", pair])];
     console.log(`\n=== ${config.suites.map(s => s.name).join(" + ")} on port ${config.port} ${config.vars.length ? `(${config.vars.join(" ")})` : "(default budgets)"} ===`);

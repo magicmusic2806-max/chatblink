@@ -10,6 +10,14 @@ const PAGE_ROUTES = [/^\/$/, /^\/index\.html$/, /^\/rooms$/, /^\/dms$/, /^\/expl
 const notFound = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
 const hubFor = env => env.HUB.get(env.HUB.idFromName("hub"));
+
+// The apex is canonical and www is an alias of it. Serving the app on both names would split
+// sessions (the session cookie is host-only), spread shared links over two origins and hand
+// crawlers two copies of every page, so www is always sent to the apex.
+function canonicalOrigin(env) {
+  try { return new URL(clean(env.PUBLIC_ORIGIN)); } catch { return null; }
+}
+
 function forward(env, request) {
   const headers = new Headers(request.headers);
   headers.set("x-cb-ip", request.headers.get("cf-connecting-ip") || "");
@@ -89,6 +97,20 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = safeDecode(url.pathname);
+
+    // Ahead of every route, WebSocket upgrades included, so www can never serve the app itself.
+    // 301 carries reads (what browsers and crawlers send) and 308 everything else, so a POST to the
+    // alias is not silently downgraded to a GET.
+    // This keys off request.url, which `wrangler dev` builds from the configured custom domain - so
+    // locally the alias can never appear, and tests/canonical-host.js drives the handler directly
+    // instead. Forcing http requests to https is deliberately NOT done here: the zone's
+    // Always Use HTTPS setting does it at the edge, including for the static assets that bypass the
+    // Worker, whereas code here could only cover the routes that reach it.
+    const canonical = canonicalOrigin(env);
+    if (canonical && url.host === `www.${canonical.host}`) {
+      return Response.redirect(`${canonical.origin}${url.pathname}${url.search}`, request.method === "GET" || request.method === "HEAD" ? 301 : 308);
+    }
+
     if (!path) return new Response("Bad request", { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") return hubFor(env).fetch(request);

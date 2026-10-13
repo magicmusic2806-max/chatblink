@@ -100,29 +100,38 @@ curl.exe -sS -o NUL -D - https://chatblink.chat/ | findstr /I "HTTP/ x-render"
 1. Add the domain to your Cloudflare account (free plan) and set the registrar's
    nameservers to the two Cloudflare gives you.
 2. Dashboard → Workers & Pages → `chatblink` → Settings → Domains & Routes →
-   **Add custom domain** → `chatblink.chat` (add `www` too if you want it).
+   **Add custom domain** → `chatblink.chat` and `www.chatblink.chat`.
 3. `wrangler.jsonc` already sets `PUBLIC_ORIGIN` to `https://chatblink.chat`, which is what
    canonical URLs and cookie security use.
 
 Keep Render running until the custom domain has been verified for a day or two, then
 suspend/delete it.
 
-The apex is declared in `wrangler.jsonc` under `routes` — a `chatblink.chat/*` zone route plus a
-`custom_domain` entry — so `wrangler deploy` keeps the live domain attached instead of it living
-only in the dashboard. A correct deploy lists both:
+The apex and www are declared in `wrangler.jsonc` under `routes` as `custom_domain` entries, so
+`wrangler deploy` keeps both live domains attached instead of them living only in the dashboard. A
+correct deploy lists both:
 
 ```
 Deployed chatblink triggers
   https://chatblink.chatblink.workers.dev
-  chatblink.chat/* (zone name: chatblink.chat)
   chatblink.chat (custom domain)
+  www.chatblink.chat (custom domain)
 ```
 
-Add those entries only once the zone is active in this account; on a zone that is not in the
-account the deploy fails on them, which is why they are not part of the initial setup above. The
-zone route is the belt-and-braces half: a route matches at the edge before the DNS record's
-origin, so the site stays on the Worker even while a stale proxied record still points at the old
-host — exactly the state that made `chatblink.chat` 503 while the Worker was healthy.
+Each custom domain brings its own DNS record and certificate. Add them only once the zone is active
+in this account; on a zone that is not in the account the deploy fails on them, which is why they
+are not part of the initial setup above.
+
+www is the alias rather than a second site: session cookies are host-only, so serving the app there
+would create a separate login. `worker/index.js` redirects every www request to the apex instead
+(301 for reads, 308 for other methods so a POST is not turned into a GET), and the plain-http side
+of both names is left to the zone's Always Use HTTPS setting.
+
+There is deliberately no `chatblink.chat/*` zone route alongside the custom domains. It started as
+belt-and-braces against the stale proxied record left from Render, and once the custom domain created
+the apex's own record it was redundant — while it was present, a plain-http `www` request was
+answered at the edge with a redirect to `https://www...` instead of reaching the Worker's one-hop
+redirect to the apex.
 
 ## 5. After cutting over
 
@@ -131,13 +140,15 @@ host — exactly the state that made `chatblink.chat` 503 while the Worker was h
   and that a WebSocket upgrade reaches the Durable Object — and fails if a routing header shows
   the domain is still landing on the old host.
 - **Force HTTPS at the edge:** SSL/TLS → Edge Certificates → **Always Use HTTPS** on, ideally with
-  HSTS. Without it `http://chatblink.chat` is served over plaintext, `isSecure()` sees http and
-  session cookies go out without `Secure` — Render forced HTTPS for free, so losing it is a
-  cutover regression. Check: `curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}\n" http://chatblink.chat/`
-  should print `301`/`308` and the https URL, not `200`.
-- **`www`:** there is no DNS record for `www.chatblink.chat` unless you add one. Sessions are
-  host-only cookies, so `www` would be a second, separate site — add it as a Worker custom domain
-  *and* redirect it to the apex, rather than serving the app on both.
+  HSTS. Without it `http://chatblink.chat` is served over plaintext (verified: it answers `200`),
+  `isSecure()` sees http and session cookies go out without `Secure` — Render forced HTTPS for free,
+  so losing it is a cutover regression. This is deliberately not done in the Worker: only the edge can
+  redirect the static assets that bypass the Worker. `npm run test:prod` warns while it is off.
+  Check: `curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}\n" http://chatblink.chat/` should print
+  `301`/`308` and the https URL, not `200`.
+- **`www`:** declared as a custom domain in `wrangler.jsonc` and redirected to the apex by
+  `worker/index.js`, so it is not a second site. `npm run test:prod` checks the redirect end to end;
+  `npm run test:canonical` covers the rule itself, including that a POST is not downgraded to a GET.
 - **Retire Render:** once the domain has been verified for a day or two delete the service;
   `render.yaml` is reference only and nothing in this repo depends on it.
 - **Cache busting:** `CLIENT_VERSION` in `worker/index.js` is appended to `multi-room.js`

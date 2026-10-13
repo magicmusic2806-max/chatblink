@@ -100,15 +100,15 @@ Limits: 20 messages/10 s per socket (room + DM share the budget); GIF URLs must 
 npm run test:all
 ```
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 47 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live broadcast, presence, history persistence, catalog validation, origin/authorization guards). `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`.
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 47 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live broadcast, presence, history persistence, catalog validation, origin/authorization guards). `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server at all: it loads the Worker module and drives its `fetch` handler with synthetic URLs, because `wrangler dev` builds `request.url` from the custom domain in `wrangler.jsonc` rather than from the requested host — so the `www` → apex redirect can only be exercised that way, and the same redirect is asserted for real by `test:prod`.
 
 To run a single suite by hand, start the Worker first (`npm run db:local` once, then `npm run dev:worker`) and point the suite at it:
 
 ```powershell
-npm run test:worker        # or test:retention
+npm run test:worker        # or test:retention, test:canonical
 ```
 
-`tests/prod-check.js` (`npm run test:prod`) is the post-deploy check for the live domain. It is read-only — it creates no accounts, rooms or messages — so it is safe to run against production, and it fails if `chatblink.chat` is being served by anything other than the Worker:
+`tests/prod-check.js` (`npm run test:prod`) is the post-deploy check for the live domain. It is read-only — it creates no accounts, rooms or messages — so it is safe to run against production, and it fails if `chatblink.chat` is being served by anything other than the Worker. It also checks that `www.chatblink.chat` redirects to the apex, and warns (without failing) while the zone is still serving plain http over the apex.
 
 ```powershell
 npm run test:prod                          # https://chatblink.chat

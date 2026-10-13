@@ -9,6 +9,7 @@
     "dev:worker": "wrangler dev --port 8787",
     "test:worker": "node tests/worker-smoke.js",
     "test:retention": "node tests/message-retention.js",
+    "test:canonical": "node --no-warnings tests/canonical-host.js",
     "test:quotas": "node tests/quota-caps.js",
     "test:all": "node tests/run-all.js",
     "test:prod": "node tests/prod-check.js",
