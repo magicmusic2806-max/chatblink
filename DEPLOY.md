@@ -87,6 +87,16 @@ That gives you `https://chatblink.<your-subdomain>.workers.dev`. Check it there 
 
 ## 4. Point chatblink.chat at it
 
+Until this step is done the Worker only answers on `https://chatblink.chatblink.workers.dev`, and
+`chatblink.chat` goes wherever the registrar's DNS says — which is Render, so suspending Render
+takes the domain down (503 `x-render-routing: suspend`) while the Worker sits healthy. Check where
+the domain actually resolves before debugging the Worker:
+
+```powershell
+nslookup -type=NS chatblink.chat 8.8.8.8              # Cloudflare nameservers only once the zone is active
+curl.exe -sS -o NUL -D - https://chatblink.chat/ | findstr /I "HTTP/ x-render"
+```
+
 1. Add the domain to your Cloudflare account (free plan) and set the registrar's
    nameservers to the two Cloudflare gives you.
 2. Dashboard → Workers & Pages → `chatblink` → Settings → Domains & Routes →
@@ -95,7 +105,9 @@ That gives you `https://chatblink.<your-subdomain>.workers.dev`. Check it there 
    canonical URLs and cookie security use.
 
 Keep Render running until the custom domain has been verified for a day or two, then
-suspend/delete it.
+suspend/delete it. Add the custom domain from the dashboard rather than as a `routes` entry in
+`wrangler.jsonc`: a `custom_domain` route for a zone that is not in the account yet makes
+`wrangler deploy` fail, which would take the whole Worker down with it.
 
 ## 5. After cutting over
 
