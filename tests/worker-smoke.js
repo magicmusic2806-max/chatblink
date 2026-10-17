@@ -188,12 +188,19 @@ async function main() {
 
   await post(`/api/dm/permissions/${secondAccount.user.id}`, { action: "request" }, cookie);
   await post(`/api/dm/permissions/${account.user.id}`, { action: "grant" }, secondCookie);
+  const firstPermission = await fetch(`${BASE}/api/dm/permissions/${secondAccount.user.id}`, { headers: { Cookie: cookie } }).then(response => response.json());
+  const secondPermission = await fetch(`${BASE}/api/dm/permissions/${account.user.id}`, { headers: { Cookie: secondCookie } }).then(response => response.json());
+  ok("one accepted media request grants permission in both directions", firstPermission.canSend === true && secondPermission.canSend === true && !firstPermission.outgoingPending && !secondPermission.outgoingPending, `${JSON.stringify(firstPermission)} / ${JSON.stringify(secondPermission)}`);
   alice.inbox.length = 0; bob.inbox.length = 0; charlie.inbox.length = 0;
   alice.send(JSON.stringify({ type: "dm", to: secondAccount.user.id, kind: "image", content: `/uploads/${crypto.randomUUID()}.png` }));
   const senderDm = await waitFor(alice, packet => packet.type === "dm" && packet.kind === "image");
   const secondSenderDm = await waitFor(bob, packet => packet.type === "dm" && packet.kind === "image");
   const recipientDm = await waitFor(charlie, packet => packet.type === "dm" && packet.kind === "image");
   ok("DM events carry one stable id for client deduplication", Boolean(senderDm.id) && senderDm.id === secondSenderDm.id && senderDm.id === recipientDm.id);
+  alice.inbox.length = 0; bob.inbox.length = 0; charlie.inbox.length = 0;
+  charlie.send(JSON.stringify({ type: "dm", to: account.user.id, kind: "voice", content: `/uploads/${crypto.randomUUID()}.webm` }));
+  const reverseDm = await waitFor(alice, packet => packet.type === "dm" && packet.kind === "voice");
+  ok("the approver can send media back without another request", reverseDm.from.id === secondAccount.user.id && reverseDm.to === account.user.id);
 
   alice.send(JSON.stringify({ type: "message", kind: "emoji", content: "🚫not-in-catalog🚫" }));
   alice.inbox.length = 0;
