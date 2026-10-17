@@ -210,10 +210,16 @@ export class ChatHub {
     for (let attempt = 0; attempt < 20; attempt++) { const id = `${base}-${crypto.randomUUID().slice(0, 6)}`; if (!this.findRoom(id)) return id; }
     return `room-${crypto.randomUUID()}`;
   }
-  roomView(room, user) {
-    const media = roomMedia(room);
-    return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: Boolean(room.builtIn), isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: this.canEnter(room, user), requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: this.roomOnlineCount(room.id), createdAt: room.createdAt };
+  roomView(room, user, preview = []) {
+    const media = roomMedia(room), enterable = this.canEnter(room, user);
+    return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: Boolean(room.builtIn), isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: enterable, requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: this.roomOnlineCount(room.id), preview: enterable ? preview : [], createdAt: room.createdAt };
   }
+  roomPreviews() {
+    const previews = new Map(), rows = this.state.storage.sql.exec("SELECT room_id, id, username, kind, content, created_at FROM (SELECT room_id, id, username, kind, content, created_at, seq, ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY seq DESC) AS recent_rank FROM messages) WHERE recent_rank <= 3 ORDER BY room_id, seq").toArray();
+    for (const row of rows) { const list = previews.get(row.room_id) || []; list.push({ id: row.id, username: row.username, kind: row.kind, content: row.content, createdAt: row.created_at }); previews.set(row.room_id, list); }
+    return previews;
+  }
+  roomsView(user) { const previews = this.roomPreviews(); return this.rooms.map(room => this.roomView(room, user, previews.get(room.id) || [])); }
 
   /* --------------------------------------------------------------- realtime */
 
@@ -225,6 +231,7 @@ export class ChatHub {
   notifyUser(userId, payload) { const text = JSON.stringify(payload); let sent = 0; for (const socket of this.sockets()) if (attachment(socket).userId === userId) { try { socket.send(text); sent++; } catch {} } return sent; }
   notifyUserExcept(userId, excluded, payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) if (socket !== excluded && attachment(socket).userId === userId) { try { socket.send(text); } catch {} } }
   broadcastAll(payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) { try { socket.send(text); } catch {} } }
+  broadcastRoomPreview(room, message) { const text = JSON.stringify({ type: "room-preview", roomId: room.id, message: { id: message.id, username: message.username, kind: message.kind, content: message.content, createdAt: message.createdAt } }); for (const socket of this.sockets()) { const user = this.userById(attachment(socket).userId); if (this.canEnter(room, user)) { try { socket.send(text); } catch {} } } }
   broadcastRoomOnline(roomId) { if (roomId === "__notify" || !this.findRoom(roomId)) return; this.broadcastAll({ type: "room-online", roomId, online: this.roomOnlineCount(roomId) }); }
   broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const socket of this.sockets()) if (attachment(socket).userId) { try { socket.send(text); } catch {} } }
   onlineUserIds() { const ids = new Set(); for (const socket of this.sockets()) { const id = attachment(socket).userId; if (id) ids.add(id); } return ids; }
@@ -331,6 +338,7 @@ export class ChatHub {
     if (this.dailyLimited("message", user.id, this.messageDailyCap)) return;
     this.addMessage(meta.roomId, message);
     this.broadcast(meta.roomId, { type: "message", message });
+    this.broadcastRoomPreview(room, message);
   }
 
   async webSocketClose(socket) {
@@ -592,10 +600,10 @@ export class ChatHub {
 
   async apiRooms(request, url, path) {
     const user = await this.sessionUser(request);
-    if (!user && path === "/api/rooms" && request.method === "GET") return json(200, { rooms: this.rooms.map(room => this.roomView(room, null)) });
+    if (!user && path === "/api/rooms" && request.method === "GET") return json(200, { rooms: this.roomsView(null) });
     if (!user) return json(401, { error: "Sign in first." });
     if (request.method !== "GET" && !sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
-    if (path === "/api/rooms" && request.method === "GET") return json(200, { rooms: this.rooms.map(room => this.roomView(room, user)) });
+    if (path === "/api/rooms" && request.method === "GET") return json(200, { rooms: this.roomsView(user) });
 
     const banMatch = path.match(/^\/api\/rooms\/([^/]+)\/bans(?:\/([^/]+))?$/);
     if (banMatch) {

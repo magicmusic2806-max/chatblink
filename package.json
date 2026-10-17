@@ -11,6 +11,7 @@
     "test:retention": "node tests/message-retention.js",
     "test:canonical": "node --no-warnings tests/canonical-host.js",
     "test:calls": "node tests/call-e2e.js",
+    "test:room-design": "node tests/room-design-e2e.js",
     "test:quotas": "node tests/quota-caps.js",
     "test:all": "node tests/run-all.js",
     "test:prod": "node tests/prod-check.js",

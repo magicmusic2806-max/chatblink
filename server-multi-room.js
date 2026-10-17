@@ -123,7 +123,7 @@ function keyPage(profileKey, token) {
 function userForProfileKey(value) { const candidate = hashProfileKey(value); return userStore.users.find(user => user.keyHash && user.keyHash.length === candidate.length && crypto.timingSafeEqual(Buffer.from(user.keyHash), Buffer.from(candidate))) || null; }
 function findRoom(id) { return roomStore.rooms.find(room => room.id === id); }
 function canEnter(room, user) { return Boolean(room) && (room.access === "open" || Boolean(user) && (room.ownerId === user.id || room.members.includes(user.id))); }
-function roomView(room, user) { const media = roomMedia(room); return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: room.builtIn, isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: canEnter(room, user), requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: clientsIn(room.id).length, createdAt: room.createdAt }; }
+function roomView(room, user) { const media = roomMedia(room), enterable = canEnter(room, user), preview = enterable ? (roomMessages.get(room.id) || []).slice(-3).map(message => ({ id: message.id, username: message.username, kind: message.kind, content: message.content, createdAt: message.createdAt })) : []; return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: room.builtIn, isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: enterable, requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: clientsIn(room.id).length, preview, createdAt: room.createdAt }; }
 function slugify(name) { const base = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "room"; if (!findRoom(base)) return base; for (let attempt = 0; attempt < 20; attempt++) { const id = `${base}-${crypto.randomBytes(3).toString("hex")}`; if (!findRoom(id)) return id; } return `room-${crypto.randomUUID()}`; }
 
 async function createAccount(body) {
@@ -151,10 +151,10 @@ function serveRooms(req, res, requestUrl, authenticatedUser = null, newKey = nul
       const keyBootstrap = newKey ? `window.__NEARBY_NEW_KEY__=${JSON.stringify(newKey).replace(/</g, "\\u003c")};` : "";
       output = output.replace('<main class="auth-shell" id="authView">', '<main class="auth-shell" id="authView" hidden>')
         .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=46"></script>`);
+        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=47"></script>`);
     } else {
       output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=46"></script>');
+        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=47"></script>');
       if (loginError && requestUrl.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${loginError.replace(/[&<>"']/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}</div>`);
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" }).end(output);
@@ -230,6 +230,7 @@ function broadcast(roomId, payload) { const text = JSON.stringify(payload); for 
 function notifyUser(userId, payload) { const text = JSON.stringify(payload); let sent = 0; for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) { client.send(text); sent++; } return sent; }
 function notifyUserExcept(userId, excluded, payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client !== excluded && client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) client.send(text); }
 function broadcastAll(payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(text); }
+function broadcastRoomPreview(room, message) { const text = JSON.stringify({ type: "room-preview", roomId: room.id, message: { id: message.id, username: message.username, kind: message.kind, content: message.content, createdAt: message.createdAt } }); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && canEnter(room, client.user)) client.send(text); }
 function broadcastRoomOnline(roomId) { if (roomId === "__notify" || !findRoom(roomId)) return; broadcastAll({ type: "room-online", roomId, online: clientsIn(roomId).length }); }
 function broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user) client.send(text); }
 function refreshUserPresence(userId) { const rooms = new Set(); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) rooms.add(client.roomId); for (const roomId of rooms) broadcastPresence(roomId); broadcastUsersChanged(); }
@@ -292,6 +293,7 @@ wss.on("connection", ws => {
     const message = { id: crypto.randomUUID(), userId: ws.user.id, username: ws.user.username, role: ws.user.role || "user", photo: ws.user.profile?.photo || null, kind, content, createdAt: Date.now() };
     messages.push(message); if (messages.length > MAX_MESSAGES) messages.splice(0, messages.length - MAX_MESSAGES);
     broadcast(ws.roomId, { type: "message", message });
+    broadcastRoomPreview(room, message);
   });
   ws.on("close", () => { if (ws.roomId !== "__notify") { broadcastPresence(ws.roomId); broadcastRoomOnline(ws.roomId); } if (ws.user) broadcastUsersChanged(); });
 });

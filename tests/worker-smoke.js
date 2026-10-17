@@ -205,6 +205,20 @@ async function main() {
   ok("sender gets their own message echoed", echoed.message.kind === "text");
   const relayed = await waitFor(bob, packet => packet.type === "message" && packet.message.content === text);
   ok("message is broadcast to the other client", relayed.message.username === USERNAME);
+  const livePreview = await waitFor(charlieOther, packet => packet.type === "room-preview" && packet.roomId === roomId && packet.message.content === text);
+  ok("room-list clients receive a live latest-message preview", livePreview.message.username === USERNAME);
+  const previewRooms = await fetch(`${BASE}/api/rooms`, { headers: { Cookie: secondCookie } }).then(response => response.json());
+  const previewRoom = previewRooms.rooms.find(room => room.id === roomId);
+  ok("room cards load the latest three-message preview", previewRoom.preview.length === 1 && previewRoom.preview[0].content === text);
+
+  const privateCreated = await post("/api/rooms", { name: `Private Preview ${stamp}`, vibe: "Private preview protection.", access: "request", theme: "berry" }, cookie);
+  const privateBody = await privateCreated.json(), privateRoomId = privateBody.room.id, privateSocket = socket(privateRoomId, cookie);
+  await open(privateSocket); await waitFor(privateSocket, packet => packet.type === "history");
+  privateSocket.send(JSON.stringify({ type: "message", kind: "text", content: `private ${stamp}` }));
+  await waitFor(privateSocket, packet => packet.type === "message" && packet.message.content === `private ${stamp}`);
+  const privateRooms = await fetch(`${BASE}/api/rooms`, { headers: { Cookie: secondCookie } }).then(response => response.json()), lockedPreview = privateRooms.rooms.find(room => room.id === privateRoomId);
+  ok("locked room cards never expose private messages", lockedPreview.canEnter === false && lockedPreview.preview.length === 0);
+  privateSocket.close();
 
   await post(`/api/dm/permissions/${secondAccount.user.id}`, { action: "request" }, cookie);
   await post(`/api/dm/permissions/${account.user.id}`, { action: "grant" }, secondCookie);
@@ -270,6 +284,7 @@ async function main() {
   ok("room can be deleted by its owner", removed.status === 200, `status ${removed.status}`);
   const gone = await fetch(`${BASE}/api/rooms/${roomId}`, { headers: { Cookie: cookie } });
   ok("deleted room is gone", gone.status === 404 || gone.status === 400, `status ${gone.status}`);
+  await fetch(`${BASE}/api/rooms/${privateRoomId}`, { method: "DELETE", headers: { Origin: ORIGIN, Cookie: cookie } });
 
   console.log(`\n${failed === 0 ? "ALL GOOD" : "FAILURES"} - ${passed} passed, ${failed} failed  (test account: ${USERNAME})`);
   process.exit(failed === 0 ? 0 : 1);

@@ -28,7 +28,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 ## Features
 
 - **Entry:** the room selector loads first (`/rooms`); a join card asks username, age, 18+ confirmation — no email or password. Accounts get a profile key (`CHATBLINK-XXXX-XXXX-XXXX-XXXX-XXXX`, 20 chars) that signs in via the "Use a key" tab; API signups receive it directly.
-- **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Every room is its own page. Creators can delete their rooms; the admin can delete any.
+- **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details.
 - **Moderation:** the account named `dynamic` (case-insensitive) is the admin — promoted at startup and at signup. Admin panel promotes/demotes mods and can delete an account outright (its rooms, bans, DM grants and sessions go with it). Mods and room creators can ban users per room; bans block that user's messages in that room only (they can still read and DM). Only the admin can ban mods. Role tags (ADMIN/MOD) render next to names.
@@ -78,7 +78,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **46** (the legacy Node server injects the same number from its own copy).
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **47** (the legacy Node server injects the same number from its own copy).
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).
@@ -100,7 +100,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 npm run test:all
 ```
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 47 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live broadcast, presence, history persistence, catalog validation, origin/authorization guards). `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server at all: it loads the Worker module and drives its `fetch` handler with synthetic URLs, because `wrangler dev` builds `request.url` from the custom domain in `wrangler.jsonc` rather than from the requested host — so the `www` → apex redirect can only be exercised that way, and the same redirect is asserted for real by `test:prod`.
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 60 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live previews, calls, presence, history persistence, catalog validation, origin/authorization guards). `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server at all: it loads the Worker module and drives its `fetch` handler with synthetic URLs, because `wrangler dev` builds `request.url` from the custom domain in `wrangler.jsonc` rather than from the requested host — so the `www` → apex redirect can only be exercised that way, and the same redirect is asserted for real by `test:prod`.
 
 To run a single suite by hand, start the Worker first (`npm run db:local` once, then `npm run dev:worker`) and point the suite at it:
 
@@ -111,6 +111,8 @@ npm run test:worker        # or test:retention, test:canonical
 `tests/prod-check.js` (`npm run test:prod`) is the post-deploy check for the live domain. It is read-only — it creates no accounts, rooms or messages — so it is safe to run against production, and it fails if `chatblink.chat` is being served by anything other than the Worker. It also checks that `www.chatblink.chat` redirects to the apex, and warns (without failing) while the zone is still serving plain http over the apex.
 
 `tests/call-e2e.js` (`npm run test:calls`) drives two Chromium contexts with fake camera/microphone devices. It places and answers both a voice call and a video call, then verifies a connected WebRTC peer and remote media tracks on both sides. Start the local Worker on port `8799` before running it.
+
+`tests/room-design-e2e.js` (`npm run test:room-design`) creates a temporary room in Chromium, verifies consecutive-message grouping and the exact latest-three preview, and captures 390px mobile plus desktop screenshots. Start the local Worker on port `8799` before running it.
 
 ```powershell
 npm run test:prod                          # https://chatblink.chat
