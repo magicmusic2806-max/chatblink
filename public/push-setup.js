@@ -5,14 +5,17 @@
  * then keeps this browser registered.
  */
 (() => {
-  const configPromise = fetch("/api/config").then(response => response.ok ? response.json() : {}).catch(() => ({}));
-  let registration = null, prompted = false, gate = null;
+  let registrationPromise = null, subscriptionPromise = null, prompted = false, gate = null;
 
   // Push needs a secure context: https anywhere, or http on loopback (which browsers treat as secure).
   const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window
     && (location.protocol === "https:" || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname));
   const flag = name => { try { return localStorage.getItem(name); } catch { return null; } };
   const setFlag = (name, value) => { try { localStorage.setItem(name, value); } catch {} };
+  const withTimeout = (promise, milliseconds, message) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), milliseconds);
+    Promise.resolve(promise).then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
 
   // The applicationServerKey is base64url; pushManager wants raw bytes.
   const decodeKey = value => {
@@ -25,21 +28,39 @@
   const node = (id, tag, className) => { const element = document.createElement(tag); element.id = id; if (className) element.className = className; return element; };
 
   async function register() {
-    if (!registration) registration = await navigator.serviceWorker.register("/sw.js");
-    return registration;
+    if (!registrationPromise) registrationPromise = (async () => {
+      await withTimeout(navigator.serviceWorker.register("/sw.js", { scope: "/" }), 10000, "The notification service took too long to start.");
+      return withTimeout(navigator.serviceWorker.ready, 10000, "The notification service is not ready yet.");
+    })();
+    try { return await registrationPromise; }
+    catch (error) { registrationPromise = null; throw error; }
+  }
+
+  async function loadConfig() {
+    const response = await withTimeout(fetch("/api/config", { cache: "no-store" }), 8000, "Chatblink could not load notification settings. Please try again.");
+    if (!response.ok) throw new Error("Chatblink could not load notification settings. Please try again.");
+    const config = await response.json();
+    if (!config.pushEnabled || !config.vapidPublicKey) throw new Error("Notifications are temporarily unavailable. Please try again later.");
+    return config;
   }
 
   /** Registers this browser with the Worker. Safe to call repeatedly. */
-  async function subscribe() {
-    const config = await configPromise;
-    if (!config.vapidPublicKey) return false;
+  async function subscribeOnce() {
+    const config = await loadConfig();
     const reg = await register();
-    const existing = await reg.pushManager.getSubscription();
-    const subscription = existing || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeKey(config.vapidPublicKey) });
-    const response = await fetch("/api/push/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(subscription.toJSON()) });
-    if (!response.ok) return false;
+    const existing = await withTimeout(reg.pushManager.getSubscription(), 8000, "Checking this browser's notification status took too long.");
+    const subscription = existing || await withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeKey(config.vapidPublicKey) }), 15000, "The browser did not finish enabling notifications. Check the permission prompt, then try again.");
+    const response = await withTimeout(fetch("/api/push/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(subscription.toJSON()) }), 10000, "Saving this browser took too long. Please try again.");
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || "Chatblink could not save this browser. Please try again.");
+    }
     setFlag("chatblink.pushEnabled", "1");
     return true;
+  }
+  function subscribe() {
+    if (!subscriptionPromise) subscriptionPromise = subscribeOnce().finally(() => { subscriptionPromise = null; });
+    return subscriptionPromise;
   }
 
   async function unsubscribe() {
@@ -72,17 +93,19 @@
       </div>`;
     document.body.appendChild(gate);
     const note = gate.querySelector(".push-gate-note"), allow = gate.querySelector(".push-gate-allow"), later = gate.querySelector(".push-gate-later");
-    const fail = message => { note.hidden = false; note.textContent = message; allow.disabled = false; allow.textContent = "Turn on notifications"; };
+    const fail = message => { note.hidden = false; note.textContent = message; allow.disabled = false; allow.textContent = "Try again"; };
     allow.addEventListener("click", async () => {
+      if (allow.disabled) return;
       allow.disabled = true; allow.textContent = "Turning on…";
-      setFlag("chatblink.pushPrompted", "1");
+      note.hidden = true; note.textContent = "";
       try {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") { fail(permission === "denied" ? "Notifications are blocked in this browser's settings." : "Notifications were not enabled."); return; }
-        const ok = await subscribe();
-        if (!ok) { fail("Could not register this device. You can try again later."); return; }
-        closeGate();
-      } catch (error) { fail("Could not enable notifications here."); }
+        const permission = Notification.permission === "granted" ? "granted" : await withTimeout(Notification.requestPermission(), 15000, "The browser permission prompt is still waiting. Choose Allow there, then try again.");
+        if (permission !== "granted") { if (permission === "denied") setFlag("chatblink.pushPrompted", "1"); fail(permission === "denied" ? "Notifications are blocked in this browser's settings." : "Notifications were not enabled. You can try again."); return; }
+        await subscribe();
+        setFlag("chatblink.pushPrompted", "1");
+        note.hidden = false; note.textContent = "Notifications are on."; allow.textContent = "Notifications on ✓";
+        setTimeout(closeGate, 450);
+      } catch (error) { fail(error && error.message ? error.message : "Could not enable notifications here. Please try again."); }
     });
     later.addEventListener("click", () => { setFlag("chatblink.pushPrompted", "1"); closeGate(); });
     return gate;
@@ -91,11 +114,12 @@
   async function consider() {
     if (!supported()) return;
     if (Notification.permission === "denied") return;
-    // Already granted (here or in another tab): make sure this browser is registered, silently.
-    if (Notification.permission === "granted") { await subscribe().catch(() => {}); return; }
-    if (flag("chatblink.pushPrompted") === "1") return;
+    if (gate && !gate.hidden) return;
+    if (Notification.permission === "default" && flag("chatblink.pushPrompted") === "1") return;
     if (prompted) return;
     prompted = true;
+    // Already granted (here or in another tab): make sure this browser is registered, silently.
+    if (Notification.permission === "granted") { await subscribe().catch(() => {}); return; }
     buildGate().hidden = false;
   }
 
