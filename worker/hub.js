@@ -17,6 +17,8 @@ const MESSAGE_DAILY_CAP = 1000;
 const UPLOAD_DAILY_CAP = 20;
 const MESSAGE_KINDS = ["text", "emoji", "sticker", "gif", "image", "voice"];
 const DM_KINDS = ["text", "image", "voice"];
+const CALL_TYPES = ["call-offer", "call-answer", "call-ice", "call-end", "call-reject", "call-busy"];
+const CALL_SIGNAL_LIMIT = 120;
 const MESSAGE_TABLE = "CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, username TEXT, role TEXT, photo TEXT, kind TEXT, content TEXT, created_at INTEGER NOT NULL)";
 const MESSAGE_INDEX = "CREATE INDEX IF NOT EXISTS messages_room ON messages (room_id, seq)";
 const ROOM_PRESETS = { ocean: { accent: "#0284c7", soft: "#e7f7ff" }, sunset: { accent: "#f97316", soft: "#fff0e7" }, berry: { accent: "#d946ef", soft: "#fcecff" }, forest: { accent: "#16a34a", soft: "#eaf8ec" } };
@@ -36,6 +38,7 @@ export class ChatHub {
     this.attempts = new Map();
     this.pendingTrim = new Map();
     this.messageWindows = new Map();
+    this.callWindows = new Map();
     this.daily = new Map();
     this.dailyDay = 0;
     this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
@@ -172,6 +175,13 @@ export class ChatHub {
     this.messageWindows.set(connectionId, record);
     return record.count > MESSAGE_LIMIT_PER_WINDOW;
   }
+  callLimited(connectionId, now) {
+    const record = this.callWindows.get(connectionId) || { start: now, count: 0 };
+    if (now - record.start > MESSAGE_WINDOW_MS) { record.start = now; record.count = 0; }
+    record.count++;
+    this.callWindows.set(connectionId, record);
+    return record.count > CALL_SIGNAL_LIMIT;
+  }
   // Counts the attempt and reports whether this user has spent their daily budget for `scope`.
   // Deliberately not persisted: a storage write here would cost exactly what the budget protects.
   dailyLimited(scope, userId, limit) {
@@ -212,7 +222,8 @@ export class ChatHub {
   roomOnlineCount(roomId) { return new Set(this.clientsIn(roomId).map(socket => attachment(socket).userId).filter(Boolean)).size; }
   send(socket, payload) { try { socket.send(JSON.stringify(payload)); } catch {} }
   broadcast(roomId, payload) { const text = JSON.stringify(payload); for (const socket of this.clientsIn(roomId)) { try { socket.send(text); } catch {} } }
-  notifyUser(userId, payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) if (attachment(socket).userId === userId) { try { socket.send(text); } catch {} } }
+  notifyUser(userId, payload) { const text = JSON.stringify(payload); let sent = 0; for (const socket of this.sockets()) if (attachment(socket).userId === userId) { try { socket.send(text); sent++; } catch {} } return sent; }
+  notifyUserExcept(userId, excluded, payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) if (socket !== excluded && attachment(socket).userId === userId) { try { socket.send(text); } catch {} } }
   broadcastAll(payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) { try { socket.send(text); } catch {} } }
   broadcastRoomOnline(roomId) { if (roomId === "__notify" || !this.findRoom(roomId)) return; this.broadcastAll({ type: "room-online", roomId, online: this.roomOnlineCount(roomId) }); }
   broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const socket of this.sockets()) if (attachment(socket).userId) { try { socket.send(text); } catch {} } }
@@ -272,6 +283,18 @@ export class ChatHub {
     if (!user) return;
     let event; try { event = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw)); } catch { return; }
     const now = Date.now();
+    if (CALL_TYPES.includes(event.type)) {
+      if (this.callLimited(meta.connectionId || meta.userId, now)) return;
+      const target = this.userById(clean(event.to)), callId = clean(event.callId).slice(0, 80);
+      if (!target || target.id === user.id || !callId) return;
+      const payload = { type: event.type, callId, from: publicUser(user), to: target.id };
+      if (event.type === "call-offer" || event.type === "call-answer") { const description = event.sdp || {}, sdp = typeof description.sdp === "string" ? description.sdp : ""; if ((event.type === "call-offer" ? description.type !== "offer" : description.type !== "answer") || !sdp.trim() || sdp.length > 50000) return; payload.sdp = { type: description.type, sdp }; if (event.type === "call-offer") payload.mode = event.mode === "video" ? "video" : "voice"; }
+      if (event.type === "call-ice") { const candidate = event.candidate; if (candidate !== null && (!candidate || typeof candidate !== "object" || clean(candidate.candidate).length > 4096)) return; payload.candidate = candidate === null ? null : { candidate: clean(candidate.candidate), sdpMid: candidate.sdpMid == null ? null : clean(candidate.sdpMid).slice(0, 64), sdpMLineIndex: Number.isInteger(candidate.sdpMLineIndex) ? candidate.sdpMLineIndex : null, usernameFragment: candidate.usernameFragment == null ? null : clean(candidate.usernameFragment).slice(0, 256) }; }
+      const delivered = this.notifyUser(target.id, payload);
+      if (event.type === "call-offer" && !delivered) this.send(socket, { type: "call-unavailable", callId, from: publicUser(target), to: user.id });
+      if (event.type === "call-answer" || event.type === "call-reject" || event.type === "call-busy") this.notifyUserExcept(user.id, socket, { type: "call-taken", callId });
+      return;
+    }
     // Kept in memory: the attachment this used to live in cost a persisted write on every single
     // message, potentially doubling a message's row-write cost. Eviction only happens after ~10s
     // of quiet, already longer than the window, so a counter lost to it would have expired anyway.
@@ -313,6 +336,7 @@ export class ChatHub {
   async webSocketClose(socket) {
     const meta = attachment(socket);
     if (meta.connectionId) this.messageWindows.delete(meta.connectionId);
+    if (meta.connectionId) this.callWindows.delete(meta.connectionId);
     try { socket.close(1000, "closed"); } catch {}
     if (meta.roomId && meta.roomId !== "__notify") { this.broadcastPresence(meta.roomId); this.broadcastRoomOnline(meta.roomId); }
     if (meta.userId) this.broadcastUsersChanged();

@@ -179,6 +179,26 @@ async function main() {
   const twoPeoplePresence = await waitFor(alice, packet => packet.type === "presence" && packet.online === 2);
   ok("two accounts raise the room count to two people", twoPeoplePresence.users.length === 2, `online=${twoPeoplePresence.online}`);
 
+  const charlieOther = socket("__notify", secondCookie);
+  await open(charlieOther);
+  alice.inbox.length = 0; bob.inbox.length = 0; charlie.inbox.length = 0; charlieOther.inbox.length = 0;
+  const callId = crypto.randomUUID();
+  alice.send(JSON.stringify({ type: "call-offer", to: secondAccount.user.id, callId, mode: "video", sdp: { type: "offer", sdp: "v=0\r\n" } }));
+  const offeredCall = await waitFor(charlie, packet => packet.type === "call-offer" && packet.callId === callId);
+  await waitFor(charlieOther, packet => packet.type === "call-offer" && packet.callId === callId);
+  ok("video call offers are relayed to the recipient", offeredCall.mode === "video" && offeredCall.from.id === account.user.id);
+  charlie.send(JSON.stringify({ type: "call-answer", to: account.user.id, callId, sdp: { type: "answer", sdp: "v=0\r\n" } }));
+  const answeredCall = await waitFor(alice, packet => packet.type === "call-answer" && packet.callId === callId);
+  ok("call answers are relayed to the caller", answeredCall.from.id === secondAccount.user.id);
+  const takenCall = await waitFor(charlieOther, packet => packet.type === "call-taken" && packet.callId === callId);
+  ok("answering on one device dismisses the call on the recipient's other devices", takenCall.callId === callId);
+  alice.send(JSON.stringify({ type: "call-ice", to: secondAccount.user.id, callId, candidate: { candidate: "candidate:test", sdpMid: "0", sdpMLineIndex: 0 } }));
+  const relayedIce = await waitFor(charlie, packet => packet.type === "call-ice" && packet.callId === callId);
+  ok("WebRTC ICE candidates are relayed", relayedIce.candidate.candidate === "candidate:test");
+  charlie.send(JSON.stringify({ type: "call-end", to: account.user.id, callId }));
+  const endedCall = await waitFor(alice, packet => packet.type === "call-end" && packet.callId === callId);
+  ok("call hang-ups are relayed", endedCall.from.id === secondAccount.user.id);
+
   const text = `hello from the smoke test ${stamp}`;
   alice.send(JSON.stringify({ type: "message", kind: "text", content: text }));
   const echoed = await waitFor(alice, packet => packet.type === "message" && packet.message.content === text);
@@ -236,7 +256,7 @@ async function main() {
   ok("a missing upload returns 404", missingFile.status === 404, `status ${missingFile.status}`);
 
   head("persistence");
-  alice.close(); bob.close(); charlie.close();
+  alice.close(); bob.close(); charlie.close(); charlieOther.close();
   await sleep(400);
   const rejoin = socket(roomId, cookie);
   await open(rejoin);

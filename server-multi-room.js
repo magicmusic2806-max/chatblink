@@ -151,10 +151,10 @@ function serveRooms(req, res, requestUrl, authenticatedUser = null, newKey = nul
       const keyBootstrap = newKey ? `window.__NEARBY_NEW_KEY__=${JSON.stringify(newKey).replace(/</g, "\\u003c")};` : "";
       output = output.replace('<main class="auth-shell" id="authView">', '<main class="auth-shell" id="authView" hidden>')
         .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=45"></script>`);
+        .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${bootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=46"></script>`);
     } else {
       output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
-        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=45"></script>');
+        .replace('<script src="/multi-room.js"></script>', '<script src="/multi-room.js?v=46"></script>');
       if (loginError && requestUrl.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${loginError.replace(/[&<>"']/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}</div>`);
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" }).end(output);
@@ -227,7 +227,8 @@ server.on("upgrade", (req, socket, head) => {
 });
 function clientsIn(roomId) { return [...wss.clients].filter(client => client.readyState === WebSocket.OPEN && client.roomId === roomId); }
 function broadcast(roomId, payload) { const text = JSON.stringify(payload); for (const client of clientsIn(roomId)) client.send(text); }
-function notifyUser(userId, payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) client.send(text); }
+function notifyUser(userId, payload) { const text = JSON.stringify(payload); let sent = 0; for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) { client.send(text); sent++; } return sent; }
+function notifyUserExcept(userId, excluded, payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client !== excluded && client.readyState === WebSocket.OPEN && client.user && client.user.id === userId) client.send(text); }
 function broadcastAll(payload) { const text = JSON.stringify(payload); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(text); }
 function broadcastRoomOnline(roomId) { if (roomId === "__notify" || !findRoom(roomId)) return; broadcastAll({ type: "room-online", roomId, online: clientsIn(roomId).length }); }
 function broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const client of wss.clients) if (client.readyState === WebSocket.OPEN && client.user) client.send(text); }
@@ -236,7 +237,7 @@ function safeMediaUrl(value) { const candidate = String(value || "").trim(); if 
 function presencePayload(roomId) { const clients = clientsIn(roomId), seen = new Map(); for (const client of clients) { if (client.user && !seen.has(client.user.id)) seen.set(client.user.id, publicUser(client.user)); } return { type: "presence", online: clients.length, users: [...seen.values()] }; }
 function broadcastPresence(roomId) { broadcast(roomId, presencePayload(roomId)); }
 wss.on("connection", ws => {
-  ws.isAlive = true; ws.messageWindowStart = Date.now(); ws.messageCount = 0;
+  ws.isAlive = true; ws.messageWindowStart = Date.now(); ws.messageCount = 0; ws.callWindowStart = Date.now(); ws.callCount = 0;
   ws.on("pong", () => { ws.isAlive = true; });
   const joinedRoom = findRoom(ws.roomId);
   if (joinedRoom && !joinedRoom.builtIn && joinedRoom.access === "open" && !joinedRoom.members.includes(ws.user.id)) { joinedRoom.members.push(ws.user.id); saveRooms(); }
@@ -250,6 +251,14 @@ wss.on("connection", ws => {
   ws.on("message", raw => {
     if (!ws.user) return;
     let event; try { event = JSON.parse(raw.toString()); } catch { return; }
+    if (["call-offer", "call-answer", "call-ice", "call-end", "call-reject", "call-busy"].includes(event.type)) {
+      const now = Date.now(); if (now - ws.callWindowStart > MESSAGE_WINDOW_MS) { ws.callWindowStart = now; ws.callCount = 0; } if (++ws.callCount > 120) return;
+      const target = userStore.users.find(user => user.id === clean(event.to)), callId = clean(event.callId).slice(0, 80); if (!target || target.id === ws.user.id || !callId) return;
+      const payload = { type: event.type, callId, from: publicUser(ws.user), to: target.id };
+      if (event.type === "call-offer" || event.type === "call-answer") { const description = event.sdp || {}, sdp = typeof description.sdp === "string" ? description.sdp : ""; if ((event.type === "call-offer" ? description.type !== "offer" : description.type !== "answer") || !sdp.trim() || sdp.length > 50000) return; payload.sdp = { type: description.type, sdp }; if (event.type === "call-offer") payload.mode = event.mode === "video" ? "video" : "voice"; }
+      if (event.type === "call-ice") { const candidate = event.candidate; if (candidate !== null && (!candidate || typeof candidate !== "object" || clean(candidate.candidate).length > 4096)) return; payload.candidate = candidate === null ? null : { candidate: clean(candidate.candidate), sdpMid: candidate.sdpMid == null ? null : clean(candidate.sdpMid).slice(0, 64), sdpMLineIndex: Number.isInteger(candidate.sdpMLineIndex) ? candidate.sdpMLineIndex : null, usernameFragment: candidate.usernameFragment == null ? null : clean(candidate.usernameFragment).slice(0, 256) }; }
+      const delivered = notifyUser(target.id, payload); if (event.type === "call-offer" && !delivered) ws.send(JSON.stringify({ type: "call-unavailable", callId, from: publicUser(target), to: ws.user.id })); if (event.type === "call-answer" || event.type === "call-reject" || event.type === "call-busy") notifyUserExcept(ws.user.id, ws, { type: "call-taken", callId }); return;
+    }
     if (event.type === "dm") {
       const now = Date.now();
       if (now - ws.messageWindowStart > MESSAGE_WINDOW_MS) { ws.messageWindowStart = now; ws.messageCount = 0; }

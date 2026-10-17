@@ -1,6 +1,6 @@
 # Chatblink
 
-An 18+ real-time chat site: people pick a name and drop into topic rooms (open or request-only), exchange private messages, photos and voice notes, and browse each other's profiles through an Explore page.
+An 18+ real-time chat site: people pick a name and drop into topic rooms (open or request-only), exchange private messages, photos and voice notes, make peer-to-peer voice/video calls, and browse each other's profiles through an Explore page.
 
 Live at **https://chatblink.chat** (deployed from this repo to **Cloudflare Workers** — see [DEPLOY.md](DEPLOY.md)).
 
@@ -29,7 +29,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 
 - **Entry:** the room selector loads first (`/rooms`); a join card asks username, age, 18+ confirmation — no email or password. Accounts get a profile key (`CHATBLINK-XXXX-XXXX-XXXX-XXXX-XXXX`, 20 chars) that signs in via the "Use a key" tab; API signups receive it directly.
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Every room is its own page. Creators can delete their rooms; the admin can delete any.
-- **Media:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. DM photos/voice require the other person's permanent permission (request → grant, revocable).
+- **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details.
 - **Moderation:** the account named `dynamic` (case-insensitive) is the admin — promoted at startup and at signup. Admin panel promotes/demotes mods and can delete an account outright (its rooms, bans, DM grants and sessions go with it). Mods and room creators can ban users per room; bans block that user's messages in that room only (they can still read and DM). Only the admin can ban mods. Role tags (ADMIN/MOD) render next to names.
 - **SEO:** `robots.txt`, `sitemap.xml`, per-page canonical URLs, Open Graph/JSON-LD, Google Search Console verification (meta tag + `googlee03d569365db2c0a.html`).
@@ -72,13 +72,13 @@ Uploaded files are served publicly from `/uploads/<name>` (uuid + validated exte
 
 ## WebSocket protocol
 
-Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that every client holds whenever they don't have a room socket — signed in or guest — so room-list changes, live room online counts, user presence and request/DM/ban events arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `presence {online, users}`, `room-online {roomId, online}`, `rooms-changed`, `users-changed` (signed-in clients only), `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`.
-Client messages: `{type:"message", kind:"text|emoji|sticker|gif|image|voice", content}` and `{type:"dm", to, kind, content}`.
-Limits: 20 messages/10 s per socket (room + DM share the budget); GIF URLs must be `/gifs/<name>.gif` or allowlisted Giphy/Tenor hosts; image/voice room messages only in request-only user-created rooms; DM media only after the recipient grants permission. Server pings every 30 s and drops dead sockets.
+Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that every client holds whenever they don't have a room socket — signed in or guest — so room-list changes, live room online counts, user presence and request/DM/ban/call events arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `presence {online, users}`, `room-online {roomId, online}`, `rooms-changed`, `users-changed` (signed-in clients only), `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`, and the call signals `call-offer`, `call-answer`, `call-ice`, `call-end`, `call-reject`, `call-busy`, `call-unavailable`, `call-taken`.
+Client messages: `{type:"message", kind:"text|emoji|sticker|gif|image|voice", content}`, `{type:"dm", to, kind, content}`, and authenticated WebRTC signaling messages carrying `to`, `callId`, SDP or ICE candidates as appropriate.
+Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call signals/minute per socket; GIF URLs must be `/gifs/<name>.gif` or allowlisted Giphy/Tenor hosts; image/voice room messages only in request-only user-created rooms; DM media only after either participant grants permission. Calls use public STUN servers; a TURN relay should be added for reliable connectivity between restrictive corporate/mobile networks. Server pings every 30 s and drops dead sockets.
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **43** (the legacy Node server injects the same number from its own copy).
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **46** (the legacy Node server injects the same number from its own copy).
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).
@@ -109,6 +109,8 @@ npm run test:worker        # or test:retention, test:canonical
 ```
 
 `tests/prod-check.js` (`npm run test:prod`) is the post-deploy check for the live domain. It is read-only — it creates no accounts, rooms or messages — so it is safe to run against production, and it fails if `chatblink.chat` is being served by anything other than the Worker. It also checks that `www.chatblink.chat` redirects to the apex, and warns (without failing) while the zone is still serving plain http over the apex.
+
+`tests/call-e2e.js` (`npm run test:calls`) drives two Chromium contexts with fake camera/microphone devices. It places and answers both a voice call and a video call, then verifies a connected WebRTC peer and remote media tracks on both sides. Start the local Worker on port `8799` before running it.
 
 ```powershell
 npm run test:prod                          # https://chatblink.chat
