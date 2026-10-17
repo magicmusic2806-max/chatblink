@@ -163,10 +163,21 @@ async function main() {
   ok("history reports presence", Array.isArray(history.users) && history.online >= 1, `online=${history.online}`);
 
   const bob = socket(roomId, cookie);
+  alice.inbox.length = 0;
   await open(bob);
   await waitFor(bob, packet => packet.type === "history");
-  const presence = await waitFor(alice, packet => packet.type === "presence" && packet.online >= 2);
-  ok("second client raises the presence count", presence.online === 2, `online=${presence.online}`);
+  const samePersonPresence = await waitFor(alice, packet => packet.type === "presence");
+  ok("a second connection for one account still counts as one person", samePersonPresence.online === 1 && samePersonPresence.users.length === 1, `online=${samePersonPresence.online}`);
+
+  const secondSignup = await post("/api/auth/signup", { username: `${USERNAME}_two`, age: 25, adultConfirmed: true });
+  const secondAccount = await secondSignup.json(), secondCookie = cookieOf(secondSignup);
+  ok("second realtime account is created", secondSignup.status === 201, `status ${secondSignup.status}`);
+  const charlie = socket(roomId, secondCookie);
+  alice.inbox.length = 0;
+  await open(charlie);
+  await waitFor(charlie, packet => packet.type === "history");
+  const twoPeoplePresence = await waitFor(alice, packet => packet.type === "presence" && packet.online === 2);
+  ok("two accounts raise the room count to two people", twoPeoplePresence.users.length === 2, `online=${twoPeoplePresence.online}`);
 
   const text = `hello from the smoke test ${stamp}`;
   alice.send(JSON.stringify({ type: "message", kind: "text", content: text }));
@@ -174,6 +185,15 @@ async function main() {
   ok("sender gets their own message echoed", echoed.message.kind === "text");
   const relayed = await waitFor(bob, packet => packet.type === "message" && packet.message.content === text);
   ok("message is broadcast to the other client", relayed.message.username === USERNAME);
+
+  await post(`/api/dm/permissions/${secondAccount.user.id}`, { action: "request" }, cookie);
+  await post(`/api/dm/permissions/${account.user.id}`, { action: "grant" }, secondCookie);
+  alice.inbox.length = 0; bob.inbox.length = 0; charlie.inbox.length = 0;
+  alice.send(JSON.stringify({ type: "dm", to: secondAccount.user.id, kind: "image", content: `/uploads/${crypto.randomUUID()}.png` }));
+  const senderDm = await waitFor(alice, packet => packet.type === "dm" && packet.kind === "image");
+  const secondSenderDm = await waitFor(bob, packet => packet.type === "dm" && packet.kind === "image");
+  const recipientDm = await waitFor(charlie, packet => packet.type === "dm" && packet.kind === "image");
+  ok("DM events carry one stable id for client deduplication", Boolean(senderDm.id) && senderDm.id === secondSenderDm.id && senderDm.id === recipientDm.id);
 
   alice.send(JSON.stringify({ type: "message", kind: "emoji", content: "🚫not-in-catalog🚫" }));
   alice.inbox.length = 0;
@@ -209,7 +229,7 @@ async function main() {
   ok("a missing upload returns 404", missingFile.status === 404, `status ${missingFile.status}`);
 
   head("persistence");
-  alice.close(); bob.close();
+  alice.close(); bob.close(); charlie.close();
   await sleep(400);
   const rejoin = socket(roomId, cookie);
   await open(rejoin);

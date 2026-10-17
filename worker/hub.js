@@ -202,22 +202,23 @@ export class ChatHub {
   }
   roomView(room, user) {
     const media = roomMedia(room);
-    return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: Boolean(room.builtIn), isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: this.canEnter(room, user), requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: this.clientsIn(room.id).length, createdAt: room.createdAt };
+    return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: Boolean(room.builtIn), isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: this.canEnter(room, user), requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: this.roomOnlineCount(room.id), createdAt: room.createdAt };
   }
 
   /* --------------------------------------------------------------- realtime */
 
   sockets() { return this.state.getWebSockets().filter(socket => socket.readyState === 1); }
   clientsIn(roomId) { return this.sockets().filter(socket => attachment(socket).roomId === roomId); }
+  roomOnlineCount(roomId) { return new Set(this.clientsIn(roomId).map(socket => attachment(socket).userId).filter(Boolean)).size; }
   send(socket, payload) { try { socket.send(JSON.stringify(payload)); } catch {} }
   broadcast(roomId, payload) { const text = JSON.stringify(payload); for (const socket of this.clientsIn(roomId)) { try { socket.send(text); } catch {} } }
   notifyUser(userId, payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) if (attachment(socket).userId === userId) { try { socket.send(text); } catch {} } }
   broadcastAll(payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) { try { socket.send(text); } catch {} } }
-  broadcastRoomOnline(roomId) { if (roomId === "__notify" || !this.findRoom(roomId)) return; this.broadcastAll({ type: "room-online", roomId, online: this.clientsIn(roomId).length }); }
+  broadcastRoomOnline(roomId) { if (roomId === "__notify" || !this.findRoom(roomId)) return; this.broadcastAll({ type: "room-online", roomId, online: this.roomOnlineCount(roomId) }); }
   broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const socket of this.sockets()) if (attachment(socket).userId) { try { socket.send(text); } catch {} } }
   onlineUserIds() { const ids = new Set(); for (const socket of this.sockets()) { const id = attachment(socket).userId; if (id) ids.add(id); } return ids; }
   presenceUsers(roomId) { const seen = new Map(); for (const socket of this.clientsIn(roomId)) { const id = attachment(socket).userId, user = id && this.userById(id); if (user && !seen.has(id)) seen.set(id, publicUser(user)); } return [...seen.values()]; }
-  presencePayload(roomId) { return { type: "presence", online: this.clientsIn(roomId).length, users: this.presenceUsers(roomId) }; }
+  presencePayload(roomId) { return { type: "presence", online: this.roomOnlineCount(roomId), users: this.presenceUsers(roomId) }; }
   broadcastPresence(roomId) { this.broadcast(roomId, this.presencePayload(roomId)); }
   refreshUserPresence(userId) {
     const rooms = new Set();
@@ -257,7 +258,7 @@ export class ChatHub {
     this.state.acceptWebSocket(server);
     if (room && !room.builtIn && room.access === "open" && user && !room.members.includes(user.id)) { room.members.push(user.id); await saveRoom(this.env, room); }
     if (roomId !== "__notify") {
-      server.send(JSON.stringify({ type: "history", messages: this.history(roomId), online: this.clientsIn(roomId).length, users: this.presenceUsers(roomId) }));
+      server.send(JSON.stringify({ type: "history", messages: this.history(roomId), online: this.roomOnlineCount(roomId), users: this.presenceUsers(roomId) }));
       this.broadcastPresence(roomId);
     }
     this.broadcastRoomOnline(roomId);
@@ -283,7 +284,7 @@ export class ChatHub {
       if (kind === "image" || kind === "voice") { if (!(target.dmMediaGranted || []).includes(user.id)) return; content = safeUploadUrl(content); }
       else content = content.slice(0, 500);
       if (!content) return;
-      const payload = { type: "dm", from: publicUser(user), to: target.id, kind, content, at: Date.now() }, text = JSON.stringify(payload);
+      const payload = { type: "dm", id: crypto.randomUUID(), from: publicUser(user), to: target.id, kind, content, at: Date.now() }, text = JSON.stringify(payload);
       for (const peer of this.sockets()) { const id = attachment(peer).userId; if (id === target.id || id === user.id) { try { peer.send(text); } catch {} } }
       // Only when the recipient has no socket open: a tab that is already showing the message does
       // not need a notification about it.
@@ -556,7 +557,7 @@ export class ChatHub {
       const user = await this.sessionUser(request);
       if (!user) return json(401, { error: "Sign in first." });
       const counts = {};
-      for (const room of this.rooms) counts[room.id] = this.clientsIn(room.id).length;
+      for (const room of this.rooms) counts[room.id] = this.roomOnlineCount(room.id);
       return json(200, { online: counts });
     }
 
