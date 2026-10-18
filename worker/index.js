@@ -4,7 +4,7 @@ import { IMAGE_TYPES, AUDIO_TYPES, matchesMediaType, UPLOAD_CONTENT_TYPES } from
 
 export { ChatHub } from "./hub.js";
 
-const CLIENT_VERSION = "55";
+const CLIENT_VERSION = "56";
 const UPLOAD_NAME = /^[a-f0-9-]{36}\.(jpg|png|gif|webp|webm|mp4|m4a|ogg)$/;
 const PAGE_ROUTES = [/^\/$/, /^\/index\.html$/, /^\/rooms$/, /^\/dms$/, /^\/explore$/, /^\/room\/[^/]+$/, /^\/profile\/[^/]+$/];
 const notFound = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
