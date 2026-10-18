@@ -134,6 +134,24 @@ async function main() {
   const duplicateEmail = await post("/api/auth/email/signup", { username: `${USERNAME}_other`, email: emailAddress, password: firstPassword, age: 26, adultConfirmed: true });
   ok("an email cannot be linked twice", duplicateEmail.status === 400, `status ${duplicateEmail.status}`);
 
+  const linkedEmail = `existing-${stamp}@chatblink.test`, linkedPassword = "existing-account-password-42";
+  const emailStatusBefore = await fetch(`${BASE}/api/account/email`, { headers: { Cookie: cookie } }), emailStatusBeforeBody = await emailStatusBefore.json();
+  ok("profile-key accounts start without an email", emailStatusBefore.status === 200 && !emailStatusBeforeBody.linked && !emailStatusBeforeBody.email, JSON.stringify(emailStatusBeforeBody));
+  const linkEmail = await post("/api/account/email", { email: linkedEmail, password: linkedPassword }, cookie), linkEmailBody = await linkEmail.json();
+  ok("an existing account can request email sign-in", linkEmail.status === 202 && typeof linkEmailBody.verificationToken === "string", `status ${linkEmail.status} ${JSON.stringify(linkEmailBody)}`);
+  const pendingEmailStatus = await fetch(`${BASE}/api/account/email`, { headers: { Cookie: cookie } }), pendingEmailStatusBody = await pendingEmailStatus.json();
+  ok("the profile reports email verification as pending", pendingEmailStatus.status === 200 && !pendingEmailStatusBody.linked && pendingEmailStatusBody.pendingEmail === linkedEmail, JSON.stringify(pendingEmailStatusBody));
+  const earlyLinkedLogin = await post("/api/auth/email/login", { email: linkedEmail, password: linkedPassword });
+  ok("a newly attached email cannot sign in before verification", earlyLinkedLogin.status === 401, `status ${earlyLinkedLogin.status}`);
+  const verifyLinkedEmail = await post("/api/auth/email/verify", { token: linkEmailBody.verificationToken }), verifyLinkedEmailBody = await verifyLinkedEmail.json();
+  ok("verification attaches email to the same account", verifyLinkedEmail.status === 200 && verifyLinkedEmailBody.user.id === account.user.id && !verifyLinkedEmailBody.profileKey, `status ${verifyLinkedEmail.status} ${JSON.stringify(verifyLinkedEmailBody)}`);
+  const reusedLinkedVerification = await post("/api/auth/email/verify", { token: linkEmailBody.verificationToken });
+  ok("attached-email verification links are one-use", reusedLinkedVerification.status === 400, `status ${reusedLinkedVerification.status}`);
+  const emailStatusAfter = await fetch(`${BASE}/api/account/email`, { headers: { Cookie: cookie } }), emailStatusAfterBody = await emailStatusAfter.json();
+  ok("the verified email is private account data", emailStatusAfter.status === 200 && emailStatusAfterBody.linked && emailStatusAfterBody.email === linkedEmail && !emailStatusAfterBody.pendingEmail, JSON.stringify(emailStatusAfterBody));
+  const linkedEmailLogin = await post("/api/auth/email/login", { email: linkedEmail, password: linkedPassword });
+  ok("the existing account can now sign in by email", linkedEmailLogin.status === 200 && (await linkedEmailLogin.json()).user.id === account.user.id, `status ${linkedEmailLogin.status}`);
+
   // Migration parity: a device token / entry link minted by the OLD Node server
   // (HMAC-SHA256 over the raw AUTH_SECRET bytes) must still authenticate here.
   const devVars = fs.existsSync(".dev.vars") ? fs.readFileSync(".dev.vars", "utf8") : "";

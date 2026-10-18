@@ -19,7 +19,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 - **Backend (legacy):** `server-multi-room.js` — the original single long-running Node process (plain `http` + `ws`). Still runnable locally with `npm start` for reference/parity checks, and still what Render serves until the cutover completes.
 - **Frontend:** one SPA in `public/` — `rooms.html` (shell + all views), `multi-room.js` (all client logic), `multi-room.css` (mobile-first styles), `profile-key.css` (setup/key screens). Vanilla JS, History-API routing (`/rooms`, `/room/<id>`, `/dms`, `/explore`, `/profile/<username>`), views are `<section>`s toggled via the `hidden` attribute.
 - **Storage layers (important):**
-  - **D1** (`schema.sql`): accounts (`users`), rooms (`rooms`), Web Push devices and room-alert subscriptions. Survives restarts and deploys, unlike the old JSON files.
+  - **D1** (`schema.sql`): accounts (`users`), verified email credentials and pending links, rooms (`rooms`), Web Push devices and room-alert subscriptions. Survives restarts and deploys, unlike the old JSON files.
   - **Durable Object SQLite**: room message history (latest 100/room). **This survives restarts — the old build lost history on every deploy.**
   - **Memory** (reset on restart, inside the Durable Object): sessions, rate-limit counters, presence. DM threads live in each browser's memory only.
   - **R2** (`chatblink-uploads`): uploaded photos and voice notes, served from `/uploads/<name>`.
@@ -27,7 +27,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 
 ## Features
 
-- **Entry:** new users can sign up with email/password (verification required) or create a key-only account. Email accounts receive a backup profile key after verification. Verified email login, one-use password-reset links, verification resend, session revocation after reset, and the original profile-key login all coexist.
+- **Entry:** new users can sign up with email/password (verification required) or create a key-only account. Email accounts receive a backup profile key after verification, while existing profile-key accounts can add verified email/password sign-in from profile editing without changing their account identity. Verified email login, one-use password-reset links, verification resend, session revocation after reset, and the original profile-key login all coexist.
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details. A bell beside GIF subscribes the account to room-entry alerts; incoming DMs notify every registered device even if Chatblink is open in a background tab.
@@ -58,6 +58,7 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 | `POST /api/auth/email/signup`, `/login`, `/verify`, `/forgot`, `/resend`, `/reset` | JSON equivalents for email authentication and recovery |
 | `POST /api/auth/logout` | Clears session and bumps `tokenVersion` (revokes device tokens) |
 | `GET /api/auth/me` | Current user |
+| `GET`, `POST /api/account/email` | Read the current account's private email status or send a verification link to add email/password sign-in |
 | `GET /api/users` | All users + `online` flag (DM page) |
 | `GET /api/explore?limit&q&cursor` | D1-backed profile directory, newest first |
 | `GET /api/profiles/:username` | Single profile + `online`/`isSelf` |
@@ -84,7 +85,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **62** (the legacy Node server injects the same number from its own copy).
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **63** (the legacy Node server injects the same number from its own copy).
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).
@@ -106,7 +107,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 npm run test:all
 ```
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 78 checks over HTTP + WebSockets, including verified email signup, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset and email-login flow at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server and drives the Worker handler directly.
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 86 checks over HTTP + WebSockets, including verified email signup, attaching email to an existing profile-key account, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset, email-login and profile email UI flows at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server and drives the Worker handler directly.
 
 To run a single suite by hand, start the Worker first (`npm run db:local` once, then `npm run dev:worker`) and point the suite at it:
 

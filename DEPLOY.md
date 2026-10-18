@@ -250,4 +250,4 @@ Email authentication sends transactional messages through Resend's HTTPS API. Pa
 4. Keep `EMAIL_FROM` in `wrangler.jsonc` on an address at that verified domain, then deploy.
 5. Run a real signup to an inbox you control and follow both the verification and forgot-password links.
 
-`email_credentials`, `pending_email_signups`, and `auth_tokens` are created by `schema.sql`; apply it remotely before deploying this code. `EMAIL_TEST_MODE=true` is only for local automation because it skips delivery and returns raw tokens in API responses. Never configure it in production.
+`email_credentials`, `pending_email_signups`, `pending_email_links`, and `auth_tokens` are created by `schema.sql`; apply it remotely before deploying this code. `EMAIL_TEST_MODE=true` is only for local automation because it skips delivery and returns raw tokens in API responses. Never configure it in production.

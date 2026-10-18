@@ -241,6 +241,16 @@ input,select,textarea{font-size:16px}
 .profile-head{display:flex;align-items:center;gap:12px;margin:12px 0 16px}
 .profile-head .avatar{width:48px;height:48px;font-size:21px;background:#eef2ff;border-radius:14px;display:grid;place-items:center}
 .profile-head small{display:block;color:#7e8799;margin-top:2px}
+.profile-account-head{justify-content:space-between}
+.profile-identity{display:flex;align-items:center;gap:12px;min-width:0}
+.profile-email-button{flex:none;border:1px solid #d7deea;background:#f4f7fb;color:#42516a;border-radius:10px;padding:9px 11px;font-size:11px;font-weight:800}
+.profile-email-panel{background:#f5f7fb;border:1px solid #e0e5ed;border-radius:14px;padding:14px;margin:-4px 0 14px}
+.profile-email-panel b,.profile-email-panel span,.profile-email-panel small{display:block}
+.profile-email-panel span{font-size:13px;font-weight:700;color:#303b50;margin-top:4px;overflow-wrap:anywhere}
+.profile-email-panel small{color:#788398;line-height:1.45;margin-top:4px}
+.profile-email-panel p{color:#6d788c;font-size:12px;line-height:1.45;margin:5px 0 10px}
+.profile-email-panel label{font-size:11px}
+.profile-email-panel .primary{margin-top:10px}
 .profile-grid{display:grid;grid-template-columns:1fr;gap:0 12px}
 .modal .avatar-choices{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .modal .avatar-choices span{width:auto;height:48px;font-size:22px;border-radius:12px;background:#fbfcff}
@@ -645,6 +655,10 @@ html[data-theme=dark] .theme-choices span{border-color:#162033;box-shadow:0 0 0 
 html[data-theme=dark] .theme-choices input:checked+span{box-shadow:0 0 0 2px #b4acff}
 html[data-theme=dark] .request-person,html[data-theme=dark] .online-person{border-color:#273348}
 html[data-theme=dark] .online-person button:not(.avatar),html[data-theme=dark] .photo-actions button{background:#1a2537;color:#b8c3d5}
+html[data-theme=dark] .profile-email-button{background:#1a2537;border-color:#344158;color:#d2dbea}
+html[data-theme=dark] .profile-email-panel{background:#111a29;border-color:#2d394d}
+html[data-theme=dark] .profile-email-panel span{color:#e1e7f1}
+html[data-theme=dark] .profile-email-panel small,html[data-theme=dark] .profile-email-panel p{color:#93a0b5}
 html[data-theme=dark] .secondary{background:#151e2d;border-color:#2d394d;color:#c6d0df}
 html[data-theme=dark] .modal code{background:#0c1527;border-color:#5367a8;color:#aec5ff}
 html[data-theme=dark] .menu-drop{background:#111a29;border-color:#2a374b;box-shadow:0 22px 60px #000a}

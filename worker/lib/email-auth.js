@@ -63,6 +63,11 @@ export async function sendVerificationEmail(env, email, username, rawToken, toke
   return sendEmail(env, { to: email, subject: "Verify your Chatblink email", html: emailFrame("Verify your email", `Hi ${username}, confirm this email to finish creating your Chatblink account. This link expires in 24 hours.`, href, "Verify email"), text: `Verify your Chatblink email: ${href}\n\nThis link expires in 24 hours.`, idempotencyKey: `verify-${tokenId}` });
 }
 
+export async function sendAccountEmailVerification(env, email, username, rawToken, tokenId) {
+  const origin = clean(env.PUBLIC_ORIGIN) || "https://chatblink.chat", href = `${origin}/verify-email?token=${encodeURIComponent(rawToken)}`;
+  return sendEmail(env, { to: email, subject: "Add email sign-in to Chatblink", html: emailFrame("Confirm your email", `Hi ${username}, confirm this address to add email and password sign-in to your existing Chatblink account. Your profile key will keep working. This link expires in 24 hours.`, href, "Confirm email"), text: `Confirm email sign-in for your Chatblink account: ${href}\n\nYour profile key will keep working. This link expires in 24 hours.`, idempotencyKey: `link-${tokenId}` });
+}
+
 export async function sendResetEmail(env, email, username, rawToken, tokenId) {
   const origin = clean(env.PUBLIC_ORIGIN) || "https://chatblink.chat", href = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
   return sendEmail(env, { to: email, subject: "Reset your Chatblink password", html: emailFrame("Reset your password", `Hi ${username}, use this secure link to choose a new Chatblink password. This link expires in one hour.`, href, "Reset password"), text: `Reset your Chatblink password: ${href}\n\nThis link expires in one hour.`, idempotencyKey: `reset-${tokenId}` });

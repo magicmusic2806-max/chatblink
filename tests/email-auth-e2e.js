@@ -36,8 +36,30 @@ const post = async (route, body) => { const response = await fetch(BASE + route,
     await Promise.all([page.waitForNavigation(), page.locator("#emailLoginForm").evaluate(form => form.requestSubmit())]);
     await page.locator("#appView:not([hidden])").waitFor();
     const loggedIn = await page.evaluate(() => !document.querySelector("#appView").hidden);
-    const pass = initial.email && initial.password && initial.keyTab && !initial.overflow && verified.app && verified.keySaved && resetTab === "login" && /password updated/i.test(resetNotice || "") && loggedIn;
-    console.log(JSON.stringify({ initial, verified, resetTab, resetNotice, loggedIn, screenshots: ["chatblink-email-signup-mobile.png", "chatblink-password-reset-mobile.png"], pass }));
+
+    const legacyUsername = `legacy_${stamp}`, legacyEmail = `legacy-${stamp}@browser.chatblink.test`, legacyPassword = "legacy-account-password-42";
+    const legacySignup = await post("/api/auth/signup", { username: legacyUsername, age: 27, adultConfirmed: true });
+    const sessionHeader = legacySignup.response.headers.get("set-cookie") || "", sessionMatch = sessionHeader.match(/nearby_session=([^;]+)/);
+    if (legacySignup.response.status !== 201 || !sessionMatch) throw new Error(`legacy signup failed: ${JSON.stringify(legacySignup.body)}`);
+    const legacyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await legacyContext.addCookies([{ name: "nearby_session", value: sessionMatch[1], url: BASE }]);
+    const legacyPage = await legacyContext.newPage();
+    await legacyPage.goto(BASE + "/rooms", { waitUntil: "domcontentloaded" });
+    await legacyPage.locator("#appView:not([hidden])").waitFor();
+    await legacyPage.locator('#roomsView [data-action="profile"]').click();
+    await legacyPage.locator("#profileModal:not([hidden])").waitFor();
+    await legacyPage.locator("#profileEmailButton", { hasText: "Add email" }).waitFor();
+    const addEmailLabel = await legacyPage.locator("#profileEmailButton").textContent();
+    await legacyPage.locator("#profileEmailButton").click();
+    await legacyPage.locator("#profileEmailPanel:not([hidden])").waitFor();
+    await legacyPage.locator("#profileEmailInput").fill(legacyEmail);
+    await legacyPage.locator("#profileEmailPassword").fill(legacyPassword);
+    const profileEmailUi = await legacyPage.evaluate(() => { const button = document.querySelector("#profileEmailButton").getBoundingClientRect(), identity = document.querySelector(".profile-identity").getBoundingClientRect(); return { addEmail: document.querySelector("#profileEmailButton").textContent.trim(), besideName: button.left >= identity.right - 1, emailField: Boolean(document.querySelector("#profileEmailInput")), passwordField: Boolean(document.querySelector("#profileEmailPassword")), overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth }; });
+    await legacyPage.screenshot({ path: path.join(os.tmpdir(), "chatblink-profile-add-email-mobile.png") });
+    await legacyContext.close();
+
+    const pass = initial.email && initial.password && initial.keyTab && !initial.overflow && verified.app && verified.keySaved && resetTab === "login" && /password updated/i.test(resetNotice || "") && loggedIn && /add email/i.test(addEmailLabel || "") && profileEmailUi.addEmail && profileEmailUi.besideName && profileEmailUi.emailField && profileEmailUi.passwordField && !profileEmailUi.overflow;
+    console.log(JSON.stringify({ initial, verified, resetTab, resetNotice, loggedIn, profileEmailUi, screenshots: ["chatblink-email-signup-mobile.png", "chatblink-password-reset-mobile.png", "chatblink-profile-add-email-mobile.png"], pass }));
     if (!pass) process.exitCode = 1;
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

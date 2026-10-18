@@ -80,6 +80,17 @@ CREATE TABLE IF NOT EXISTS pending_email_signups (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pending_email_signups_expires ON pending_email_signups (expires_at);
+CREATE TABLE IF NOT EXISTS pending_email_links (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
+  email_lower TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pending_email_links_expires ON pending_email_links (expires_at);
 CREATE TABLE IF NOT EXISTS auth_tokens (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
