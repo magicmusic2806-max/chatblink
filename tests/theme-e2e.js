@@ -5,7 +5,7 @@ const path = require("path"), os = require("os");
 const BASE = (process.argv[2] || "http://127.0.0.1:8799").replace(/\/$/, ""), stamp = Date.now().toString(36);
 const post = (route, body) => fetch(BASE + route, { method: "POST", headers: { "Content-Type": "application/json", Origin: BASE }, body: JSON.stringify(body) });
 const cookieOf = response => { const pair = response.headers.get("set-cookie").split(";")[0], index = pair.indexOf("="); return { name: pair.slice(0, index), value: pair.slice(index + 1), url: BASE }; };
-const themeState = page => page.evaluate(() => ({ theme: document.documentElement.dataset.theme, saved: localStorage.getItem("chatblink.theme"), meta: document.querySelector("#themeColor").content, label: document.querySelector("#themeToggleLabel").textContent, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth }));
+const themeState = page => page.evaluate(() => { const toggle = [...document.querySelectorAll("[data-theme-toggle]")].find(button => button.offsetParent); return { theme: document.documentElement.dataset.theme, saved: localStorage.getItem("chatblink.theme"), meta: document.querySelector("#themeColor").content, title: toggle?.title, placement: toggle?.closest(".top-actions") ? "top-actions" : "page-top", overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth }; });
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -16,7 +16,7 @@ const themeState = page => page.evaluate(() => ({ theme: document.documentElemen
     const firstVisit = await themeState(page);
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-theme-dark-auth-mobile.png") });
 
-    await page.locator("#themeToggle").click();
+    await page.locator("#authView [data-theme-toggle]").click();
     await page.waitForTimeout(350);
     const lightSelected = await themeState(page);
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -30,17 +30,17 @@ const themeState = page => page.evaluate(() => ({ theme: document.documentElemen
     await page.goto(BASE + "/rooms", { waitUntil: "domcontentloaded" });
     await page.locator("#roomsView:not([hidden])").waitFor();
     const appLight = await themeState(page);
-    await page.locator("#themeToggle").click();
+    await page.locator("#roomsView [data-theme-toggle]").click();
     await page.waitForTimeout(350);
     const appDark = await themeState(page);
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-theme-dark-rooms-mobile.png"), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-theme-dark-rooms-desktop.png"), fullPage: true });
 
-    const good = firstVisit.theme === "dark" && firstVisit.saved === null && firstVisit.meta === "#080d17" && firstVisit.label === "Light" && !firstVisit.overflow
-      && lightSelected.theme === "light" && lightSelected.saved === "light" && lightSelected.meta === "#f4f7fb" && lightSelected.label === "Dark"
+    const good = firstVisit.theme === "dark" && firstVisit.saved === null && firstVisit.meta === "#090a12" && firstVisit.title === "Switch to light mode" && firstVisit.placement === "page-top" && !firstVisit.overflow
+      && lightSelected.theme === "light" && lightSelected.saved === "light" && lightSelected.meta === "#f4f7fb" && lightSelected.title === "Switch to dark mode"
       && lightReloaded.theme === "light" && lightReloaded.saved === "light" && !lightReloaded.overflow
-      && appLight.theme === "light" && appDark.theme === "dark" && appDark.saved === "dark" && appDark.meta === "#080d17" && !appDark.overflow;
+      && appLight.theme === "light" && appLight.placement === "top-actions" && appDark.theme === "dark" && appDark.saved === "dark" && appDark.meta === "#090a12" && appDark.placement === "top-actions" && !appDark.overflow;
     console.log(JSON.stringify({ firstVisit, lightSelected, lightReloaded, appLight, appDark, screenshots: ["chatblink-theme-dark-auth-mobile.png", "chatblink-theme-light-auth-mobile.png", "chatblink-theme-dark-rooms-mobile.png", "chatblink-theme-dark-rooms-desktop.png"], pass: good }));
     if (!good) process.exitCode = 1;
   } finally { await browser.close(); }
