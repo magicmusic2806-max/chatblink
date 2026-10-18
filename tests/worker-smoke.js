@@ -150,6 +150,14 @@ async function main() {
   const roomId = createdBody.room && createdBody.room.id;
   ok("room creation returns 201", created.status === 201, `status ${created.status} ${JSON.stringify(createdBody)}`);
   ok("creator is flagged as owner", Boolean(roomId) && createdBody.room.isOwner === true);
+  const initialRoomSubscription = await fetch(`${BASE}/api/rooms/${roomId}/subscription`, { headers: { Cookie: cookie } }).then(response => response.json());
+  ok("room notifications start unsubscribed", initialRoomSubscription.subscribed === false);
+  const subscribedRoom = await post(`/api/rooms/${roomId}/subscription`, { subscribed: true }, cookie);
+  ok("a signed-in user can subscribe to room visits", subscribedRoom.status === 200 && (await subscribedRoom.json()).subscribed === true);
+  const persistedRoomSubscription = await fetch(`${BASE}/api/rooms/${roomId}/subscription`, { headers: { Cookie: cookie } }).then(response => response.json());
+  ok("room subscription persists in D1", persistedRoomSubscription.subscribed === true);
+  const anonymousRoomSubscription = await fetch(`${BASE}/api/rooms/${roomId}/subscription`);
+  ok("room subscription is private to signed-in users", anonymousRoomSubscription.status === 401, `status ${anonymousRoomSubscription.status}`);
   const tooShort = await post("/api/rooms", { name: "ab" }, cookie);
   ok("too-short room name is rejected", tooShort.status === 400, `status ${tooShort.status}`);
   const online = await fetch(`${BASE}/api/rooms/online`, { headers: { Cookie: cookie } });

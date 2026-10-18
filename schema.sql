@@ -43,3 +43,14 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions (user_id);
+
+-- A room subscription belongs to an account, while push_subscriptions above belongs to each
+-- browser/device. Joining the two lets a single room visit reach every registered device without
+-- duplicating the user's room preference per device.
+CREATE TABLE IF NOT EXISTS room_subscriptions (
+  user_id TEXT NOT NULL,
+  room_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, room_id)
+);
+CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id);

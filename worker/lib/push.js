@@ -55,6 +55,22 @@ export async function subscriptionsFor(env, userId) {
   return result.results || [];
 }
 
+export async function roomSubscription(env, userId, roomId) {
+  const row = await env.DB.prepare("SELECT 1 AS subscribed FROM room_subscriptions WHERE user_id = ? AND room_id = ? LIMIT 1").bind(userId, roomId).first();
+  return Boolean(row);
+}
+
+export async function setRoomSubscription(env, userId, roomId, subscribed) {
+  if (subscribed) await env.DB.prepare(`INSERT INTO room_subscriptions (user_id, room_id, created_at) VALUES (?,?,?)
+    ON CONFLICT(user_id, room_id) DO UPDATE SET created_at=excluded.created_at`).bind(userId, roomId, new Date().toISOString()).run();
+  else await env.DB.prepare("DELETE FROM room_subscriptions WHERE user_id = ? AND room_id = ?").bind(userId, roomId).run();
+}
+
+export async function removeRoomSubscriptions(env, { userId = null, roomId = null } = {}) {
+  if (userId) await env.DB.prepare("DELETE FROM room_subscriptions WHERE user_id = ?").bind(userId).run();
+  if (roomId) await env.DB.prepare("DELETE FROM room_subscriptions WHERE room_id = ?").bind(roomId).run();
+}
+
 /**
  * True when the push service accepted it. A 404/410 means the subscription is permanently gone -
  * the browser profile was wiped or the permission revoked - so the row is dropped rather than
@@ -82,6 +98,21 @@ export async function pushToUser(env, userId, message) {
   const rows = await subscriptionsFor(env, userId);
   const results = await Promise.all(rows.map(row => sendToSubscription(env, row, message)));
   return results.filter(Boolean).length;
+}
+
+/** Every registered device owned by a subscriber to this room, except the person entering it. */
+export async function pushToRoomSubscribers(env, roomId, excludedUserId, message, limit = BROADCAST_LIMIT) {
+  if (!pushConfigured(env)) return 0;
+  const result = await env.DB.prepare(`SELECT ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+    FROM push_subscriptions ps INNER JOIN room_subscriptions rs ON rs.user_id = ps.user_id
+    WHERE rs.room_id = ? AND rs.user_id <> ? LIMIT ?`).bind(roomId, excludedUserId, limit).all();
+  const rows = result.results || [];
+  let accepted = 0;
+  for (let index = 0; index < rows.length; index += BATCH) {
+    const results = await Promise.all(rows.slice(index, index + BATCH).map(row => sendToSubscription(env, row, message)));
+    accepted += results.filter(Boolean).length;
+  }
+  return accepted;
 }
 
 /**

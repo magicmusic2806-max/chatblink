@@ -43,9 +43,19 @@ const cookieOf = response => { const pair = response.headers.get("set-cookie").s
 
     await allow.click();
     await gate.waitFor({ state: "hidden", timeout: 15000 });
-    const flags = await page.evaluate(() => ({ enabled: localStorage.getItem("chatblink.pushEnabled"), prompted: localStorage.getItem("chatblink.pushPrompted") }));
-    const good = retryReady && rememberedTooEarly === null && failedConfigRequests === 1 && flags.enabled === "1" && flags.prompted === "1";
-    console.log(JSON.stringify({ retryReady, retryMessage: await note.textContent(), rememberedTooEarly, configAttempts, failedConfigRequests, flags, screenshot: "chatblink-push-retry-mobile.png", pass: good }));
+    const flags = await page.evaluate(() => ({ enabled: localStorage.getItem("chatblink.pushEnabled"), prompted: localStorage.getItem("chatblink.pushPrompted") })), retryMessage = await note.textContent();
+    await page.locator(".room-card:not(.create)").first().click();
+    const roomSubscribe = page.locator("#roomSubscribe");
+    await roomSubscribe.waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#roomSubscribe")?.textContent.includes("Subscribe"));
+    await roomSubscribe.click();
+    await page.waitForFunction(() => document.querySelector("#roomSubscribe")?.getAttribute("aria-pressed") === "true");
+    const subscribedText = await roomSubscribe.textContent(), subscribedRoomPath = new URL(page.url()).pathname;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.querySelector("#roomSubscribe")?.getAttribute("aria-pressed") === "true");
+    const persistedSubscription = await roomSubscribe.getAttribute("aria-pressed") === "true";
+    const good = retryReady && rememberedTooEarly === null && failedConfigRequests === 1 && flags.enabled === "1" && flags.prompted === "1" && subscribedText.includes("Subscribed") && persistedSubscription && subscribedRoomPath.startsWith("/room/");
+    console.log(JSON.stringify({ retryReady, retryMessage, rememberedTooEarly, configAttempts, failedConfigRequests, flags, subscribedText, persistedSubscription, subscribedRoomPath, screenshot: "chatblink-push-retry-mobile.png", pass: good }));
     if (!good) process.exitCode = 1;
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

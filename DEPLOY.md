@@ -235,6 +235,6 @@ Web Push needs a VAPID key pair, which is deliberately not in the repo. The publ
 
 - To set or rotate it, pipe the privateKey field of .wrangler/vapid.json into npx wrangler secret put VAPID_PRIVATE_KEY.
 - For local development put the same key in .dev.vars (gitignored). Without it pushEnabled is false and /api/config says so, and every send is skipped rather than failing.
-- push_subscriptions is created by schema.sql, so run npm run db:remote before deploying code that reads the table.
+- push_subscriptions and room_subscriptions are created by schema.sql, so run npm run db:remote before deploying code that reads either table.
 - CI deploys preserve existing secrets, so a redeploy cannot clear the VAPID key.
 - POST /api/push/test sends to the calling account own devices, which is the quickest way to check a phone or laptop.

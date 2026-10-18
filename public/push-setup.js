@@ -63,6 +63,18 @@
     return subscriptionPromise;
   }
 
+  async function ensure() {
+    if (!supported()) throw new Error("Notifications are not supported in this browser.");
+    const permission = Notification.permission === "granted" ? "granted" : await withTimeout(Notification.requestPermission(), 15000, "The browser permission prompt is still waiting. Choose Allow there, then try again.");
+    if (permission !== "granted") {
+      if (permission === "denied") setFlag("chatblink.pushPrompted", "1");
+      throw new Error(permission === "denied" ? "Notifications are blocked in this browser's settings." : "Notifications were not enabled. You can try again.");
+    }
+    await subscribe();
+    setFlag("chatblink.pushPrompted", "1");
+    return true;
+  }
+
   async function unsubscribe() {
     const reg = await register();
     const subscription = await reg.pushManager.getSubscription();
@@ -99,10 +111,7 @@
       allow.disabled = true; allow.textContent = "Turning on…";
       note.hidden = true; note.textContent = "";
       try {
-        const permission = Notification.permission === "granted" ? "granted" : await withTimeout(Notification.requestPermission(), 15000, "The browser permission prompt is still waiting. Choose Allow there, then try again.");
-        if (permission !== "granted") { if (permission === "denied") setFlag("chatblink.pushPrompted", "1"); fail(permission === "denied" ? "Notifications are blocked in this browser's settings." : "Notifications were not enabled. You can try again."); return; }
-        await subscribe();
-        setFlag("chatblink.pushPrompted", "1");
+        await ensure();
         note.hidden = false; note.textContent = "Notifications are on."; allow.textContent = "Notifications on ✓";
         setTimeout(closeGate, 450);
       } catch (error) { fail(error && error.message ? error.message : "Could not enable notifications here. Please try again."); }
@@ -127,6 +136,7 @@
   // prompt lands after the profile is created rather than before it.
   const insideApp = () => { const app = document.getElementById("appView"); return Boolean(app) && !app.hidden; };
   const check = () => { if (insideApp()) consider(); };
+  window.ChatblinkPush = { ensure, enabled: () => supported() && Notification.permission === "granted" && flag("chatblink.pushEnabled") === "1" };
   const start = () => {
     new MutationObserver(check).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"] });
     check();

@@ -2,7 +2,7 @@ import { BUILT_INS, ALL_EMOJIS, ALL_STICKERS, ALL_GIFS, roomMedia, safeUploadUrl
 import { clean, safeDecode, json, publicUser, profileDoc, parseCookies, ipOf, isSecure, sameOrigin, bearerToken, sessionCookie, readJson, constantTimeEqual } from "./lib/core.js";
 import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } from "./lib/crypto.js";
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
-import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, pushToUser, pushToAll, pushConfigured } from "./lib/push.js";
+import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, roomSubscription, setRoomSubscription, removeRoomSubscriptions, pushToUser, pushToRoomSubscribers, pushToAll, pushConfigured } from "./lib/push.js";
 
 const MAX_MESSAGES = 100;
 const TRIM_INTERVAL = 25;
@@ -39,6 +39,7 @@ export class ChatHub {
     this.pendingTrim = new Map();
     this.messageWindows = new Map();
     this.callWindows = new Map();
+    this.roomVisitNotices = new Map();
     this.daily = new Map();
     this.dailyDay = 0;
     this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
@@ -270,6 +271,7 @@ export class ChatHub {
     const user = await this.sessionUser(request);
     const room = roomId && this.findRoom(roomId);
     if (roomId !== "__notify" && (!user || !this.canEnter(room, user))) return new Response("Forbidden", { status: 403 });
+    const wasPresent = Boolean(user && room && this.clientsIn(roomId).some(socket => attachment(socket).userId === user.id));
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.serializeAttachment({ userId: user ? user.id : null, roomId, connectionId: crypto.randomUUID() });
@@ -281,6 +283,13 @@ export class ChatHub {
     }
     this.broadcastRoomOnline(roomId);
     if (user) this.broadcastUsersChanged();
+    if (user && room && !wasPresent) {
+      const visitKey = `${room.id}:${user.id}`, now = Date.now(), lastNotice = this.roomVisitNotices.get(visitKey) || 0;
+      if (now - lastNotice >= 5 * 60 * 1000) {
+        this.roomVisitNotices.set(visitKey, now);
+        this.background(pushToRoomSubscribers(this.env, room.id, user.id, { title: `${user.username} entered ${room.name}`, body: `Someone you may want to chat with is now in ${room.name}.`, url: `/room/${room.id}`, tag: `room-visit-${room.id}` }));
+      }
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -316,9 +325,9 @@ export class ChatHub {
       if (!content) return;
       const payload = { type: "dm", id: crypto.randomUUID(), from: publicUser(user), to: target.id, kind, content, at: Date.now() }, text = JSON.stringify(payload);
       for (const peer of this.sockets()) { const id = attachment(peer).userId; if (id === target.id || id === user.id) { try { peer.send(text); } catch {} } }
-      // Only when the recipient has no socket open: a tab that is already showing the message does
-      // not need a notification about it.
-      if (!this.onlineUserIds().has(target.id)) this.background(pushToUser(this.env, target.id, { title: `${user.username} sent you a message`, body: kind === "text" ? content.slice(0, 120) : kind === "image" ? "Sent you a photo" : "Sent you a voice note", url: "/dms", tag: `dm-${user.id}` }));
+      // A background tab still has a socket, so online presence is not proof that the recipient saw
+      // this DM. Always notify their registered devices; the conversation tag collapses repeats.
+      this.background(pushToUser(this.env, target.id, { title: `${user.username} sent you a message`, body: kind === "text" ? content.slice(0, 120) : kind === "image" ? "Sent you a photo" : "Sent you a voice note", url: "/dms", tag: `dm-${user.id}` }));
       return;
     }
     if (event.type !== "message") return;
@@ -501,6 +510,7 @@ export class ChatHub {
           this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
           this.pendingTrim.delete(room.id);
           await deleteRoom(this.env, room.id);
+          await removeRoomSubscriptions(this.env, { roomId: room.id });
           this.broadcastAll({ type: "room-deleted", roomId: room.id });
         }
         const touchedRooms = [];
@@ -512,6 +522,7 @@ export class ChatHub {
         for (const account of touched) await saveUser(this.env, account);
         for (const room of touchedRooms) await saveRoom(this.env, room);
         await deleteUser(this.env, target.id);
+        await removeRoomSubscriptions(this.env, { userId: target.id });
         for (const socket of this.sockets()) if (attachment(socket).userId === target.id) { this.send(socket, { type: "account-deleted" }); try { socket.close(1000, "account deleted"); } catch {} }
         this.broadcastAll({ type: "rooms-changed" });
         this.broadcastUsersChanged();
@@ -605,6 +616,20 @@ export class ChatHub {
     if (request.method !== "GET" && !sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
     if (path === "/api/rooms" && request.method === "GET") return json(200, { rooms: this.roomsView(user) });
 
+    const subscriptionMatch = path.match(/^\/api\/rooms\/([^/]+)\/subscription$/);
+    if (subscriptionMatch) {
+      const room = this.findRoom(subscriptionMatch[1]);
+      if (!room) return json(404, { error: "Room not found." });
+      if (!this.canEnter(room, user)) return json(403, { error: "Join this room before subscribing." });
+      if (request.method === "GET") return json(200, { subscribed: await roomSubscription(this.env, user.id, room.id) });
+      if (request.method === "POST") {
+        const body = await readJson(request).catch(() => ({})), subscribed = body.subscribed === true;
+        await setRoomSubscription(this.env, user.id, room.id, subscribed);
+        return json(200, { subscribed });
+      }
+      return json(405, { error: "Method not allowed." });
+    }
+
     const banMatch = path.match(/^\/api\/rooms\/([^/]+)\/bans(?:\/([^/]+))?$/);
     if (banMatch) {
       const room = this.findRoom(banMatch[1]);
@@ -681,6 +706,7 @@ export class ChatHub {
       this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
       this.pendingTrim.delete(room.id);
       await deleteRoom(this.env, room.id);
+      await removeRoomSubscriptions(this.env, { roomId: room.id });
       this.broadcastAll({ type: "room-deleted", roomId: room.id });
       this.broadcastAll({ type: "rooms-changed" });
       return json(200, { ok: true });
