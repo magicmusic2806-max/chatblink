@@ -34,6 +34,9 @@ input,select,textarea{font-size:16px}
 .form-error{color:#c33b55;background:#fff0f3;padding:10px 12px;border-radius:8px;font-size:13px;margin:12px 0}
 .switch{text-align:center!important;margin:20px 0 0!important;font-size:13px}
 .switch button{border:0;background:none;color:#5066dd;font-weight:800;padding:6px}
+.auth-notice{color:#126544;background:#e8f8f0;border:1px solid #c7ead8;padding:10px 12px;border-radius:9px;font-size:13px;line-height:1.4;margin:-10px 0 18px}
+.auth-links{display:flex;justify-content:space-between;gap:8px;margin-top:14px}
+.auth-links button{border:0;background:none;color:#5066dd;font-size:12px;font-weight:800;padding:7px 0}
 
 .app{height:100vh;height:100dvh;display:grid;grid-template-columns:minmax(0,1fr);overflow:hidden}
 .app>*{min-height:0}
@@ -563,6 +566,8 @@ html[data-theme=dark] .auth-pane>p,html[data-theme=dark] .consent{color:#9ba7ba}
 html[data-theme=dark] .auth-pane input,html[data-theme=dark] .modal input{background:#0b111d;border-color:#2c384c;color:#edf1f8}
 html[data-theme=dark] .auth-pane input:focus,html[data-theme=dark] .modal input:focus{background:#121522;border-color:#a78bfa;box-shadow:0 0 0 3px #a78bfa25}
 html[data-theme=dark] .form-error{color:#ff9eb0;background:#461b2a}
+html[data-theme=dark] .auth-notice{color:#83e5bd;background:#12352e;border-color:#235b4d}
+html[data-theme=dark] .auth-links button{color:#bda7ff}
 html[data-theme=dark] .setup-shell{background:radial-gradient(circle at 82% 8%,#12434a 0,transparent 31%),linear-gradient(145deg,#100d1b,#090a12 62%)}
 html[data-theme=dark] .setup-aside{background:radial-gradient(circle at 14% 12%,#6555dc 0,transparent 36%),radial-gradient(circle at 88% 85%,#087b8a 0,transparent 32%),linear-gradient(150deg,#171742,#080d17 70%)}
 html[data-theme=dark] .setup-card{background:#111827ed;border-color:#29364a;box-shadow:0 24px 70px #0008}

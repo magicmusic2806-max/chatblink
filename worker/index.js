@@ -1,12 +1,12 @@
-import { clean, escapeHtml, json, safeDecode, sameOrigin, isSecure, sessionCookie, readForm, base64ToBytes } from "./lib/core.js";
+import { clean, json, safeDecode, sameOrigin, isSecure, sessionCookie, readForm, base64ToBytes } from "./lib/core.js";
 import { SESSION_TTL_MS } from "./lib/crypto.js";
 import { IMAGE_TYPES, AUDIO_TYPES, matchesMediaType, UPLOAD_CONTENT_TYPES } from "./lib/catalog.js";
 
 export { ChatHub } from "./hub.js";
 
-const CLIENT_VERSION = "61";
+const CLIENT_VERSION = "62";
 const UPLOAD_NAME = /^[a-f0-9-]{36}\.(jpg|png|gif|webp|webm|mp4|m4a|ogg)$/;
-const PAGE_ROUTES = [/^\/$/, /^\/index\.html$/, /^\/rooms$/, /^\/dms$/, /^\/explore$/, /^\/room\/[^/]+$/, /^\/profile\/[^/]+$/];
+const PAGE_ROUTES = [/^\/$/, /^\/index\.html$/, /^\/rooms$/, /^\/dms$/, /^\/explore$/, /^\/room\/[^/]+$/, /^\/profile\/[^/]+$/, /^\/reset-password$/];
 const notFound = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
 const hubFor = env => env.HUB.get(env.HUB.idFromName("hub"));
@@ -45,10 +45,8 @@ async function servePage(request, env, url, user, token, newKey = null, extraHea
       .replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
       .replace('<script src="/multi-room.js"></script>', `<script>window.__NEARBY_USER__=${userBootstrap};window.__NEARBY_TOKEN__=${tokenBootstrap};${keyBootstrap}</script><script src="/multi-room.js?v=${CLIENT_VERSION}"></script><script src="/push-setup.js?v=${CLIENT_VERSION}"></script>`);
   } else {
-    const error = clean(url.searchParams.get("error"));
     output = output.replace('<main class="app" id="appView" hidden>', '<main class="app" id="appView">')
       .replace('<script src="/multi-room.js"></script>', `<script src="/multi-room.js?v=${CLIENT_VERSION}"></script><script src="/push-setup.js?v=${CLIENT_VERSION}"></script>`);
-    if (error && url.searchParams.get("mode") !== "signup") output = output.replace('<div class="form-error" id="loginError" hidden></div>', `<div class="form-error" id="loginError">${escapeHtml(error)}</div>`);
   }
   return new Response(output, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", ...extraHeaders } });
 }
@@ -115,6 +113,8 @@ export default {
 
     if ((request.headers.get("Upgrade") || "").toLowerCase() === "websocket") return hubFor(env).fetch(request);
 
+    if (path === "/verify-email" && request.method === "GET") return verifyEmail(request, env, url);
+
     if (path === "/api/upload" && request.method === "POST") return handleUpload(request, env);
 
     if (path.startsWith("/uploads/")) {
@@ -128,7 +128,7 @@ export default {
 
     if (path.startsWith("/api/")) return forward(env, request);
 
-    if (request.method === "POST" && (path === "/auth/login" || path === "/auth/signup" || path === "/enter")) return forwardForm(request, env, url);
+    if (request.method === "POST" && (path === "/auth/login" || path === "/auth/signup" || path === "/enter" || path.startsWith("/auth/email/"))) return forwardForm(request, env, url);
 
     if (PAGE_ROUTES.some(route => route.test(path))) {
       const auth = await session(env, request);
@@ -145,9 +145,18 @@ async function forwardForm(request, env, url) {
   const path = url.pathname;
   if (!sameOrigin(request)) return new Response("Request origin was rejected.", { status: 403 });
   const fields = await readForm(request);
-  const action = path === "/auth/signup" ? "signup" : path === "/auth/login" ? "login" : "enter";
-  if (action === "signup") fields.adultConfirmed = fields.adultConfirmed === "on";
+  const action = ({ "/auth/signup": "signup", "/auth/login": "login", "/auth/email/signup": "email-signup", "/auth/email/login": "email-login", "/auth/email/resend": "email-resend", "/auth/email/forgot": "email-forgot", "/auth/email/reset": "email-reset", "/enter": "enter" })[path];
+  if (!action) return notFound();
+  if (action === "signup" || action === "email-signup") fields.adultConfirmed = fields.adultConfirmed === "on";
   const result = await (await internal(env, "/__internal/auth", request, { action, fields })).json();
-  if (result.error) return Response.redirect(`${url.origin}/?mode=${action === "signup" ? "signup" : "login"}&error=${encodeURIComponent(result.error)}`, 303);
+  const mode = ({ signup: "key-signup", login: "key", "email-signup": "signup", "email-login": "login", "email-resend": "resend", "email-forgot": "forgot", "email-reset": "login", enter: "key" })[action];
+  if (result.error) return Response.redirect(`${url.origin}${action === "email-reset" ? "/reset-password" : "/"}?mode=${mode}&error=${encodeURIComponent(result.error)}${action === "email-reset" && fields.token ? `&token=${encodeURIComponent(fields.token)}` : ""}`, 303);
+  if (!result.user) return Response.redirect(`${url.origin}/?mode=${mode === "resend" || mode === "forgot" ? "login" : mode}&notice=${encodeURIComponent(result.notice || "Done.")}`, 303);
+  return servePage(request, env, url, result.user, result.token, result.profileKey || null, { "Set-Cookie": sessionCookie(result.token, Math.floor(SESSION_TTL_MS / 1000), isSecure(request)) });
+}
+
+async function verifyEmail(request, env, url) {
+  const result = await (await internal(env, "/__internal/auth", request, { action: "email-verify", fields: { token: clean(url.searchParams.get("token")) } })).json();
+  if (result.error) return Response.redirect(`${url.origin}/?mode=login&error=${encodeURIComponent(result.error)}`, 303);
   return servePage(request, env, url, result.user, result.token, result.profileKey || null, { "Set-Cookie": sessionCookie(result.token, Math.floor(SESSION_TTL_MS / 1000), isSecure(request)) });
 }

@@ -108,7 +108,8 @@ the log, rather than dying on a cryptic 401. To check the wiring after any chang
 whose `headSha` still equals `main` (`gh run view <id> --json headSha`) — never an older one, which would
 deploy stale code over the live site.
 
-The workflow deliberately leaves two things alone: **Worker secrets** (`AUTH_SECRET` stays on the
+The workflow deliberately leaves two things alone: **Worker secrets** (`AUTH_SECRET`, `RESEND_API_KEY`
+and `VAPID_PRIVATE_KEY` stay on the
 Worker where `npx wrangler secret put` put it, and deploys preserve it) and the **D1 schema**
 (`npm run db:remote` stays manual, so DDL never runs on an ordinary push).
 
@@ -186,7 +187,7 @@ redirect to the apex.
   `render.yaml` is reference only and nothing in this repo depends on it.
 - **Cache busting:** `CLIENT_VERSION` in `worker/index.js` is appended to `multi-room.js`
   automatically — bump it when you change client-side JS.
-- **Secrets:** `AUTH_SECRET` (required), `MIGRATE_TOKEN` (only while migrating). Manage with
+- **Secrets:** `AUTH_SECRET` (required), `RESEND_API_KEY` (email auth), `VAPID_PRIVATE_KEY` (push), and `MIGRATE_TOKEN` (only while migrating). Manage with
   `npx wrangler secret put <NAME>` / `npx wrangler secret delete <NAME>`. Locally they live
   in `.dev.vars`, which is gitignored.
 - **Logs:** `npx wrangler tail` streams production logs.
@@ -238,3 +239,15 @@ Web Push needs a VAPID key pair, which is deliberately not in the repo. The publ
 - push_subscriptions and room_subscriptions are created by schema.sql, so run npm run db:remote before deploying code that reads either table.
 - CI deploys preserve existing secrets, so a redeploy cannot clear the VAPID key.
 - POST /api/push/test sends to the calling account own devices, which is the quickest way to check a phone or laptop.
+
+## Email verification and password reset
+
+Email authentication sends transactional messages through Resend's HTTPS API. Passwords never leave the Worker in plaintext: D1 stores a per-user PBKDF2-SHA256 hash. Verification links expire after 24 hours; reset links expire after one hour and are one-use.
+
+1. Add `chatblink.chat` (or a dedicated sending subdomain) in Resend and publish the SPF/DKIM records it gives you in Cloudflare DNS.
+2. Wait for the domain's sending capability to show verified, then create a sending-only API key.
+3. Store the key without putting it in source: `npx wrangler secret put RESEND_API_KEY`.
+4. Keep `EMAIL_FROM` in `wrangler.jsonc` on an address at that verified domain, then deploy.
+5. Run a real signup to an inbox you control and follow both the verification and forgot-password links.
+
+`email_credentials`, `pending_email_signups`, and `auth_tokens` are created by `schema.sql`; apply it remotely before deploying this code. `EMAIL_TEST_MODE=true` is only for local automation because it skips delivery and returns raw tokens in API responses. Never configure it in production.

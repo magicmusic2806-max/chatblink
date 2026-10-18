@@ -27,7 +27,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 
 ## Features
 
-- **Entry:** the room selector loads first (`/rooms`); a join card asks username, age, 18+ confirmation — no email or password. Accounts get a profile key (`CHATBLINK-XXXX-XXXX-XXXX-XXXX-XXXX`, 20 chars) that signs in via the "Use a key" tab; API signups receive it directly.
+- **Entry:** new users can sign up with email/password (verification required) or create a key-only account. Email accounts receive a backup profile key after verification. Verified email login, one-use password-reset links, verification resend, session revocation after reset, and the original profile-key login all coexist.
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details. A bell beside GIF subscribes the account to room-entry alerts; incoming DMs notify every registered device even if Chatblink is open in a background tab.
@@ -39,11 +39,13 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `PORT` | no | Port to listen on (default `3100`) |
-| `NEARBY_DATA_DIR` | production | Absolute path for JSON state + uploads (Render disk: `/var/data`) |
-| `FIREBASE_SERVICE_ACCOUNT` | no | Base64 (or raw JSON) Firebase service-account key. Enables Firestore. Without it the app falls back to local user data for Explore. |
-| `MIGRATE_TOKEN` | no | When set, enables token-gated `GET /api/export` and `POST /api/restore` (used to move a deployment between hosts). Leave unset in normal operation. |
-| `GIPHY_API_KEY` | no | Legacy; the UI no longer calls GIPHY. |
+| `AUTH_SECRET` | production secret | Signs session/device tokens |
+| `RESEND_API_KEY` | email secret | Resend API key used only by the Worker for verification and reset messages |
+| `EMAIL_FROM` | email | Verified sender, default `Chatblink <account@chatblink.chat>` |
+| `PUBLIC_ORIGIN` | production | Absolute public origin used in email links and canonical URLs |
+| `VAPID_PRIVATE_KEY` | push secret | Encrypts Web Push messages |
+| `MIGRATE_TOKEN` | migration only | Enables the token-gated migration endpoint |
+| `EMAIL_TEST_MODE` | tests only | Skips delivery and exposes generated tokens to local automated tests; never set in production |
 
 ## REST API
 
@@ -52,6 +54,8 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 | Endpoint | Notes |
 |---|---|
 | `POST /auth/signup`, `POST /auth/login` | HTML form endpoints (redirect/serve the app) |
+| `POST /auth/email/signup`, `/login`, `/forgot`, `/resend`, `/reset` | Email-auth HTML forms; verification links use `GET /verify-email?token=...` |
+| `POST /api/auth/email/signup`, `/login`, `/verify`, `/forgot`, `/resend`, `/reset` | JSON equivalents for email authentication and recovery |
 | `POST /api/auth/logout` | Clears session and bumps `tokenVersion` (revokes device tokens) |
 | `GET /api/auth/me` | Current user |
 | `GET /api/users` | All users + `online` flag (DM page) |
@@ -80,7 +84,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **61** (the legacy Node server injects the same number from its own copy).
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **62** (the legacy Node server injects the same number from its own copy).
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).
@@ -88,7 +92,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 
 ## Secrets, migration, and the retired Firestore
 
-- **Worker secrets:** `AUTH_SECRET` (signs device tokens / entry links — set it to the contents of `data/auth-secret.txt` so links minted by the old host keep working) and `MIGRATE_TOKEN` (only while migrating). Set them with `npx wrangler secret put <NAME>`; locally they live in `.dev.vars`, which is gitignored.
+- **Worker secrets:** `AUTH_SECRET` signs device tokens / entry links, `RESEND_API_KEY` sends verification and reset emails, `VAPID_PRIVATE_KEY` encrypts push, and `MIGRATE_TOKEN` is only for migration. Set them with `npx wrangler secret put <NAME>`; locally they live in `.dev.vars`, which is gitignored.
 - **No longer needed:** `FIREBASE_SERVICE_ACCOUNT` (Firestore retired) and `GIPHY_API_KEY` (the UI no longer calls GIPHY, so `/api/config` returning null is expected and harmless).
 - **Profile keys do not depend on any secret** — they are plain SHA-256 hashes — so accounts migrated from the old host sign in with the same keys.
 - **Moving data in:** `node tools/migrate.js pull <oldUrl> <token>` copies `data/` off the old host, `node tools/migrate.js sql` regenerates `migration/seed.sql`, `npx wrangler d1 execute chatblink --remote --file=migration/seed.sql` loads it, and `node tools/migrate.js uploads` prints the R2 copy commands. See [DEPLOY.md](DEPLOY.md) for the exact order.
@@ -102,7 +106,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 npm run test:all
 ```
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 60 checks over HTTP + WebSockets (signup, cookie sessions, profile-key login, legacy device-token parity, rooms, live previews, calls, presence, history persistence, catalog validation, origin/authorization guards). `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server at all: it loads the Worker module and drives its `fetch` handler with synthetic URLs, because `wrangler dev` builds `request.url` from the custom domain in `wrangler.jsonc` rather than from the requested host — so the `www` → apex redirect can only be exercised that way, and the same redirect is asserted for real by `test:prod`.
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 78 checks over HTTP + WebSockets, including verified email signup, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset and email-login flow at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server and drives the Worker handler directly.
 
 To run a single suite by hand, start the Worker first (`npm run db:local` once, then `npm run dev:worker`) and point the suite at it:
 
@@ -154,6 +158,7 @@ worker/index.js             router: pages, assets, /api/*, /auth/*, /uploads/*
 worker/hub.js               ChatHub Durable Object — the whole live backend
 worker/lib/core.js          helpers (cookies, JSON, origin checks, base64)
 worker/lib/crypto.js        profile-key hashing + HMAC device tokens
+worker/lib/email-auth.js    password hashing, secure tokens + Resend delivery
 worker/lib/db.js            D1 access (users, rooms)
 worker/lib/catalog.js       built-in rooms, emoji/sticker/GIF catalog, media validation
 wrangler.jsonc              Cloudflare bindings (DO, D1, R2, assets, vars)

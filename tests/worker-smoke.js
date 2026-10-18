@@ -98,6 +98,42 @@ async function main() {
   const badKey = await post("/api/auth/login", { key: "not-a-real-key" });
   ok("bogus profile key is rejected", badKey.status === 401, `status ${badKey.status}`);
 
+  head("email authentication");
+  const emailUsername = `${USERNAME}_mail`, emailAddress = `${stamp}@chatblink.test`, firstPassword = "correct-horse-42", nextPassword = "new-correct-horse-84";
+  const emailSignup = await post("/api/auth/email/signup", { username: emailUsername, email: emailAddress, password: firstPassword, age: 26, adultConfirmed: true });
+  const emailSignupBody = await emailSignup.json();
+  ok("email signup waits for verification", emailSignup.status === 202 && typeof emailSignupBody.verificationToken === "string", `status ${emailSignup.status} ${JSON.stringify(emailSignupBody)}`);
+  const earlyEmailLogin = await post("/api/auth/email/login", { email: emailAddress, password: firstPassword });
+  const earlyEmailBody = await earlyEmailLogin.json();
+  ok("unverified email cannot sign in", earlyEmailLogin.status === 401 && /verify/i.test(earlyEmailBody.error || ""), JSON.stringify(earlyEmailBody));
+  const emailVerify = await post("/api/auth/email/verify", { token: emailSignupBody.verificationToken });
+  const emailVerifyBody = await emailVerify.json(), emailCookie = cookieOf(emailVerify);
+  ok("verification creates the account and backup profile key", emailVerify.status === 200 && emailVerifyBody.user.username === emailUsername && typeof emailVerifyBody.profileKey === "string" && /nearby_session=/.test(emailCookie), `status ${emailVerify.status} ${JSON.stringify(emailVerifyBody)}`);
+  const reusedVerification = await post("/api/auth/email/verify", { token: emailSignupBody.verificationToken });
+  ok("verification links are one-use", reusedVerification.status === 400, `status ${reusedVerification.status}`);
+  const emailLogin = await post("/api/auth/email/login", { email: emailAddress.toUpperCase(), password: firstPassword });
+  ok("verified email and password sign in case-insensitively", emailLogin.status === 200 && (await emailLogin.json()).user.username === emailUsername, `status ${emailLogin.status}`);
+  const unknownReset = await post("/api/auth/email/forgot", { email: `unknown-${stamp}@chatblink.test` });
+  const unknownResetBody = await unknownReset.json();
+  ok("forgot password does not reveal unknown addresses", unknownReset.status === 200 && !unknownResetBody.resetToken && /if that email/i.test(unknownResetBody.notice || ""), JSON.stringify(unknownResetBody));
+  const forgot = await post("/api/auth/email/forgot", { email: emailAddress });
+  const forgotBody = await forgot.json();
+  ok("verified account receives a one-hour reset token", forgot.status === 200 && typeof forgotBody.resetToken === "string", JSON.stringify(forgotBody));
+  const reset = await post("/api/auth/email/reset", { token: forgotBody.resetToken, password: nextPassword });
+  ok("password reset succeeds", reset.status === 200, `status ${reset.status}`);
+  const reusedReset = await post("/api/auth/email/reset", { token: forgotBody.resetToken, password: nextPassword });
+  ok("password reset links are one-use", reusedReset.status === 400, `status ${reusedReset.status}`);
+  const revokedEmailSession = await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: emailCookie } });
+  ok("password reset revokes existing sessions", revokedEmailSession.status === 401, `status ${revokedEmailSession.status}`);
+  const oldPasswordLogin = await post("/api/auth/email/login", { email: emailAddress, password: firstPassword });
+  ok("old password no longer works", oldPasswordLogin.status === 401, `status ${oldPasswordLogin.status}`);
+  const newPasswordLogin = await post("/api/auth/email/login", { email: emailAddress, password: nextPassword });
+  ok("new password signs in", newPasswordLogin.status === 200, `status ${newPasswordLogin.status}`);
+  const emailProfileKeyLogin = await post("/api/auth/login", { key: emailVerifyBody.profileKey });
+  ok("email accounts retain profile-key login", emailProfileKeyLogin.status === 200, `status ${emailProfileKeyLogin.status}`);
+  const duplicateEmail = await post("/api/auth/email/signup", { username: `${USERNAME}_other`, email: emailAddress, password: firstPassword, age: 26, adultConfirmed: true });
+  ok("an email cannot be linked twice", duplicateEmail.status === 400, `status ${duplicateEmail.status}`);
+
   // Migration parity: a device token / entry link minted by the OLD Node server
   // (HMAC-SHA256 over the raw AUTH_SECRET bytes) must still authenticate here.
   const devVars = fs.existsSync(".dev.vars") ? fs.readFileSync(".dev.vars", "utf8") : "";

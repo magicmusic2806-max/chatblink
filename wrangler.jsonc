@@ -57,7 +57,10 @@
     // matching private key is the Worker secret VAPID_PRIVATE_KEY (see worker/lib/push.js). The
     // subject must be a mailto: or https: URL - push services use it to contact the sender.
     "VAPID_PUBLIC_KEY": "BAX3a-gxqR-JdcIEnAAEUOHCa-vcI_kyUad0603DEK7pzexPv5BJLsxPN7uVL8a24xlMjJhFi-HhWQtIJrZPWPs",
-    "VAPID_SUBJECT": "mailto:hello@chatblink.chat"
+    "VAPID_SUBJECT": "mailto:hello@chatblink.chat",
+    // Transactional sender for verification and password-reset messages. RESEND_API_KEY is a
+    // Worker secret; this address must belong to a sending domain verified in Resend first.
+    "EMAIL_FROM": "Chatblink <account@chatblink.chat>"
   },
   "observability": { "enabled": true }
 }
