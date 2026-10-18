@@ -1,4 +1,8 @@
 const $=selector=>document.querySelector(selector);
+const THEME_KEY="chatblink.theme";
+function applyTheme(theme,remember=false){const light=theme==="light";document.documentElement.dataset.theme=light?"light":"dark";document.documentElement.style.colorScheme=light?"light":"dark";$("#themeColor").content=light?"#f4f7fb":"#080d17";$("#themeToggleIcon").textContent=light?"☾":"☀";$("#themeToggleLabel").textContent=light?"Dark":"Light";$("#themeToggle").title=`Switch to ${light?"dark":"light"} mode`;$("#themeToggle").setAttribute("aria-label",`Switch to ${light?"dark":"light"} mode`);if(remember)try{localStorage.setItem(THEME_KEY,light?"light":"dark")}catch{}}
+applyTheme(document.documentElement.dataset.theme==="light"?"light":"dark");
+$("#themeToggle").onclick=()=>applyTheme(document.documentElement.dataset.theme==="dark"?"light":"dark",true);
 let currentUser=null,rooms=[],currentRoom=null,socket=null,reconnectTimer=null,activeTool=null,authToken=null,pendingProfileKey=null,onlineUsers=[],profilePhoto="",dmTarget=null,recorder=null,recorderChunks=[],recorderStream=null,liveMessages=[],allUsers=[],roomBans=[],requestPoll=null,dmPermission=null,roomsPoll=null,dmsPoll=null,peopleQuery="",exploreCursor=null,exploreQuery="",exploreProfiles=[],exploreSearchTimer=null,profileTarget=null;
 const dmUnread=new Map();
 const seenDmIds=new Set();

@@ -31,6 +31,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details.
+- **Appearance:** a dark-first responsive theme covers entry, setup, rooms, chats, DMs, profiles and dialogs; the floating theme control switches to the original light palette and remembers the browser's choice.
 - **Moderation:** the account named `dynamic` (case-insensitive) is the admin — promoted at startup and at signup. Admin panel promotes/demotes mods and can delete an account outright (its rooms, bans, DM grants and sessions go with it). Mods and room creators can ban users per room; bans block that user's messages in that room only (they can still read and DM). Only the admin can ban mods. Role tags (ADMIN/MOD) render next to names.
 - **SEO:** `robots.txt`, `sitemap.xml`, per-page canonical URLs, Open Graph/JSON-LD, Google Search Console verification (meta tag + `googlee03d569365db2c0a.html`).
 
@@ -78,7 +79,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call 
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **48** (the legacy Node server injects the same number from its own copy).
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **49** (the legacy Node server injects the same number from its own copy).
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).
@@ -112,7 +113,7 @@ npm run test:worker        # or test:retention, test:canonical
 
 `tests/call-e2e.js` (`npm run test:calls`) drives two Chromium contexts with fake camera/microphone devices. It places and answers both a voice call and a video call, then verifies a connected WebRTC peer and remote media tracks on both sides. Start the local Worker on port `8799` before running it.
 
-`tests/room-design-e2e.js` (`npm run test:room-design`) creates a temporary room in Chromium, verifies consecutive-message grouping and the exact latest-three preview, and captures 390px mobile plus desktop screenshots. `tests/push-gate-e2e.js` (`npm run test:push-gate`) verifies that a failed notification setup restores a retryable button without suppressing the prompt, then completes registration on the retry at a 390px viewport. Start the local Worker on port `8799` before running either one.
+`tests/room-design-e2e.js` (`npm run test:room-design`) creates a temporary room in Chromium, verifies consecutive-message grouping and the exact latest-three preview, and captures 390px mobile plus desktop screenshots. `tests/push-gate-e2e.js` (`npm run test:push-gate`) verifies that a failed notification setup restores a retryable button without suppressing the prompt, then completes registration on the retry at a 390px viewport. `tests/theme-e2e.js` (`npm run test:theme`) verifies the dark default, persistent light toggle, mobile overflow and both responsive theme presentations. Start the local Worker on port `8799` before running these browser suites.
 
 ```powershell
 npm run test:prod                          # https://chatblink.chat

@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="en">
 <head>
- <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#101828">
+ <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" id="themeColor" content="#080d17">
+ <script>(()=>{let theme="dark";try{if(localStorage.getItem("chatblink.theme")==="light")theme="light"}catch{}document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;document.getElementById("themeColor").content=theme==="light"?"#f4f7fb":"#080d17"})()</script>
  <title>Chatblink — 18+ live chat rooms with real people</title>
  <meta name="description" content="Chatblink is an 18+ chat site with topic rooms, private messages, photos, voice notes, and peer-to-peer voice and video calls. No email or password needed; pick a name and jump in.">
  <meta name="robots" content="index,follow">
@@ -11,7 +12,7 @@
  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"Chatblink","url":"https://chatblink.chat/","description":"18+ chat rooms with topic-based communities, private messages, photos and voice notes."}</script>
  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
- <link rel="stylesheet" href="/multi-room.css?v=48"><link rel="stylesheet" href="/profile-key.css?v=48">
+ <link rel="stylesheet" href="/multi-room.css?v=49"><link rel="stylesheet" href="/profile-key.css?v=49">
 </head>
 <body>
  <main class="auth-shell" id="authView">
@@ -53,6 +54,7 @@
   <div class="modal-backdrop" id="confirmModal" hidden><section class="modal"><p class="kicker">PLEASE CONFIRM</p><h2 id="confirmTitle">Are you sure?</h2><p class="fineprint" id="confirmText">This cannot be undone.</p><div class="confirm-actions"><button type="button" class="secondary" id="confirmCancel">Cancel</button><button type="button" class="primary danger-primary" id="confirmOk">Delete</button></div></section></div>
   <div class="menu-drop" id="menuDrop" hidden><button data-menu="key">Profile key</button><button data-menu="profile">Profile</button><button data-menu="admin" hidden>Admin panel</button><button data-menu="logout">Log out</button></div>
  <div class="call-overlay" id="callOverlay" hidden><section class="call-card voice" id="callCard"><div class="call-stage"><video id="callRemoteVideo" autoplay playsinline></video><div class="call-identity"><span class="avatar" id="callAvatar">?</span><p class="call-kicker" id="callKind">VOICE CALL</p><h2 id="callName">Calling…</h2><p id="callStatus">Connecting securely…</p></div><video id="callLocalVideo" autoplay muted playsinline></video><span class="call-secure">🔒 Peer-to-peer</span></div><div class="call-incoming" id="callIncoming" hidden><button type="button" class="call-decline" id="callDecline"><span>✕</span>Decline</button><button type="button" class="call-accept" id="callAccept"><span>✓</span>Accept</button></div><div class="call-controls" id="callControls"><button type="button" id="callMute"><span>🎙</span><small>Mute</small></button><button type="button" id="callCamera"><span>📹</span><small>Camera</small></button><button type="button" class="call-hangup" id="callHangup"><span>☎</span><small>End</small></button></div></section></div>
+ <button type="button" class="theme-toggle" id="themeToggle"><span id="themeToggleIcon" aria-hidden="true">☀</span><b id="themeToggleLabel">Light</b></button>
  <div class="toast" id="toast"></div>
  <script src="/multi-room.js"></script>
 </body>

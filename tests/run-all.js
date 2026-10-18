@@ -19,7 +19,8 @@ const servers = [
   { port: 8799, vars: [], env: {}, suites: [
     { name: "smoke", file: "tests/worker-smoke.js" },
     { name: "retention", file: "tests/message-retention.js" },
-    { name: "push-gate", file: "tests/push-gate-e2e.js" }
+    { name: "push-gate", file: "tests/push-gate-e2e.js" },
+    { name: "theme", file: "tests/theme-e2e.js" }
   ] },
   { port: 8801, vars: ["MESSAGE_DAILY_CAP:25", "UPLOAD_DAILY_CAP:2"], env: { MESSAGE_DAILY_CAP: "25", UPLOAD_DAILY_CAP: "2" }, suites: [
     { name: "quotas", file: "tests/quota-caps.js" }
