@@ -585,6 +585,8 @@ html[data-theme=dark] .msg-meta{color:#7f8da3}
 html[data-theme=dark] .msg-meta b{color:#bac5d6}
 html[data-theme=dark] .bubble{background:linear-gradient(145deg,#1a1d2a,#151822);border-color:#333647;color:#eceaf3;box-shadow:0 7px 22px #0004}
 html[data-theme=dark] .me .bubble{background:linear-gradient(135deg,#9b78f5,#7138d2);border-color:transparent;color:#fff;box-shadow:0 9px 26px #5627a852}
+html[data-theme=dark] .bubble.text{background:transparent;border-color:transparent;color:#d9d7e2;box-shadow:none;padding:2px}
+html[data-theme=dark] .me .bubble.text{background:transparent;color:#c8b7ff;box-shadow:none}
 html[data-theme=dark] .bubble.sticker{background:#202044!important;border-color:#48417b;color:#c6bfff!important}
 html[data-theme=dark] .bubble.voice,html[data-theme=dark] .dm-message.voice{background:#192233!important}
 html[data-theme=dark] .composer-area{background:#10121ce8;border-color:#302f42;box-shadow:0 -14px 36px #0004}
@@ -616,6 +618,8 @@ html[data-theme=dark] .people-item.active,html[data-theme=dark] .people-item:hov
 html[data-theme=dark] .dm-chat-head,html[data-theme=dark] .dm-form,html[data-theme=dark] .dm-thread-item{border-color:#263248}
 html[data-theme=dark] .dm-message{background:#182233;color:#e1e8f2;box-shadow:0 5px 18px #0003}
 html[data-theme=dark] .dm-message.me{background:linear-gradient(135deg,#9b78f5,#7138d2);color:#fff}
+html[data-theme=dark] .dm-message:not(.image):not(.voice){background:transparent;color:#d9d7e2;box-shadow:none;padding:3px}
+html[data-theme=dark] .dm-message.me:not(.image):not(.voice){background:transparent;color:#c8b7ff;box-shadow:none}
 html[data-theme=dark] .dm-call-actions button,html[data-theme=dark] .dm-media{background:#182234;border-color:#2b394e;color:#b8b0ff}
 html[data-theme=dark] .dm-perm{background:#151e36;border-color:#293b64;color:#aebde0}
 html[data-theme=dark] .locked p,html[data-theme=dark] .dm-inbox-empty,html[data-theme=dark] .gallery-empty{color:#8996aa}

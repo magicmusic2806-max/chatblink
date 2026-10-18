@@ -7,6 +7,8 @@ const post = (route, body, cookie = "") => fetch(BASE + route, { method: "POST",
 const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
 
 (async () => {
+  const peerSignup = await post("/api/auth/signup", { username: `design_peer_${stamp}`, age: 24, adultConfirmed: true });
+  if (peerSignup.status !== 201) throw new Error(`peer signup failed: ${await peerSignup.text()}`);
   const signup = await post("/api/auth/signup", { username: `design_${stamp}`, age: 24, adultConfirmed: true }), cookie = cookieOf(signup);
   if (signup.status !== 201) throw new Error(`signup failed: ${await signup.text()}`);
   const created = await post("/api/rooms", { name: `Design ${stamp}`, vibe: "Browser design verification.", access: "open", theme: "forest" }, cookie), room = (await created.json()).room;
@@ -22,15 +24,22 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     for (let index = 1; index <= 4; index++) { await page.locator("#chatInput").fill(`Compact message ${index}`); await page.locator("#chatInput").press("Enter"); }
     await page.locator("#messageList .message").nth(3).waitFor();
     const compactCount = await page.locator("#messageList .message.compact").count();
+    const roomTextStyle = await page.locator("#messageList .bubble.text").first().evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, shadow: style.boxShadow }; });
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-room-dense-mobile.png") });
-    await page.locator('#chatPanel [data-action="rooms"]').click();
+    await page.locator('#chatPanel [data-action="dms"]').click();
+    const peer = page.locator("#peopleList .people-item", { hasText: `design_peer_${stamp}` }); await peer.waitFor(); await peer.click();
+    await page.locator("#dmInput").fill("Background-free DM text"); await page.locator("#dmInput").press("Enter");
+    const dmMessage = page.locator("#dmMessages .dm-message").last(); await dmMessage.waitFor();
+    const dmTextStyle = await dmMessage.evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, shadow: style.boxShadow }; });
+    await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-dm-clean-text-mobile.png") });
+    await page.locator('#dmsView [data-action="rooms"]').click();
     const card = page.locator(`#roomsGrid .room-card[data-room-id="${room.id}"]`); await card.waitFor();
     const preview = await card.locator(".rc-preview-line span").allTextContents();
     await card.scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-room-cards-mobile.png") });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-room-cards-desktop.png"), fullPage: true });
-    const good = compactCount === 3 && preview.length === 3 && preview[0] === "Compact message 2" && preview[2] === "Compact message 4";
-    console.log(JSON.stringify({ compactCount, preview, mobile: "chatblink-room-cards-mobile.png", desktop: "chatblink-room-cards-desktop.png", pass: good }));
+    const good = compactCount === 3 && roomTextStyle.background === "rgba(0, 0, 0, 0)" && roomTextStyle.shadow === "none" && dmTextStyle.background === "rgba(0, 0, 0, 0)" && dmTextStyle.shadow === "none" && preview.length === 3 && preview[0] === "Compact message 2" && preview[2] === "Compact message 4";
+    console.log(JSON.stringify({ compactCount, roomTextStyle, dmTextStyle, preview, mobile: "chatblink-room-cards-mobile.png", dm: "chatblink-dm-clean-text-mobile.png", desktop: "chatblink-room-cards-desktop.png", pass: good }));
     if (!good) process.exitCode = 1;
   } finally {
     await browser.close();
