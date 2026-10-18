@@ -151,6 +151,10 @@ async function main() {
   ok("the verified email is private account data", emailStatusAfter.status === 200 && emailStatusAfterBody.linked && emailStatusAfterBody.email === linkedEmail && !emailStatusAfterBody.pendingEmail, JSON.stringify(emailStatusAfterBody));
   const linkedEmailLogin = await post("/api/auth/email/login", { email: linkedEmail, password: linkedPassword });
   ok("the existing account can now sign in by email", linkedEmailLogin.status === 200 && (await linkedEmailLogin.json()).user.id === account.user.id, `status ${linkedEmailLogin.status}`);
+  const linkedProfile = await fetch(`${BASE}/api/profiles/${encodeURIComponent(USERNAME)}`, { headers: { Cookie: cookie } }), linkedProfileBody = await linkedProfile.json();
+  ok("email verification is marked only on the full profile", linkedProfile.status === 200 && linkedProfileBody.profile.emailVerified === true && !linkedProfileBody.profile.email, JSON.stringify(linkedProfileBody));
+  const publicUsers = await fetch(`${BASE}/api/users`, { headers: { Cookie: cookieOf(newPasswordLogin) } }), publicUsersBody = await publicUsers.json(), listedLinkedUser = (publicUsersBody.users || []).find(item => item.id === account.user.id);
+  ok("user lists expose no email verification badge or address", publicUsers.status === 200 && listedLinkedUser && !("emailVerified" in listedLinkedUser) && !("email" in listedLinkedUser), JSON.stringify(listedLinkedUser));
 
   // Migration parity: a device token / entry link minted by the OLD Node server
   // (HMAC-SHA256 over the raw AUTH_SECRET bytes) must still authenticate here.

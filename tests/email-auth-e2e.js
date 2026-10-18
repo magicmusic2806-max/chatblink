@@ -36,6 +36,10 @@ const post = async (route, body) => { const response = await fetch(BASE + route,
     await Promise.all([page.waitForNavigation(), page.locator("#emailLoginForm").evaluate(form => form.requestSubmit())]);
     await page.locator("#appView:not([hidden])").waitFor();
     const loggedIn = await page.evaluate(() => !document.querySelector("#appView").hidden);
+    await page.goto(`${BASE}/profile/${encodeURIComponent(username)}`, { waitUntil: "domcontentloaded" });
+    await page.locator("#profileView:not([hidden]) .email-verified-badge").waitFor();
+    const profileBadge = await page.evaluate(() => { const badges = [...document.querySelectorAll(".email-verified-badge")]; return { count: badges.length, inProfile: badges.length === 1 && Boolean(badges[0].closest("#profileView")), text: badges[0]?.textContent || "" }; });
+    await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-verified-profile-mobile.png") });
 
     const legacyUsername = `legacy_${stamp}`, legacyEmail = `legacy-${stamp}@browser.chatblink.test`, legacyPassword = "legacy-account-password-42";
     const legacySignup = await post("/api/auth/signup", { username: legacyUsername, age: 27, adultConfirmed: true });
@@ -58,8 +62,8 @@ const post = async (route, body) => { const response = await fetch(BASE + route,
     await legacyPage.screenshot({ path: path.join(os.tmpdir(), "chatblink-profile-add-email-mobile.png") });
     await legacyContext.close();
 
-    const pass = initial.email && initial.password && initial.keyTab && !initial.overflow && verified.app && verified.keySaved && resetTab === "login" && /password updated/i.test(resetNotice || "") && loggedIn && /add email/i.test(addEmailLabel || "") && profileEmailUi.addEmail && profileEmailUi.besideName && profileEmailUi.emailField && profileEmailUi.passwordField && !profileEmailUi.overflow;
-    console.log(JSON.stringify({ initial, verified, resetTab, resetNotice, loggedIn, profileEmailUi, screenshots: ["chatblink-email-signup-mobile.png", "chatblink-password-reset-mobile.png", "chatblink-profile-add-email-mobile.png"], pass }));
+    const pass = initial.email && initial.password && initial.keyTab && !initial.overflow && verified.app && verified.keySaved && resetTab === "login" && /password updated/i.test(resetNotice || "") && loggedIn && profileBadge.count === 1 && profileBadge.inProfile && /verified email/i.test(profileBadge.text) && /add email/i.test(addEmailLabel || "") && profileEmailUi.addEmail && profileEmailUi.besideName && profileEmailUi.emailField && profileEmailUi.passwordField && !profileEmailUi.overflow;
+    console.log(JSON.stringify({ initial, verified, resetTab, resetNotice, loggedIn, profileBadge, profileEmailUi, screenshots: ["chatblink-email-signup-mobile.png", "chatblink-password-reset-mobile.png", "chatblink-verified-profile-mobile.png", "chatblink-profile-add-email-mobile.png"], pass }));
     if (!pass) process.exitCode = 1;
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

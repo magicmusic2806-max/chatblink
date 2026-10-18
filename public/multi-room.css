@@ -315,6 +315,7 @@ input,select,textarea{font-size:16px}
 .secondary.danger{color:#c33b55;border-color:#f0c4ce}
 .role-tag{display:inline-block;border-radius:6px;padding:1px 5px;font-size:9px;font-weight:800;letter-spacing:.06em;margin-left:6px;vertical-align:middle}
 .role-tag.admin{background:#fff1d6;color:#9a5b00}
+.email-verified-badge{display:inline-flex;align-items:center;margin-left:8px;border-radius:999px;padding:3px 7px;background:#e9f7f0;color:#247a54!important;font-size:9px;font-weight:800;letter-spacing:.02em;vertical-align:middle;white-space:nowrap}
 .role-tag.mod{background:#e8f4ff;color:#1d6fb8}
 #bannedWrap{margin-top:18px}
 .online-ban{color:#c33b55!important}
@@ -659,6 +660,7 @@ html[data-theme=dark] .profile-email-button{background:#1a2537;border-color:#344
 html[data-theme=dark] .profile-email-panel{background:#111a29;border-color:#2d394d}
 html[data-theme=dark] .profile-email-panel span{color:#e1e7f1}
 html[data-theme=dark] .profile-email-panel small,html[data-theme=dark] .profile-email-panel p{color:#93a0b5}
+html[data-theme=dark] .email-verified-badge{background:#16372c;color:#83e0b4!important}
 html[data-theme=dark] .secondary{background:#151e2d;border-color:#2d394d;color:#c6d0df}
 html[data-theme=dark] .modal code{background:#0c1527;border-color:#5367a8;color:#aec5ff}
 html[data-theme=dark] .menu-drop{background:#111a29;border-color:#2a374b;box-shadow:0 22px 60px #000a}

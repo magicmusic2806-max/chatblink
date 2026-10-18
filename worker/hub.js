@@ -594,7 +594,8 @@ export class ChatHub {
       if (!user) return json(401, { error: "Sign in first." });
       const username = safeDecode(profileMatch[1]), account = username && this.userByUsernameLower(username.toLowerCase());
       if (!account) return json(404, { error: "Profile not found." });
-      return json(200, { profile: { ...profileDoc(account), online: this.onlineUserIds().has(account.id), isSelf: account.id === user.id } });
+      const emailVerified = Boolean(await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE user_id = ? LIMIT 1").bind(account.id).first());
+      return json(200, { profile: { ...profileDoc(account), online: this.onlineUserIds().has(account.id), isSelf: account.id === user.id, emailVerified } });
     }
 
     if (path.startsWith("/api/dm/permissions/")) {
