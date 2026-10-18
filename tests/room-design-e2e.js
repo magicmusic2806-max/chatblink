@@ -24,22 +24,22 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     for (let index = 1; index <= 4; index++) { await page.locator("#chatInput").fill(`Compact message ${index}`); await page.locator("#chatInput").press("Enter"); }
     await page.locator("#messageList .message").nth(3).waitFor();
     const compactCount = await page.locator("#messageList .message.compact").count();
-    const roomTextStyle = await page.locator("#messageList .bubble.text").first().evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, shadow: style.boxShadow }; });
+    const roomTextStyle = await page.locator("#messageList .bubble.text").first().evaluate(element => { const style = getComputedStyle(element), rect = element.getBoundingClientRect(); return { background: style.backgroundImage, color: style.color, left: Math.round(rect.left) }; });
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-room-dense-mobile.png") });
     await page.locator('#chatPanel [data-action="dms"]').click();
     const peer = page.locator("#peopleList .people-item", { hasText: `design_peer_${stamp}` }); await peer.waitFor(); await peer.click();
-    await page.locator("#dmInput").fill("Background-free DM text"); await page.locator("#dmInput").press("Enter");
+    await page.locator("#dmInput").fill("Left-aligned DM text"); await page.locator("#dmInput").press("Enter");
     const dmMessage = page.locator("#dmMessages .dm-message").last(); await dmMessage.waitFor();
-    const dmTextStyle = await dmMessage.evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, shadow: style.boxShadow }; });
-    await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-dm-clean-text-mobile.png") });
+    const dmTextStyle = await dmMessage.evaluate(element => { const style = getComputedStyle(element), rect = element.getBoundingClientRect(); return { background: style.backgroundImage, color: style.color, align: style.alignSelf, left: Math.round(rect.left) }; });
+    await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-dm-left-text-mobile.png") });
     await page.locator('#dmsView [data-action="rooms"]').click();
     const card = page.locator(`#roomsGrid .room-card[data-room-id="${room.id}"]`); await card.waitFor();
     const preview = await card.locator(".rc-preview-line span").allTextContents();
     await card.scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-room-cards-mobile.png") });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.screenshot({ path: path.join(os.tmpdir(), "chatblink-room-cards-desktop.png"), fullPage: true });
-    const good = compactCount === 3 && roomTextStyle.background === "rgba(0, 0, 0, 0)" && roomTextStyle.shadow === "none" && dmTextStyle.background === "rgba(0, 0, 0, 0)" && dmTextStyle.shadow === "none" && preview.length === 3 && preview[0] === "Compact message 2" && preview[2] === "Compact message 4";
-    console.log(JSON.stringify({ compactCount, roomTextStyle, dmTextStyle, preview, mobile: "chatblink-room-cards-mobile.png", dm: "chatblink-dm-clean-text-mobile.png", desktop: "chatblink-room-cards-desktop.png", pass: good }));
+    const good = compactCount === 3 && roomTextStyle.background.includes("linear-gradient") && roomTextStyle.color === "rgb(255, 255, 255)" && roomTextStyle.left < 100 && dmTextStyle.background.includes("linear-gradient") && dmTextStyle.color === "rgb(255, 255, 255)" && dmTextStyle.align === "flex-start" && dmTextStyle.left < 100 && preview.length === 3 && preview[0] === "Compact message 2" && preview[2] === "Compact message 4";
+    console.log(JSON.stringify({ compactCount, roomTextStyle, dmTextStyle, preview, mobile: "chatblink-room-cards-mobile.png", dm: "chatblink-dm-left-text-mobile.png", desktop: "chatblink-room-cards-desktop.png", pass: good }));
     if (!good) process.exitCode = 1;
   } finally {
     await browser.close();
