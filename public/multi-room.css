@@ -409,7 +409,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .bubble{border-color:#e6eaf1;box-shadow:0 7px 22px #24304b0a}
 .me .bubble{background:linear-gradient(135deg,#625df5,var(--brand-deep));box-shadow:0 9px 22px #4f46e526}
 .bubble.text{background:#287eaa;border-color:#287eaa;color:#fff;box-shadow:0 7px 22px #1d5c7d24}
-.me .bubble.text{background:#ccc3b7;border-color:#e9a15d;color:#2a1608;box-shadow:0 9px 22px #75421f2b}
+.me .bubble.text{background:#e6dcce;border-color:#e9a15d;color:#2a1608;box-shadow:0 9px 22px #75421f2b}
 .composer-area{background:#ffffffeb;border-color:#e3e8f1;backdrop-filter:blur(16px);box-shadow:0 -12px 32px #34405a0a}
 .composer{max-width:1040px;margin:0 auto;background:#f7f9fc;border-color:#dde3ec;box-shadow:0 4px 16px #24304b08}
 .composer:focus-within{background:#fff;box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent)}
@@ -450,7 +450,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .dm-message{border-radius:16px 16px 16px 5px;padding:9px 12px;background:#f0f3f8;color:#273247;box-shadow:0 4px 14px #24304b08}
 .dm-message.me{border-radius:16px 16px 5px 16px;background:linear-gradient(135deg,#625df5,var(--brand-deep));color:#fff}
 .dm-message:not(.image):not(.voice){background:#287eaa;color:#fff}
-.dm-message.me:not(.image):not(.voice){background:#ccc3b7;color:#2a1608}
+.dm-message.me:not(.image):not(.voice){background:#e6dcce;color:#2a1608}
 .dm-form{gap:6px;padding-top:8px;border-top:1px solid #edf0f5}
 .dm-form input{border-color:#dfe5ee;background:#f8fafc;border-radius:13px;padding:12px 14px}
 .dm-form input:focus{background:#fff;border-color:#8b8cf2;box-shadow:0 0 0 3px #6366f11c}
@@ -590,7 +590,7 @@ html[data-theme=dark] .msg-meta b{color:#bac5d6}
 html[data-theme=dark] .bubble{background:linear-gradient(145deg,#1a1d2a,#151822);border-color:#333647;color:#eceaf3;box-shadow:0 7px 22px #0004}
 html[data-theme=dark] .me .bubble{background:linear-gradient(135deg,#9b78f5,#7138d2);border-color:transparent;color:#fff;box-shadow:0 9px 26px #5627a852}
 html[data-theme=dark] .bubble.text{background:#287eaa;border-color:#287eaa;color:#fff;box-shadow:0 7px 22px #0004}
-html[data-theme=dark] .me .bubble.text{background:#ccc3b7;border-color:#e9a15d;color:#2a1608;box-shadow:0 9px 22px #0004}
+html[data-theme=dark] .me .bubble.text{background:#e6dcce;border-color:#e9a15d;color:#2a1608;box-shadow:0 9px 22px #0004}
 html[data-theme=dark] .bubble.sticker{background:#202044!important;border-color:#48417b;color:#c6bfff!important}
 html[data-theme=dark] .bubble.voice,html[data-theme=dark] .dm-message.voice{background:#192233!important}
 html[data-theme=dark] .composer-area{background:#10121ce8;border-color:#302f42;box-shadow:0 -14px 36px #0004}
@@ -623,7 +623,7 @@ html[data-theme=dark] .dm-chat-head,html[data-theme=dark] .dm-form,html[data-the
 html[data-theme=dark] .dm-message{background:#182233;color:#e1e8f2;box-shadow:0 5px 18px #0003}
 html[data-theme=dark] .dm-message.me{background:linear-gradient(135deg,#9b78f5,#7138d2);color:#fff}
 html[data-theme=dark] .dm-message:not(.image):not(.voice){background:#287eaa;color:#fff;box-shadow:0 5px 18px #0003}
-html[data-theme=dark] .dm-message.me:not(.image):not(.voice){background:#ccc3b7;color:#2a1608;box-shadow:0 7px 20px #0004}
+html[data-theme=dark] .dm-message.me:not(.image):not(.voice){background:#e6dcce;color:#2a1608;box-shadow:0 7px 20px #0004}
 html[data-theme=dark] .dm-call-actions button,html[data-theme=dark] .dm-media{background:#182234;border-color:#2b394e;color:#b8b0ff}
 html[data-theme=dark] .dm-perm{background:#151e36;border-color:#293b64;color:#aebde0}
 html[data-theme=dark] .locked p,html[data-theme=dark] .dm-inbox-empty,html[data-theme=dark] .gallery-empty{color:#8996aa}
