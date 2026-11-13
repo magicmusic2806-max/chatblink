@@ -45,7 +45,7 @@ const servers = [
 ];
 
 // No server and no port: these load the Worker module and call it in-process.
-const offline = [{ name: "canonical", file: "tests/canonical-host.js" }];
+const offline = [{ name: "canonical", file: "tests/canonical-host.js" }, { name: "schema", file: "tests/schema-parity.js" }];
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 

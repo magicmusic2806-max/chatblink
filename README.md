@@ -109,7 +109,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget, reactions and d
 npm run test:all
 ```
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 88 checks over HTTP + WebSockets, including verified email signup, attaching email to an existing profile-key account, profile-only verification badges, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset, email-login and profile email UI flows at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server and drives the Worker handler directly.
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 88 checks over HTTP + WebSockets, including verified email signup, attaching email to an existing profile-key account, profile-only verification badges, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset, email-login and profile email UI flows at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` and `tests/schema-parity.js` need no server: the first drives the Worker handler directly, the second fails if `schema.sql` and `worker/lib/schema.js` (the copy the Worker applies itself) drift apart.
 
 `tests/message-actions.js` covers reply, reactions and deletion over the room socket — quote snapshots, the fixed reaction set, toggle-off, refused deletions for a plain member, the creator and author paths, the empty preview on private room cards, and `/uploads` byte ranges. Its admin/mod section needs the one account the server auto-promotes (`dynamic`), which can only be created once per database, so it reports `SKIP` when that account already exists. The runner gives it its own server on port 8803 because signups are rate-limited per IP.
 
@@ -171,7 +171,8 @@ worker/lib/email-auth.js    password hashing, secure tokens + Resend delivery
 worker/lib/db.js            D1 access (users, rooms)
 worker/lib/catalog.js       built-in rooms, emoji/sticker/GIF catalog, media validation
 wrangler.jsonc              Cloudflare bindings (DO, D1, R2, assets, vars)
-schema.sql                  D1 tables
+schema.sql                  D1 tables (applied by the Worker itself, see worker/lib/schema.js)
+worker/lib/schema.js        the same DDL the Worker applies at Durable Object start
 migration/seed.sql          generated data seed for D1
 tools/migrate.js            pull data off an old host / emit seed.sql / R2 copy commands
 tools/extract-catalog.js    regenerates worker/lib/catalog.js from the client + server sources

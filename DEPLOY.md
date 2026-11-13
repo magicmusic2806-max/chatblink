@@ -111,7 +111,9 @@ deploy stale code over the live site.
 The workflow deliberately leaves two things alone: **Worker secrets** (`AUTH_SECRET`, `RESEND_API_KEY`
 and `VAPID_PRIVATE_KEY` stay on the
 Worker where `npx wrangler secret put` put it, and deploys preserve it) and the **D1 schema**
-(`npm run db:remote` stays manual, so DDL never runs on an ordinary push).
+(`npm run db:remote` is no longer required: the Worker applies `schema.sql` itself, from
+`worker/lib/schema.js`, once per `D1_SCHEMA_VERSION` at Durable Object start - `tests/schema-parity.js`
+keeps those two lists identical).
 
 Cloudflare's own **Workers Builds** (Workers & Pages → `chatblink` → Settings → Builds → connect the
 repository) does the same job with no token stored in GitHub, because it authenticates from inside the
@@ -250,4 +252,4 @@ Email authentication sends transactional messages through Resend's HTTPS API. Pa
 4. Keep `EMAIL_FROM` in `wrangler.jsonc` on an address at that verified domain, then deploy.
 5. Run a real signup to an inbox you control and follow both the verification and forgot-password links.
 
-`email_credentials`, `pending_email_signups`, `pending_email_links`, and `auth_tokens` are created by `schema.sql`; apply it remotely before deploying this code. `EMAIL_TEST_MODE=true` is only for local automation because it skips delivery and returns raw tokens in API responses. Never configure it in production.
+- `email_credentials`, `pending_email_signups`, `pending_email_links`, and `auth_tokens` are created by `schema.sql`. The Worker now applies the schema itself at Durable Object start (`worker/lib/schema.js`, once per `D1_SCHEMA_VERSION`), so this is no longer a manual step - production drifted once and every profile lookup answered 500 because `email_credentials` had never been created. `npm run db:remote` still works and is harmless. `EMAIL_TEST_MODE=true` is only for local automation because it skips delivery and returns raw tokens in API responses. Never configure it in production.

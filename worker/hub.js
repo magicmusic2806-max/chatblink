@@ -4,6 +4,7 @@ import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } f
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
 import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, roomSubscription, setRoomSubscription, removeRoomSubscriptions, pushToUser, pushToRoomSubscribers, pushToAll, pushConfigured } from "./lib/push.js";
 import { normalizeEmail, validPassword, hashPassword, verifyPassword, opaqueToken, tokenHash, verificationExpiry, resetExpiry, sendVerificationEmail, sendAccountEmailVerification, sendResetEmail } from "./lib/email-auth.js";
+import { D1_SCHEMA, D1_SCHEMA_VERSION } from "./lib/schema.js";
 
 const MAX_MESSAGES = 100;
 const TRIM_INTERVAL = 25;
@@ -70,8 +71,25 @@ export class ChatHub {
       this.migrateMessages();
       state.storage.sql.exec(MESSAGE_INDEX);
       state.storage.sql.exec(MESSAGE_ID_INDEX);
+      await this.migrateDatabase();
       await this.hydrate();
     });
+  }
+
+  // The D1 schema used to be applied by hand (`npm run db:remote`), and production drifted: tables a
+  // read path touched were never created, so every profile lookup answered 500. The Worker owns it
+  // now - one no-op batch per schema version, and a failure is logged rather than refusing to start,
+  // because a hub that cannot boot takes the whole chat down while a missing table only breaks the
+  // feature that needs it.
+  async migrateDatabase() {
+    try {
+      const applied = Number(await this.state.storage.get("d1SchemaVersion")) || 0;
+      if (applied >= D1_SCHEMA_VERSION) return;
+      await this.env.DB.batch(D1_SCHEMA.map(statement => this.env.DB.prepare(statement)));
+      await this.state.storage.put("d1SchemaVersion", D1_SCHEMA_VERSION);
+    } catch (error) {
+      console.error(`D1 schema check failed: ${error && error.message || error}`);
+    }
   }
 
   migrateMessages() {
@@ -737,7 +755,9 @@ export class ChatHub {
       if (!user) return json(401, { error: "Sign in first." });
       const username = safeDecode(profileMatch[1]), account = username && this.userByUsernameLower(username.toLowerCase());
       if (!account) return json(404, { error: "Profile not found." });
-      const emailVerified = Boolean(await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE user_id = ? LIMIT 1").bind(account.id).first());
+      // Viewing a profile must not depend on the email tables: the badge is optional, so a failure
+      // here means "no verified email", never a 500 for the whole page.
+      const emailVerified = await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE user_id = ? LIMIT 1").bind(account.id).first().then(Boolean).catch(() => false);
       return json(200, { profile: { ...profileDoc(account), online: this.onlineUserIds().has(account.id), isSelf: account.id === user.id, emailVerified } });
     }
 
