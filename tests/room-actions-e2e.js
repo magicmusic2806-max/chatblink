@@ -60,19 +60,31 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     const peerMessage = page.locator("#messageList .message:not(.me)", { hasText: "Peer message" });
     await peerMessage.waitFor();
 
+    // A grouped (compact) line from the same sender has to open its actions too: the toolbar used to
+    // live inside the meta row, and compact rows hide exactly that row.
+    peerSocket.send(JSON.stringify({ type: "message", kind: "text", content: "Peer follow-up" }));
+    const followUp = page.locator("#messageList .message.compact", { hasText: "Peer follow-up" });
+    await followUp.waitFor();
+    ok("a grouped line hides its meta row", await followUp.locator(".msg-meta").isHidden());
+    ok("a grouped line shows no interactions by default", await followUp.locator(".msg-tools").isHidden());
+    await followUp.click();
+    ok("a grouped line opens its interactions when tapped", await followUp.locator(".msg-tools").isVisible());
+    await followUp.click();
+
     /* ------------------------------------------------------------ reply */
     // Nothing is shown until the row itself is tapped: no hover reveal, no permanently visible icons.
     const rowOpen = () => peerMessage.evaluate(element => element.classList.contains("tools-open"));
-    const toolsOpacity = () => peerMessage.evaluate(element => getComputedStyle(element.querySelector(".msg-tools")).opacity);
-    ok("a message row shows no interactions by default", (await toolsOpacity()) === "0");
+    const toolsVisible = () => peerMessage.locator(".msg-tools").isVisible();
+    ok("a message row shows no interactions by default", (await toolsVisible()) === false);
     await peerMessage.click();
     ok("tapping the row opens its interactions", await rowOpen());
-    await page.waitForTimeout(200);
-    ok("and they become visible", (await toolsOpacity()) === "1");
+    ok("and they render as a visible row", await toolsVisible());
+    const replyBox = await peerMessage.locator('.msg-tool[title="Reply"]').boundingBox();
+    const bubbleBox = await peerMessage.locator(".bubble").boundingBox();
+    ok("the actions are big enough to tap", replyBox && replyBox.height >= 32 && replyBox.width >= 60, JSON.stringify(replyBox));
+    ok("the actions sit on a line below the message", replyBox && bubbleBox && replyBox.y >= bubbleBox.y + bubbleBox.height, JSON.stringify({ reply: replyBox?.y, bubbleBottom: bubbleBox && bubbleBox.y + bubbleBox.height }));
     await peerMessage.click();
-    ok("tapping it again closes them", (await rowOpen()) === false);
-    await page.waitForTimeout(200);
-    ok("and they disappear", (await toolsOpacity()) === "0");
+    ok("tapping it again closes them", (await toolsVisible()) === false);
     await peerMessage.click();
 
     await peerMessage.locator('.msg-tool[title="Reply"]').click();
@@ -84,7 +96,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     await quote.waitFor();
     ok("the sent message carries a quote of the original", (await quote.textContent()).includes("Peer message"), await quote.textContent());
     ok("the composer bar closes after sending", await page.locator("#replyBar").isHidden());
-    ok("the row closes itself once an action was taken", (await toolsOpacity()) === "0");
+    ok("the row closes itself once an action was taken", (await toolsVisible()) === false);
     await quote.click();
     await page.waitForTimeout(250);
     ok("clicking the quote highlights the original", (await peerMessage.getAttribute("class")).includes("flash"));

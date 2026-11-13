@@ -182,36 +182,25 @@ function reactionPicker(tools){
   article.querySelector(".msg-body").appendChild(picker);
 }
 function messageTools(message){
-  const tools=document.createElement("span");
+  const tools=document.createElement("div");
   tools.className="msg-tools";
-  const reply=document.createElement("button");
-  reply.type="button";
-  reply.className="msg-tool";
-  reply.title="Reply";
-  reply.setAttribute("aria-label","Reply");
-  reply.textContent="\u21A9";
-  reply.onclick=()=>{closeMessageTools();useReply(message)};
-  tools.appendChild(reply);
-  if(!message.deleted){
-    const react=document.createElement("button");
-    react.type="button";
-    react.className="msg-tool";
-    react.title="Add a reaction";
-    react.setAttribute("aria-label","Add a reaction");
-    react.textContent="\u263A";
-    react.onclick=()=>reactionPicker(tools);
-    tools.appendChild(react);
-  }
-  if(canDeleteMessage(message)){
-    const remove=document.createElement("button");
-    remove.type="button";
-    remove.className="msg-tool danger";
-    remove.title="Delete for everyone";
-    remove.setAttribute("aria-label","Delete for everyone");
-    remove.textContent="\uD83D\uDDD1";
-    remove.onclick=()=>{closeMessageTools();askDeleteMessage(message)};
-    tools.appendChild(remove);
-  }
+  const tool=(icon,label,title,onClick,extra)=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.className="msg-tool"+(extra?" "+extra:"");
+    button.title=title;
+    button.setAttribute("aria-label",title);
+    const face=document.createElement("span");
+    face.className="msg-tool-icon";
+    face.setAttribute("aria-hidden","true");
+    face.textContent=icon;
+    button.append(face,document.createTextNode(label));
+    button.onclick=onClick;
+    return button;
+  };
+  tools.appendChild(tool("\u21A9","Reply","Reply",()=>{closeMessageTools();useReply(message)}));
+  if(!message.deleted)tools.appendChild(tool("\u263A","React","Add a reaction",()=>reactionPicker(tools)));
+  if(canDeleteMessage(message))tools.appendChild(tool("\uD83D\uDDD1","Delete","Delete for everyone",()=>{closeMessageTools();askDeleteMessage(message)},"danger"));
   return tools;
 }
 function replyQuote(reply){
@@ -279,7 +268,9 @@ function buildMessage(message,compact){
   reactions.dataset.messageId=message.id||"";
   renderReactionChips(reactions,message.reactions||{});
   body.appendChild(reactions);
-  article.querySelector(".msg-meta").appendChild(messageTools(message));
+  // The actions get their own row under the message: the meta row is hidden on grouped messages, so
+  // anything living there could never be opened on a user's second consecutive line.
+  body.appendChild(messageTools(message));
   // The whole row is the target: avatar, name, bubble and timestamp all toggle the actions. Media
   // controls and the row's own buttons are excluded so playing a voice note or quoting a message
   // cannot also open the toolbar.
