@@ -36,6 +36,11 @@ const servers = [
   { port: 8805, vars: [], env: {}, suites: [
     { name: "room-actions", file: "tests/room-actions-e2e.js" },
     { name: "voice-note", file: "tests/voice-note-e2e.js" }
+  ] },
+  // Room calls: signaling over the socket, then a real two-browser mesh. Same rate-limit reason.
+  { port: 8807, vars: [], env: {}, suites: [
+    { name: "group-call", file: "tests/group-call.js" },
+    { name: "group-call-e2e", file: "tests/group-call-e2e.js" }
   ] }
 ];
 

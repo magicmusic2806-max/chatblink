@@ -200,7 +200,7 @@ async function main() {
   const roomsResponse = await fetch(`${BASE}/api/rooms`, { headers: { Cookie: cookie } });
   const { rooms } = await roomsResponse.json();
   ok("seven built-in rooms are present", Array.isArray(rooms) && rooms.filter(room => room.builtIn).length === 7, `got ${rooms && rooms.length}`);
-  ok("built-in rooms are marked enterable", rooms.every(room => room.canEnter === true));
+  ok("built-in rooms are marked enterable", rooms.every(room => room.canEnter === true || (room.access === "request" && !room.isOwner && !room.builtIn)), `not enterable: ${JSON.stringify(rooms.filter(room => !room.canEnter).map(room => ({ id: room.id, access: room.access })))}`);
 
   const roomName = `Smoke Room ${stamp}`;
   const created = await post("/api/rooms", { name: roomName, vibe: "Automated smoke test room.", access: "open", theme: "ocean" }, cookie);

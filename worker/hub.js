@@ -20,6 +20,10 @@ const MESSAGE_KINDS = ["text", "emoji", "sticker", "gif", "image", "voice"];
 const DM_KINDS = ["text", "image", "voice"];
 const CALL_TYPES = ["call-offer", "call-answer", "call-ice", "call-end", "call-reject", "call-busy"];
 const CALL_SIGNAL_LIMIT = 120;
+// A room call is a full peer-to-peer mesh: every participant connects to every other one, so the
+// ceiling is kept low enough that one device does not carry a dozen audio streams.
+const GROUP_CALL_TYPES = ["group-call-join", "group-call-leave", "group-call-offer", "group-call-answer", "group-call-ice"];
+const GROUP_CALL_MAX = 6;
 // The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
 // so a message can never accumulate arbitrary payload), and the client picker can be one short row.
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
@@ -56,6 +60,7 @@ export class ChatHub {
     this.messageWindows = new Map();
     this.callWindows = new Map();
     this.roomVisitNotices = new Map();
+    this.roomCalls = new Map();
     this.daily = new Map();
     this.dailyDay = 0;
     this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
@@ -446,6 +451,61 @@ export class ChatHub {
   }
   // Who may remove somebody else's message: the same actors who already moderate this room's bans.
   canModerate(room, user) { const role = user.role || "user"; return role === "admin" || role === "mod" || (Boolean(room.ownerId) && room.ownerId === user.id); }
+  /* ---------------------------------------------------- group room calls */
+  groupCallView(call) { return { callId: call.id, hostId: call.hostId, startedAt: call.startedAt, participants: call.participants.map(person => ({ id: person.id, username: person.username })) }; }
+  groupCallState(call) { return call ? { type: "group-call-state", active: true, ...this.groupCallView(call) } : { type: "group-call-state", active: false }; }
+  // Only sockets sitting in the room receive signaling, so a member's notification channel in
+  // another tab cannot answer for the tab that actually holds the microphone.
+  notifyRoomUsers(roomId, userIds, payload) { const text = JSON.stringify(payload); for (const socket of this.clientsIn(roomId)) if (userIds.includes(attachment(socket).userId)) { try { socket.send(text); } catch {} } }
+  leaveRoomCall(roomId, userId) {
+    const call = this.roomCalls.get(roomId);
+    if (!call || !call.participants.some(person => person.id === userId)) return;
+    call.participants = call.participants.filter(person => person.id !== userId);
+    if (!call.participants.length) { this.roomCalls.delete(roomId); this.broadcast(roomId, this.groupCallState(null)); return; }
+    // There is no separate host privilege to lose - the earliest remaining member just carries the label.
+    if (call.hostId === userId) call.hostId = call.participants[0].id;
+    this.broadcast(roomId, { type: "group-call-left", callId: call.id, userId });
+    this.broadcast(roomId, this.groupCallState(call));
+  }
+  groupCallSignal(socket, event, user, now) {
+    const room = this.findRoom(attachment(socket).roomId);
+    // Room calls exist only in request-only user rooms: those are the private, moderated spaces,
+    // and open or built-in rooms would let any stranger walk into a call.
+    if (!room || room.builtIn || room.access !== "request") return false;
+    if (Array.isArray(room.bans) && room.bans.includes(user.id)) return false;
+    if (this.callLimited(attachment(socket).connectionId || user.id, now)) return false;
+    if (event.type === "group-call-join") {
+      let call = this.roomCalls.get(room.id);
+      if (!call) { call = { id: crypto.randomUUID(), hostId: user.id, startedAt: Date.now(), participants: [] }; this.roomCalls.set(room.id, call); }
+      if (!call.participants.some(person => person.id === user.id)) {
+        if (call.participants.length >= GROUP_CALL_MAX) { this.send(socket, { type: "group-call-full", callId: call.id }); return true; }
+        call.participants.push({ id: user.id, username: user.username });
+      }
+      this.send(socket, { type: "group-call-joined", ...this.groupCallView(call), self: user.id });
+      this.broadcast(room.id, this.groupCallState(call));
+      return true;
+    }
+    const call = this.roomCalls.get(room.id);
+    if (!call) return true;
+    if (event.type === "group-call-leave") { this.leaveRoomCall(room.id, user.id); return true; }
+    if (call.id !== clean(event.callId).slice(0, 80)) return true;
+    if (!call.participants.some(person => person.id === user.id)) return true;
+    const target = call.participants.find(person => person.id === clean(event.to));
+    if (!target || target.id === user.id) return true;
+    const payload = { type: event.type, callId: call.id, from: user.id, to: target.id };
+    if (event.type === "group-call-ice") {
+      const candidate = event.candidate;
+      if (candidate !== null && (!candidate || typeof candidate !== "object" || clean(candidate.candidate).length > 4096)) return true;
+      payload.candidate = candidate === null ? null : { candidate: clean(candidate.candidate), sdpMid: candidate.sdpMid == null ? null : clean(candidate.sdpMid).slice(0, 64), sdpMLineIndex: Number.isInteger(candidate.sdpMLineIndex) ? candidate.sdpMLineIndex : null, usernameFragment: candidate.usernameFragment == null ? null : clean(candidate.usernameFragment).slice(0, 256) };
+    } else {
+      const description = event.sdp || {}, sdp = typeof description.sdp === "string" ? description.sdp : "";
+      const wanted = event.type === "group-call-offer" ? "offer" : "answer";
+      if (description.type !== wanted || !sdp.trim() || sdp.length > 50000) return true;
+      payload.sdp = { type: description.type, sdp };
+    }
+    this.notifyRoomUsers(room.id, [target.id], payload);
+    return true;
+  }
   addMessage(roomId, message) {
     const sql = this.state.storage.sql;
     sql.exec("INSERT INTO messages (room_id, id, user_id, username, role, photo, kind, content, created_at, reply_to, reply_username, reply_snippet, reactions, deleted_at, deleted_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'{}',NULL,NULL)", roomId, message.id, message.userId, message.username, message.role, message.photo, message.kind, message.content, message.createdAt, message.reply?.id || null, message.reply?.username || null, message.reply?.snippet || null);
@@ -476,6 +536,8 @@ export class ChatHub {
     if (room && !room.builtIn && room.access === "open" && user && !room.members.includes(user.id)) { room.members.push(user.id); await saveRoom(this.env, room); }
     if (roomId !== "__notify") {
       server.send(JSON.stringify({ type: "history", messages: this.history(roomId), online: this.roomOnlineCount(roomId), users: this.presenceUsers(roomId) }));
+      const call = this.roomCalls.get(roomId);
+      if (call) server.send(JSON.stringify(this.groupCallState(call)));
       this.broadcastPresence(roomId);
     }
     this.broadcastRoomOnline(roomId);
@@ -508,6 +570,9 @@ export class ChatHub {
       if (event.type === "call-answer" || event.type === "call-reject" || event.type === "call-busy") this.notifyUserExcept(user.id, socket, { type: "call-taken", callId });
       return;
     }
+    // Room-call signaling is relayed inside the room and counted against the call budget, not the
+    // message window, so a busy call cannot mute a member's chat.
+    if (GROUP_CALL_TYPES.includes(event.type)) { this.groupCallSignal(socket, event, user, now); return; }
     // Kept in memory: the attachment this used to live in cost a persisted write on every single
     // message, potentially doubling a message's row-write cost. Eviction only happens after ~10s
     // of quiet, already longer than the window, so a counter lost to it would have expired anyway.
@@ -579,7 +644,14 @@ export class ChatHub {
     if (meta.connectionId) this.messageWindows.delete(meta.connectionId);
     if (meta.connectionId) this.callWindows.delete(meta.connectionId);
     try { socket.close(1000, "closed"); } catch {}
-    if (meta.roomId && meta.roomId !== "__notify") { this.broadcastPresence(meta.roomId); this.broadcastRoomOnline(meta.roomId); }
+    if (meta.roomId && meta.roomId !== "__notify") {
+      // The call only loses this member when their last socket in the room goes; a second tab in the
+      // same room keeps them in the mesh.
+      const stillHere = this.sockets().some(other => other !== socket && attachment(other).roomId === meta.roomId && attachment(other).userId === meta.userId);
+      if (!stillHere && meta.userId) this.leaveRoomCall(meta.roomId, meta.userId);
+      this.broadcastPresence(meta.roomId);
+      this.broadcastRoomOnline(meta.roomId);
+    }
     if (meta.userId) this.broadcastUsersChanged();
   }
 
@@ -734,6 +806,7 @@ export class ChatHub {
           this.rooms = this.rooms.filter(item => item.id !== room.id);
           this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
           this.pendingTrim.delete(room.id);
+          this.roomCalls.delete(room.id);
           await deleteRoom(this.env, room.id);
           await removeRoomSubscriptions(this.env, { roomId: room.id });
           this.broadcastAll({ type: "room-deleted", roomId: room.id });
@@ -963,6 +1036,7 @@ export class ChatHub {
       this.rooms = this.rooms.filter(item => item.id !== room.id);
       this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
       this.pendingTrim.delete(room.id);
+      this.roomCalls.delete(room.id);
       await deleteRoom(this.env, room.id);
       await removeRoomSubscriptions(this.env, { roomId: room.id });
       this.broadcastAll({ type: "room-deleted", roomId: room.id });

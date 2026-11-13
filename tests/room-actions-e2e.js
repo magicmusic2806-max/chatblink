@@ -61,6 +61,20 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     await peerMessage.waitFor();
 
     /* ------------------------------------------------------------ reply */
+    // Nothing is shown until the row itself is tapped: no hover reveal, no permanently visible icons.
+    const rowOpen = () => peerMessage.evaluate(element => element.classList.contains("tools-open"));
+    const toolsOpacity = () => peerMessage.evaluate(element => getComputedStyle(element.querySelector(".msg-tools")).opacity);
+    ok("a message row shows no interactions by default", (await toolsOpacity()) === "0");
+    await peerMessage.click();
+    ok("tapping the row opens its interactions", await rowOpen());
+    await page.waitForTimeout(200);
+    ok("and they become visible", (await toolsOpacity()) === "1");
+    await peerMessage.click();
+    ok("tapping it again closes them", (await rowOpen()) === false);
+    await page.waitForTimeout(200);
+    ok("and they disappear", (await toolsOpacity()) === "0");
+    await peerMessage.click();
+
     await peerMessage.locator('.msg-tool[title="Reply"]').click();
     ok("choosing Reply opens the composer bar", await page.locator("#replyBar").isVisible());
     ok("the bar names the member being quoted", (await page.locator("#replyBarText").textContent()).includes(`ui_peer_${stamp}`));
@@ -70,6 +84,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     await quote.waitFor();
     ok("the sent message carries a quote of the original", (await quote.textContent()).includes("Peer message"), await quote.textContent());
     ok("the composer bar closes after sending", await page.locator("#replyBar").isHidden());
+    ok("the row closes itself once an action was taken", (await toolsOpacity()) === "0");
     await quote.click();
     await page.waitForTimeout(250);
     ok("clicking the quote highlights the original", (await peerMessage.getAttribute("class")).includes("flash"));
@@ -78,6 +93,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     ok("the quote travels to the other side as data", echoedReply?.message?.reply?.snippet === "Peer message" && echoedReply.message.reply.username === `ui_peer_${stamp}`, JSON.stringify(echoedReply?.message?.reply));
 
     /* -------------------------------------------------------- reactions */
+    await peerMessage.click();
     await peerMessage.locator('.msg-tool[title="Add a reaction"]').click();
     ok("the reaction picker opens", await peerMessage.locator(".reaction-picker").isVisible());
     ok("the picker offers exactly the six server reactions", (await peerMessage.locator(".reaction-picker button").count()) === 6);
@@ -90,6 +106,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     ok("the reaction is broadcast to the room", Boolean(reactionEvent) && reactionEvent.reactions["👍"].includes(owner.id), JSON.stringify(reactionEvent?.reactions));
 
     /* --------------------------------------------------------- deletion */
+    await peerMessage.click();
     const creatorTools = await peerMessage.locator(".msg-tool").count();
     ok("the room creator gets reply, react and delete on somebody else's message", creatorTools === 3, `tools ${creatorTools}`);
     ok("the delete control is offered to the creator", (await peerMessage.locator('.msg-tool[title="Delete for everyone"]').count()) === 1);
