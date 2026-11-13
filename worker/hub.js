@@ -20,13 +20,28 @@ const MESSAGE_KINDS = ["text", "emoji", "sticker", "gif", "image", "voice"];
 const DM_KINDS = ["text", "image", "voice"];
 const CALL_TYPES = ["call-offer", "call-answer", "call-ice", "call-end", "call-reject", "call-busy"];
 const CALL_SIGNAL_LIMIT = 120;
-const MESSAGE_TABLE = "CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, username TEXT, role TEXT, photo TEXT, kind TEXT, content TEXT, created_at INTEGER NOT NULL)";
+// The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
+// so a message can never accumulate arbitrary payload), and the client picker can be one short row.
+const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+const REACTION_USERS_MAX = 50;
+const REPLY_SNIPPET_MAX = 120;
+const MESSAGE_TABLE = "CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, username TEXT, role TEXT, photo TEXT, kind TEXT, content TEXT, created_at INTEGER NOT NULL, reply_to TEXT, reply_username TEXT, reply_snippet TEXT, reactions TEXT, deleted_at INTEGER, deleted_by TEXT)";
+// Columns added after the first release. A Durable Object that already holds rows keeps its table,
+// so CREATE TABLE IF NOT EXISTS does nothing there and these have to be ALTERed in one by one.
+const MESSAGE_LATER_COLUMNS = [["reply_to", "TEXT"], ["reply_username", "TEXT"], ["reply_snippet", "TEXT"], ["reactions", "TEXT"], ["deleted_at", "INTEGER"], ["deleted_by", "TEXT"]];
 const MESSAGE_INDEX = "CREATE INDEX IF NOT EXISTS messages_room ON messages (room_id, seq)";
+const MESSAGE_ID_INDEX = "CREATE INDEX IF NOT EXISTS messages_id ON messages (room_id, id)";
 const ROOM_PRESETS = { ocean: { accent: "#0284c7", soft: "#e7f7ff" }, sunset: { accent: "#f97316", soft: "#fff0e7" }, berry: { accent: "#d946ef", soft: "#fcecff" }, forest: { accent: "#16a34a", soft: "#eaf8ec" } };
 
 const attachment = socket => { try { return socket.deserializeAttachment() || {}; } catch { return {}; } };
 // 0 means "budget off", so only fall back when the var is absent or unparseable.
 const budget = (value, fallback) => { const parsed = Number(value); return value === undefined || value === null || value === "" || !Number.isFinite(parsed) || parsed < 0 ? fallback : parsed; };
+// Stored as a JSON object of emoji -> [userId,...]. Anything unparsable degrades to "no reactions"
+// rather than failing the read of a whole room's history.
+const reactionMap = value => { if (!value) return {}; try { const parsed = JSON.parse(value); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}; const clean = {}; for (const emoji of REACTIONS) if (Array.isArray(parsed[emoji])) clean[emoji] = parsed[emoji].filter(id => typeof id === "string").slice(0, REACTION_USERS_MAX); return clean; } catch { return {}; } };
+// What a reply quote shows for its parent. Denormalized on purpose: the parent can be trimmed out of
+// the room's retained history, and a quote that disappears with it would be worse than a snapshot.
+const replySnippet = message => { const kind = message.kind || "text"; if (kind === "image") return "📷 Photo"; if (kind === "voice") return "🎙 Voice note"; if (kind === "gif") return "GIF"; return String(message.content || "").replace(/\s+/g, " ").trim().slice(0, REPLY_SNIPPET_MAX); };
 
 const builtInRooms = () => BUILT_INS.map(room => ({ ...room, emojis: [...room.emojis], stickers: [...room.stickers], gifs: [...room.gifs], members: [], requests: [], bans: [] }));
 
@@ -47,9 +62,17 @@ export class ChatHub {
     this.uploadDailyCap = budget(env.UPLOAD_DAILY_CAP, UPLOAD_DAILY_CAP);
     state.blockConcurrencyWhile(async () => {
       state.storage.sql.exec(MESSAGE_TABLE);
+      this.migrateMessages();
       state.storage.sql.exec(MESSAGE_INDEX);
+      state.storage.sql.exec(MESSAGE_ID_INDEX);
       await this.hydrate();
     });
+  }
+
+  migrateMessages() {
+    const sql = this.state.storage.sql;
+    const existing = new Set(sql.exec("SELECT name FROM pragma_table_info('messages')").toArray().map(row => row.name));
+    for (const [name, type] of MESSAGE_LATER_COLUMNS) if (!existing.has(name)) sql.exec(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
   }
 
   async hydrate() {
@@ -366,11 +389,14 @@ export class ChatHub {
   }
   roomView(room, user, preview = []) {
     const media = roomMedia(room), enterable = this.canEnter(room, user);
-    return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: Boolean(room.builtIn), isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: enterable, requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: this.roomOnlineCount(room.id), preview: enterable ? preview : [], createdAt: room.createdAt };
+    // A request-only room is private by definition, so its card never carries recent messages - not
+    // even for the creator who is allowed in. Open rooms keep the three-line preview.
+    const previewable = enterable && room.access !== "request";
+    return { id: room.id, name: room.name, icon: room.icon, vibe: room.vibe, accent: room.accent, soft: room.soft, emojis: media.emojis, stickers: media.stickers, gifs: media.gifs, access: room.access, builtIn: Boolean(room.builtIn), isOwner: Boolean(user) && room.ownerId === user.id, banned: Boolean(user) && Array.isArray(room.bans) && room.bans.includes(user.id), canEnter: enterable, requestStatus: user && room.requests.includes(user.id) ? "pending" : null, pendingCount: user && room.ownerId === user.id ? room.requests.length : undefined, online: this.roomOnlineCount(room.id), preview: previewable ? preview : [], createdAt: room.createdAt };
   }
   roomPreviews() {
-    const previews = new Map(), rows = this.state.storage.sql.exec("SELECT room_id, id, username, kind, content, created_at FROM (SELECT room_id, id, username, kind, content, created_at, seq, ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY seq DESC) AS recent_rank FROM messages) WHERE recent_rank <= 3 ORDER BY room_id, seq").toArray();
-    for (const row of rows) { const list = previews.get(row.room_id) || []; list.push({ id: row.id, username: row.username, kind: row.kind, content: row.content, createdAt: row.created_at }); previews.set(row.room_id, list); }
+    const previews = new Map(), rows = this.state.storage.sql.exec("SELECT room_id, id, username, kind, content, created_at FROM (SELECT room_id, id, username, kind, content, created_at, seq, ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY seq DESC) AS recent_rank FROM messages WHERE deleted_at IS NULL) WHERE recent_rank <= 3 ORDER BY room_id, seq").toArray();
+    for (const row of rows) { const room = this.findRoom(row.room_id); if (!room || room.access === "request") continue; const list = previews.get(row.room_id) || []; list.push({ id: row.id, username: row.username, kind: row.kind, content: row.content, createdAt: row.created_at }); previews.set(row.room_id, list); }
     return previews;
   }
   roomsView(user) { const previews = this.roomPreviews(); return this.rooms.map(room => this.roomView(room, user, previews.get(room.id) || [])); }
@@ -385,7 +411,7 @@ export class ChatHub {
   notifyUser(userId, payload) { const text = JSON.stringify(payload); let sent = 0; for (const socket of this.sockets()) if (attachment(socket).userId === userId) { try { socket.send(text); sent++; } catch {} } return sent; }
   notifyUserExcept(userId, excluded, payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) if (socket !== excluded && attachment(socket).userId === userId) { try { socket.send(text); } catch {} } }
   broadcastAll(payload) { const text = JSON.stringify(payload); for (const socket of this.sockets()) { try { socket.send(text); } catch {} } }
-  broadcastRoomPreview(room, message) { const text = JSON.stringify({ type: "room-preview", roomId: room.id, message: { id: message.id, username: message.username, kind: message.kind, content: message.content, createdAt: message.createdAt } }); for (const socket of this.sockets()) { const user = this.userById(attachment(socket).userId); if (this.canEnter(room, user)) { try { socket.send(text); } catch {} } } }
+  broadcastRoomPreview(room, message) { if (room.access === "request") return; const text = JSON.stringify({ type: "room-preview", roomId: room.id, message: { id: message.id, username: message.username, kind: message.kind, content: message.content, createdAt: message.createdAt } }); for (const socket of this.sockets()) { const user = this.userById(attachment(socket).userId); if (this.canEnter(room, user)) { try { socket.send(text); } catch {} } } }
   broadcastRoomOnline(roomId) { if (roomId === "__notify" || !this.findRoom(roomId)) return; this.broadcastAll({ type: "room-online", roomId, online: this.roomOnlineCount(roomId) }); }
   broadcastUsersChanged() { const text = JSON.stringify({ type: "users-changed" }); for (const socket of this.sockets()) if (attachment(socket).userId) { try { socket.send(text); } catch {} } }
   onlineUserIds() { const ids = new Set(); for (const socket of this.sockets()) { const id = attachment(socket).userId; if (id) ids.add(id); } return ids; }
@@ -399,12 +425,30 @@ export class ChatHub {
     this.broadcastUsersChanged();
   }
   history(roomId) {
-    const rows = this.state.storage.sql.exec("SELECT id, user_id, username, role, photo, kind, content, created_at FROM messages WHERE room_id = ? ORDER BY seq DESC LIMIT ?", roomId, MAX_MESSAGES).toArray();
-    return rows.reverse().map(row => ({ id: row.id, userId: row.user_id, username: row.username, role: row.role, photo: row.photo, kind: row.kind, content: row.content, createdAt: row.created_at }));
+    const rows = this.state.storage.sql.exec("SELECT id, user_id, username, role, photo, kind, content, created_at, reply_to, reply_username, reply_snippet, reactions, deleted_at, deleted_by FROM messages WHERE room_id = ? ORDER BY seq DESC LIMIT ?", roomId, MAX_MESSAGES).toArray();
+    return rows.reverse().map(row => this.messageView(row));
   }
+  messageView(row) {
+    const deleted = Boolean(row.deleted_at);
+    return { id: row.id, userId: row.user_id, username: row.username, role: row.role, photo: row.photo, kind: row.kind, content: deleted ? "" : row.content, createdAt: row.created_at, deleted, deletedBy: row.deleted_by || null, reply: row.reply_to ? { id: row.reply_to, username: row.reply_username, snippet: row.reply_snippet } : null, reactions: deleted ? {} : reactionMap(row.reactions) };
+  }
+  messageRow(roomId, messageId) {
+    return this.state.storage.sql.exec("SELECT id, user_id, username, kind, content, reactions, deleted_at FROM messages WHERE room_id = ? AND id = ? LIMIT 1", roomId, messageId).toArray()[0] || null;
+  }
+  // A quote is resolved once, when the reply is sent: an unknown, foreign or removed parent simply
+  // makes the message a normal one instead of failing the send.
+  replyContext(roomId, value) {
+    const parentId = clean(value).slice(0, 64);
+    if (!parentId) return null;
+    const parent = this.messageRow(roomId, parentId);
+    if (!parent || parent.deleted_at) return null;
+    return { id: parent.id, username: parent.username, snippet: replySnippet(parent) };
+  }
+  // Who may remove somebody else's message: the same actors who already moderate this room's bans.
+  canModerate(room, user) { const role = user.role || "user"; return role === "admin" || role === "mod" || (Boolean(room.ownerId) && room.ownerId === user.id); }
   addMessage(roomId, message) {
     const sql = this.state.storage.sql;
-    sql.exec("INSERT INTO messages (room_id, id, user_id, username, role, photo, kind, content, created_at) VALUES (?,?,?,?,?,?,?,?,?)", roomId, message.id, message.userId, message.username, message.role, message.photo, message.kind, message.content, message.createdAt);
+    sql.exec("INSERT INTO messages (room_id, id, user_id, username, role, photo, kind, content, created_at, reply_to, reply_username, reply_snippet, reactions, deleted_at, deleted_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'{}',NULL,NULL)", roomId, message.id, message.userId, message.username, message.role, message.photo, message.kind, message.content, message.createdAt, message.reply?.id || null, message.reply?.username || null, message.reply?.snippet || null);
     // The retention DELETE rescans the room, so running it on every insert costs ~MAX_MESSAGES rows
     // read per message and burns through the Durable Object row-read quota long before the message
     // count itself matters. Run it once per TRIM_INTERVAL inserts instead, and always on the first
@@ -483,6 +527,33 @@ export class ChatHub {
       this.background(pushToUser(this.env, target.id, { title: `${user.username} sent you a message`, body: kind === "text" ? content.slice(0, 120) : kind === "image" ? "Sent you a photo" : "Sent you a voice note", url: "/dms", tag: `dm-${user.id}` }));
       return;
     }
+    if (event.type === "react") {
+      const room = this.findRoom(meta.roomId);
+      if (!room || (Array.isArray(room.bans) && room.bans.includes(user.id))) return;
+      const messageId = clean(event.messageId).slice(0, 64), emoji = clean(event.emoji);
+      if (!messageId || !REACTIONS.includes(emoji)) return;
+      const row = this.messageRow(meta.roomId, messageId);
+      if (!row || row.deleted_at) return;
+      const reactions = reactionMap(row.reactions), users = (reactions[emoji] || []).filter(id => id !== user.id), next = reactions[emoji] && reactions[emoji].includes(user.id) ? users : [...(reactions[emoji] || []), user.id].slice(0, REACTION_USERS_MAX);
+      if (next.length) reactions[emoji] = next; else delete reactions[emoji];
+      this.state.storage.sql.exec("UPDATE messages SET reactions = ? WHERE room_id = ? AND id = ?", JSON.stringify(reactions), meta.roomId, messageId);
+      this.broadcast(meta.roomId, { type: "message-reactions", messageId, reactions });
+      return;
+    }
+    if (event.type === "delete-message") {
+      const room = this.findRoom(meta.roomId);
+      if (!room) return;
+      const messageId = clean(event.messageId).slice(0, 64);
+      if (!messageId) return;
+      const row = this.messageRow(meta.roomId, messageId);
+      if (!row || row.deleted_at) return;
+      // Your own message, or somebody who moderates this room. Soft delete: the row stays so the
+      // reply quotes pointing at it keep resolving, but no content survives.
+      if (row.user_id !== user.id && !this.canModerate(room, user)) return;
+      this.state.storage.sql.exec("UPDATE messages SET deleted_at = ?, deleted_by = ?, content = '', reactions = '{}' WHERE room_id = ? AND id = ?", Date.now(), user.id, meta.roomId, messageId);
+      this.broadcast(meta.roomId, { type: "message-deleted", messageId, by: { id: user.id, username: user.username, role: user.role || "user" } });
+      return;
+    }
     if (event.type !== "message") return;
     const room = this.findRoom(meta.roomId);
     if (!room) return;
@@ -496,7 +567,7 @@ export class ChatHub {
     const media = roomMedia(room);
     if (kind === "emoji" && !media.emojis.includes(content)) return;
     if (kind === "sticker" && !media.stickers.includes(content)) return;
-    const message = { id: crypto.randomUUID(), userId: user.id, username: user.username, role: user.role || "user", photo: user.profile?.photo || null, kind, content, createdAt: Date.now() };
+    const message = { id: crypto.randomUUID(), userId: user.id, username: user.username, role: user.role || "user", photo: user.profile?.photo || null, kind, content, createdAt: Date.now(), reply: this.replyContext(meta.roomId, event.replyTo) };
     if (this.dailyLimited("message", user.id, this.messageDailyCap)) return;
     this.addMessage(meta.roomId, message);
     this.broadcast(meta.roomId, { type: "message", message });

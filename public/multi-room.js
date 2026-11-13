@@ -5,7 +5,8 @@ function roomPattern(room){if(BUILT_IN_PATTERNS[room.id])return BUILT_IN_PATTERN
 function applyTheme(theme,remember=false){const light=theme==="light",label=`Switch to ${light?"dark":"light"} mode`,icon=light?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.4 8.4 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';document.documentElement.dataset.theme=light?"light":"dark";document.documentElement.style.colorScheme=light?"light":"dark";$("#themeColor").content=light?"#f4f7fb":"#090a12";document.querySelectorAll("[data-theme-toggle]").forEach(button=>{button.title=label;button.setAttribute("aria-label",label);button.innerHTML=icon});if(remember)try{localStorage.setItem(THEME_KEY,light?"light":"dark")}catch{}}
 applyTheme(document.documentElement.dataset.theme==="light"?"light":"dark");
 document.addEventListener("click",event=>{if(event.target.closest("[data-theme-toggle]"))applyTheme(document.documentElement.dataset.theme==="dark"?"light":"dark",true)});
-let currentUser=null,rooms=[],currentRoom=null,socket=null,reconnectTimer=null,activeTool=null,authToken=null,pendingProfileKey=null,onlineUsers=[],profilePhoto="",dmTarget=null,recorder=null,recorderChunks=[],recorderStream=null,liveMessages=[],allUsers=[],roomBans=[],requestPoll=null,dmPermission=null,roomsPoll=null,dmsPoll=null,peopleQuery="",exploreCursor=null,exploreQuery="",exploreProfiles=[],exploreSearchTimer=null,profileTarget=null,roomSubscribed=false,subscriptionLoadId=0,accountEmailState=null;
+let currentUser=null,rooms=[],currentRoom=null,socket=null,reconnectTimer=null,activeTool=null,authToken=null,pendingProfileKey=null,onlineUsers=[],profilePhoto="",dmTarget=null,voice=null,replyTarget=null,liveMessages=[],allUsers=[],roomBans=[],requestPoll=null,dmPermission=null,roomsPoll=null,dmsPoll=null,peopleQuery="",exploreCursor=null,exploreQuery="",exploreProfiles=[],exploreSearchTimer=null,profileTarget=null,roomSubscribed=false,subscriptionLoadId=0,accountEmailState=null;
+const REACTIONS=["👍","❤️","😂","😮","😢","🔥"];
 const dmUnread=new Map();
 const seenDmIds=new Set();
 let currentCall=null,callTimer=null;
@@ -22,7 +23,7 @@ const rememberToken=token=>{authToken=token;try{localStorage.setItem("nearby_aut
 const forgetToken=()=>{authToken=null;try{localStorage.removeItem("nearby_auth_token")}catch{}};
 const rememberProfileKey=key=>{pendingProfileKey=key;try{localStorage.setItem("nearby_pending_profile_key",key)}catch{}};
 const forgetProfileKey=()=>{pendingProfileKey=null;try{localStorage.removeItem("nearby_pending_profile_key")}catch{}};
-const request=async(url,options={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);try{const response=await fetch(url,{credentials:"same-origin",...options,signal:controller.signal,headers:{"Content-Type":"application/json",...(authToken?{Authorization:`Bearer ${authToken}`}:{ }),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"Something went wrong.");return data}catch(problem){if(problem.name==="AbortError")throw new Error("The server took too long to respond. Please try again.");throw problem}finally{clearTimeout(timer)}};
+const request=async(url,options={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Number(options.timeoutMs)||12000);try{const response=await fetch(url,{credentials:"same-origin",...options,signal:controller.signal,headers:{"Content-Type":"application/json",...(authToken?{Authorization:`Bearer ${authToken}`}:{ }),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"Something went wrong.");return data}catch(problem){if(problem.name==="AbortError")throw new Error("The server took too long to respond. Please try again.");throw problem}finally{clearTimeout(timer)}};
 const initials=name=>String(name||"?").slice(0,2).toUpperCase();
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300)}
 function error(id,message){const el=$(id);el.textContent=message;el.hidden=!message}
@@ -59,11 +60,11 @@ function renderRoomSubscription(loading=false){const button=$("#roomSubscribe");
 async function loadRoomSubscription(room){const loadId=++subscriptionLoadId;roomSubscribed=false;renderRoomSubscription(true);if(!currentUser||!room.canEnter)return renderRoomSubscription(false);try{const result=await request(`/api/rooms/${encodeURIComponent(room.id)}/subscription`);if(loadId!==subscriptionLoadId||currentRoom?.id!==room.id)return;roomSubscribed=Boolean(result.subscribed)}catch{}finally{if(loadId===subscriptionLoadId&&currentRoom?.id===room.id)renderRoomSubscription(false)}}
 async function toggleRoomSubscription(){if(!currentUser||!currentRoom?.canEnter)return;const room=currentRoom,next=!roomSubscribed;renderRoomSubscription(true);try{if(next){if(!window.ChatblinkPush?.ensure)throw new Error("Notifications are still loading. Try again in a moment.");await window.ChatblinkPush.ensure()}const result=await request(`/api/rooms/${encodeURIComponent(room.id)}/subscription`,{method:"POST",body:JSON.stringify({subscribed:next})});if(currentRoom?.id!==room.id)return;roomSubscribed=Boolean(result.subscribed);toast(roomSubscribed?`Subscribed to ${room.name}`:`Room alerts turned off for ${room.name}`)}catch(problem){toast(problem.message||"Could not update this room subscription")}finally{if(currentRoom?.id===room.id)renderRoomSubscription(false)}}
 $("#roomSubscribe").onclick=toggleRoomSubscription;
-function selectRoom(room,mode="push"){if(!room)return;currentRoom=room;liveMessages=[];loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
+function selectRoom(room,mode="push"){if(!room)return;if(voice)stopVoiceNote(true);setReplyTarget(null);currentRoom=room;liveMessages=[];loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed})}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
-function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
-function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message)return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
+function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
+function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message||room.access==="request")return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
 async function refreshRoomsList(){try{await loadRooms();if(!$("#roomsView").hidden)renderRoomsGrid();if(currentRoom){const room=rooms.find(item=>item.id===currentRoom.id);if(room){currentRoom=room;$("#requestCount").textContent=room.pendingCount||0}}}catch{}}
 async function refreshUsers(){if(!currentUser)return;await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot();if(!$("#onlineModal").hidden)renderOnlineList();refreshMessageAvatars()}
 let notifySocket=null,notifyTimer=null,usersRefreshTimer=null;
@@ -81,8 +82,226 @@ function setAvatar(element,person){element.textContent="";const source=person||{
 function livePhotoFor(message){if(currentUser&&message.userId===currentUser.id)return (currentUser.profile&&currentUser.profile.photo)||null;const person=[...onlineUsers,...allUsers].find(item=>item.id===message.userId);return (person&&person.profile&&person.profile.photo)||message.photo||null}
 function refreshMessageAvatars(){document.querySelectorAll("#messageList .message").forEach(article=>{const userId=article.dataset.userId;if(!userId)return;const person=[...onlineUsers,...allUsers].find(item=>item.id===userId),avatar=article.querySelector(".msg-avatar");if(!person||!avatar)return;const photo=(person.profile&&person.profile.photo)||article.dataset.photo||"",hasImage=Boolean(avatar.querySelector("img"));if(photo&&!hasImage)setAvatar(avatar,{photo,username:person.username});else if(!photo&&hasImage)setAvatar(avatar,{username:person.username})})}
 function renderMessages(messages){const list=$("#messageList");list.innerHTML="";if(!messages.length){list.innerHTML='<div class="empty"><div><span>✦</span><h3>The room is quiet</h3><p>Start the first conversation.</p></div></div>';return}messages.forEach(appendMessage);list.scrollTop=list.scrollHeight}
-function appendMessage(message){const list=$("#messageList");list.querySelector(".empty")?.remove();const mine=message.username===currentUser?.username,sender=message.userId||message.username||"",createdAt=Number(message.createdAt)||Date.now(),previous=list.lastElementChild,compact=Boolean(previous?.classList.contains("message")&&previous.dataset.sender===sender&&createdAt-Number(previous.dataset.createdAt)<300000&&createdAt>=Number(previous.dataset.createdAt)),article=document.createElement("article");article.className=`message ${mine?"me":""}${compact?" compact":""}`;const time=new Intl.DateTimeFormat([],{hour:"numeric",minute:"2-digit"}).format(new Date(createdAt));article.innerHTML=`<span class="msg-avatar"></span><div class="msg-body"><div class="msg-meta"><b></b><time>${time}</time></div><div class="bubble"></div></div>`;setAvatar(article.querySelector(".msg-avatar"),{photo:livePhotoFor(message),username:message.username});const nameElement=article.querySelector(".msg-meta b");article.dataset.userId=message.userId||"";article.dataset.sender=sender;article.dataset.createdAt=String(createdAt);article.dataset.photo=message.photo||"";nameElement.textContent=message.username;colorUsername(nameElement,message.username);const messageTag=roleTagElement(message.role);if(messageTag)nameElement.after(messageTag);const bubble=article.querySelector(".bubble"),kind=message.kind||"text";bubble.classList.add(kind);if(kind==="gif"||kind==="image"){const image=document.createElement("img");image.src=message.content;image.alt=kind==="gif"?"Shared GIF":"Shared image";image.loading="lazy";image.referrerPolicy="no-referrer";bubble.appendChild(image)}else if(kind==="voice"){const audio=document.createElement("audio");audio.controls=true;audio.preload="metadata";audio.src=message.content;bubble.appendChild(audio)}else bubble.textContent=message.content??message.text;list.appendChild(article);while(list.querySelectorAll(".message").length>100)list.querySelector(".message").remove();list.scrollTop=list.scrollHeight}
-function send(kind,content){if(socket?.readyState!==WebSocket.OPEN)return toast("Reconnecting to this room…");socket.send(JSON.stringify({type:"message",kind,content}));closePicker()}
+/* --------------------------------------------------------- message actions */
+
+function compactWith(previous,message){
+  const sender=message.userId||message.username||"",createdAt=Number(message.createdAt)||Date.now();
+  return Boolean(previous&&previous.classList.contains("message")&&previous.dataset.sender===sender&&createdAt-Number(previous.dataset.createdAt)<300000&&createdAt>=Number(previous.dataset.createdAt));
+}
+function messageSnippet(message){
+  const kind=message&&message.kind||"text";
+  if(kind==="image")return "\uD83D\uDCF7 Photo";
+  if(kind==="voice")return "\uD83C\uDF99 Voice note";
+  if(kind==="gif")return "GIF";
+  return String(message&&message.content||"").replace(/\s+/g," ").trim().slice(0,120);
+}
+function canDeleteMessage(message){
+  if(!currentUser||!message||message.deleted)return false;
+  if(message.userId&&message.userId===currentUser.id)return true;
+  return canModerateRoom();
+}
+function messageById(messageId){return liveMessages.find(message=>message.id===messageId)||null}
+function articleFor(messageId){
+  const id=String(messageId||"");
+  if(!id)return null;
+  return document.querySelector(`#messageList .message[data-message-id="${window.CSS&&CSS.escape?CSS.escape(id):id.replace(/[^a-zA-Z0-9_-]/g,"")}"]`);
+}
+function renderReactionChips(row,reactions){
+  row.innerHTML="";
+  const mine=currentUser?currentUser.id:"";
+  Object.entries(reactions||{}).forEach(([emoji,users])=>{
+    const list=Array.isArray(users)?users:[];
+    if(!list.length)return;
+    const chip=document.createElement("button");
+    chip.type="button";
+    chip.className="reaction-chip"+(mine&&list.includes(mine)?" mine":"");
+    chip.title=(mine&&list.includes(mine)?"Remove your reaction ":"React with ")+emoji;
+    const face=document.createElement("span"),count=document.createElement("b");
+    face.textContent=emoji;
+    count.textContent=String(list.length);
+    chip.append(face,count);
+    chip.onclick=()=>toggleReaction(row,emoji);
+    row.appendChild(chip);
+  });
+  row.hidden=!row.children.length;
+}
+function toggleReaction(row,emoji){
+  const messageId=row&&row.dataset.messageId;
+  if(!messageId)return;
+  if(!socket||socket.readyState!==WebSocket.OPEN)return toast("Reconnecting to this room…");
+  socket.send(JSON.stringify({type:"react",messageId,emoji}));
+}
+function applyMessageReactions(messageId,reactions){
+  const message=messageById(messageId);
+  if(message)message.reactions=reactions;
+  const row=articleFor(messageId)&&articleFor(messageId).querySelector(".msg-reactions");
+  if(row)renderReactionChips(row,reactions);
+}
+function markMessageDeleted(messageId){
+  const message=messageById(messageId);
+  if(!message)return;
+  message.deleted=true;
+  message.content="";
+  message.reactions={};
+  const article=articleFor(messageId);
+  if(article)article.replaceWith(buildMessage(message,article.classList.contains("compact")));
+}
+function reactionPicker(tools){
+  const article=tools.closest(".message");
+  if(!article)return;
+  const open=article.querySelector(".reaction-picker");
+  if(open){open.remove();return}
+  const picker=document.createElement("div");
+  picker.className="reaction-picker";
+  REACTIONS.forEach(emoji=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.textContent=emoji;
+    button.title="React with "+emoji;
+    button.onclick=()=>{
+      picker.remove();
+      const row=article.querySelector(".msg-reactions");
+      if(row)toggleReaction(row,emoji);
+    };
+    picker.appendChild(button);
+  });
+  article.querySelector(".msg-body").appendChild(picker);
+}
+function messageTools(message){
+  const tools=document.createElement("span");
+  tools.className="msg-tools";
+  const reply=document.createElement("button");
+  reply.type="button";
+  reply.className="msg-tool";
+  reply.title="Reply";
+  reply.setAttribute("aria-label","Reply");
+  reply.textContent="\u21A9";
+  reply.onclick=()=>useReply(message);
+  tools.appendChild(reply);
+  if(!message.deleted){
+    const react=document.createElement("button");
+    react.type="button";
+    react.className="msg-tool";
+    react.title="Add a reaction";
+    react.setAttribute("aria-label","Add a reaction");
+    react.textContent="\u263A";
+    react.onclick=()=>reactionPicker(tools);
+    tools.appendChild(react);
+  }
+  if(canDeleteMessage(message)){
+    const remove=document.createElement("button");
+    remove.type="button";
+    remove.className="msg-tool danger";
+    remove.title="Delete for everyone";
+    remove.setAttribute("aria-label","Delete for everyone");
+    remove.textContent="\uD83D\uDDD1";
+    remove.onclick=()=>askDeleteMessage(message);
+    tools.appendChild(remove);
+  }
+  return tools;
+}
+function replyQuote(reply){
+  const quote=document.createElement("button");
+  quote.type="button";
+  quote.className="msg-quote";
+  const name=document.createElement("b"),text=document.createElement("span");
+  name.textContent=reply.username||"Member";
+  text.textContent=reply.snippet||"Message";
+  quote.append(name,text);
+  quote.title="Jump to the replied message";
+  quote.onclick=()=>{
+    const parent=articleFor(reply.id);
+    if(!parent)return toast("That message is no longer in the room.");
+    parent.scrollIntoView({block:"center",behavior:"smooth"});
+    parent.classList.add("flash");
+    setTimeout(()=>parent.classList.remove("flash"),1200);
+  };
+  return quote;
+}
+function buildMessage(message,compact){
+  const mine=Boolean(currentUser&&message.userId===currentUser.id),sender=message.userId||message.username||"",createdAt=Number(message.createdAt)||Date.now();
+  const article=document.createElement("article");
+  article.className=`message${mine?" me":""}${compact?" compact":""}${message.deleted?" deleted":""}`;
+  article.dataset.messageId=message.id||"";
+  article.dataset.userId=message.userId||"";
+  article.dataset.sender=sender;
+  article.dataset.createdAt=String(createdAt);
+  article.dataset.photo=message.photo||"";
+  article.innerHTML='<span class="msg-avatar"></span><div class="msg-body"><div class="msg-meta"><b></b><time></time></div><div class="bubble"></div></div>';
+  article.querySelector("time").textContent=new Intl.DateTimeFormat([],{hour:"numeric",minute:"2-digit"}).format(new Date(createdAt));
+  setAvatar(article.querySelector(".msg-avatar"),{photo:livePhotoFor(message),username:message.username});
+  const name=article.querySelector(".msg-meta b");
+  name.textContent=message.username;
+  colorUsername(name,message.username);
+  const roleTag=roleTagElement(message.role);
+  if(roleTag)name.after(roleTag);
+  const body=article.querySelector(".msg-body"),bubble=article.querySelector(".bubble"),kind=message.kind||"text";
+  const quote=message.reply?replyQuote(message.reply):null;
+  if(message.deleted){
+    bubble.classList.add("deleted");
+    const note=document.createElement("em");
+    note.className="msg-deleted";
+    note.textContent="Message deleted";
+    bubble.appendChild(note);
+  }else if(kind==="gif"||kind==="image"){
+    bubble.classList.add(kind);
+    const image=document.createElement("img");
+    image.src=message.content;
+    image.alt=kind==="gif"?"Shared GIF":"Shared image";
+    image.loading="lazy";
+    image.referrerPolicy="no-referrer";
+    bubble.appendChild(image);
+  }else if(kind==="voice"){
+    bubble.classList.add("voice");
+    bubble.appendChild(voicePlayer(message.content));
+  }else{
+    bubble.classList.add(kind);
+    bubble.textContent=message.content??message.text;
+  }
+  // The quote goes in last: setting textContent for a plain message replaces every child, quote included.
+  if(quote)bubble.insertBefore(quote,bubble.firstChild);
+  const reactions=document.createElement("div");
+  reactions.className="msg-reactions";
+  reactions.dataset.messageId=message.id||"";
+  renderReactionChips(reactions,message.reactions||{});
+  body.appendChild(reactions);
+  article.querySelector(".msg-meta").appendChild(messageTools(message));
+  return article;
+}
+function useReply(message){
+  if(!message||message.deleted)return toast("You cannot reply to a deleted message.");
+  setReplyTarget(message);
+  $("#chatInput").focus();
+}
+function setReplyTarget(message){
+  replyTarget=message||null;
+  const bar=$("#replyBar");
+  if(!bar)return;
+  bar.hidden=!replyTarget;
+  if(!replyTarget){
+    if(currentRoom)$("#chatInput").placeholder=`Message ${currentRoom.name}…`;
+    return;
+  }
+  const quote=$("#replyBarText"),name=document.createElement("b"),text=document.createElement("span");
+  name.textContent=(replyTarget.username||"Member")+" ";
+  text.textContent=messageSnippet(replyTarget)||"Message";
+  quote.textContent="";
+  quote.append(name,text);
+  if(currentRoom&&!currentRoom.banned)$("#chatInput").placeholder="Reply to "+(replyTarget.username||"this message")+"…";
+}
+function askDeleteMessage(message){
+  const mine=Boolean(currentUser&&message.userId===currentUser.id);
+  openConfirm(mine?"Delete your message?":"Delete this message for everyone?",mine?"It will be removed for everybody in the room.":"This message was posted by another member and will be removed for everybody in the room.",()=>deleteMessage(message));
+}
+function deleteMessage(message){
+  if(!socket||socket.readyState!==WebSocket.OPEN)return toast("Reconnecting to this room…");
+  socket.send(JSON.stringify({type:"delete-message",messageId:message.id}));
+}
+$("#replyCancel").onclick=()=>{setReplyTarget(null);$("#chatInput").focus()};
+
+
+function appendMessage(message){const list=$("#messageList");list.querySelector(".empty")?.remove();list.appendChild(buildMessage(message,compactWith(list.lastElementChild,message)));while(list.querySelectorAll(".message").length>100)list.querySelector(".message").remove();list.scrollTop=list.scrollHeight}
+function send(kind,content){if(socket?.readyState!==WebSocket.OPEN)return toast("Reconnecting to this room…");const payload={type:"message",kind,content};if(replyTarget&&kind==="text")payload.replyTo=replyTarget.id;socket.send(JSON.stringify(payload));if(kind==="text")setReplyTarget(null);closePicker()}
 $("#chatForm").onsubmit=event=>{event.preventDefault();const input=$("#chatInput"),text=input.value.trim();if(!text)return;send("text",text);input.value="";input.style.height="auto"};
 $("#chatInput").oninput=event=>{event.target.style.height="auto";event.target.style.height=`${Math.min(event.target.scrollHeight,110)}px`};$("#chatInput").onkeydown=event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();$("#chatForm").requestSubmit()}};
 function closePicker(){activeTool=null;$("#mediaPanel").hidden=true;document.querySelectorAll("[data-tool]").forEach(b=>b.classList.remove("active"))}
@@ -115,7 +334,7 @@ $("#exploreSearch").oninput=event=>{exploreQuery=event.target.value.trim();clear
 $("#exploreMore").onclick=()=>renderExplore(false);
 $("#profileBack").onclick=()=>showExplorePage("push");
 function roomPreviewText(message){const kind=message?.kind||"text";if(kind==="image")return "📷 Photo";if(kind==="voice")return "🎙 Voice note";if(kind==="gif")return "GIF";return String(message?.content||"").replace(/\s+/g," ").trim()}
-function renderRoomsGrid(){const grid=$("#roomsGrid");grid.innerHTML="";rooms.forEach(room=>{const card=document.createElement("div");card.className=`room-card ${currentRoom?.id===room.id?"active":""}`;card.dataset.roomId=room.id;card.style.setProperty("--room-accent",room.accent);card.style.setProperty("--soft",room.soft);card.innerHTML='<div class="rc-head"><span class="rc-icon"></span><span class="rc-title"><strong></strong><small></small></span><span class="rc-side"><span class="rc-online"><i></i><span class="rc-online-count"></span></span><span class="rc-badge"></span></span></div><div class="rc-preview"></div>';card.querySelector(".rc-icon").textContent=room.icon;card.querySelector("strong").textContent=room.name;card.querySelector(".rc-title small").textContent=room.access==="request"?"Private room":"Open room";const badge=card.querySelector(".rc-badge"),pendingCount=Number(room.pendingCount)||0;if(room.isOwner&&pendingCount>0){badge.textContent=pendingCount===1?"1 request":pendingCount+" requests";badge.classList.add("pending")}else if(room.access==="request")badge.textContent="Request";const onlineCount=Number(room.online)||0;card.querySelector(".rc-online-count").textContent=onlineCount;if(onlineCount>0)card.querySelector(".rc-online").classList.add("on");if(canDeleteRoom(room)){const remove=document.createElement("button");remove.type="button";remove.className="rc-delete";remove.textContent="Delete";remove.onclick=event=>{event.stopPropagation();askDeleteRoom(room)};card.querySelector(".rc-side").appendChild(remove)}const preview=card.querySelector(".rc-preview"),messages=Array.isArray(room.preview)?room.preview.slice(-3):[];if(!room.canEnter){preview.classList.add("empty");preview.textContent="🔒 Join to see recent messages"}else if(!messages.length){preview.classList.add("empty");preview.textContent="No messages yet — start the conversation"}else messages.forEach(message=>{const line=document.createElement("div");line.className="rc-preview-line";const name=document.createElement("b"),copy=document.createElement("span");name.textContent=(message.username||"Member")+":";copy.textContent=roomPreviewText(message);line.title=name.textContent+" "+copy.textContent;line.append(name,copy);preview.appendChild(line)});card.onclick=()=>selectRoom(room,"push");grid.appendChild(card)});const create=document.createElement("button");create.className="room-card create";create.innerHTML="<strong>＋ Create your own room</strong><small>Open or request-only</small>";create.onclick=openCreate;grid.appendChild(create)}
+function renderRoomsGrid(){const grid=$("#roomsGrid");grid.innerHTML="";rooms.forEach(room=>{const card=document.createElement("div");card.className=`room-card ${currentRoom?.id===room.id?"active":""}`;card.dataset.roomId=room.id;card.style.setProperty("--room-accent",room.accent);card.style.setProperty("--soft",room.soft);card.innerHTML='<div class="rc-head"><span class="rc-icon"></span><span class="rc-title"><strong></strong><small></small></span><span class="rc-side"><span class="rc-online"><i></i><span class="rc-online-count"></span></span><span class="rc-badge"></span></span></div><div class="rc-preview"></div>';card.querySelector(".rc-icon").textContent=room.icon;card.querySelector("strong").textContent=room.name;card.querySelector(".rc-title small").textContent=room.access==="request"?"Private room":"Open room";const badge=card.querySelector(".rc-badge"),pendingCount=Number(room.pendingCount)||0;if(room.isOwner&&pendingCount>0){badge.textContent=pendingCount===1?"1 request":pendingCount+" requests";badge.classList.add("pending")}else if(room.access==="request")badge.textContent="Request";const onlineCount=Number(room.online)||0;card.querySelector(".rc-online-count").textContent=onlineCount;if(onlineCount>0)card.querySelector(".rc-online").classList.add("on");if(canDeleteRoom(room)){const remove=document.createElement("button");remove.type="button";remove.className="rc-delete";remove.textContent="Delete";remove.onclick=event=>{event.stopPropagation();askDeleteRoom(room)};card.querySelector(".rc-side").appendChild(remove)}const preview=card.querySelector(".rc-preview"),messages=Array.isArray(room.preview)?room.preview.slice(-3):[];if(room.access==="request"){preview.remove()}else if(!room.canEnter){preview.classList.add("empty");preview.textContent="🔒 Join to see recent messages"}else if(!messages.length){preview.classList.add("empty");preview.textContent="No messages yet — start the conversation"}else messages.forEach(message=>{const line=document.createElement("div");line.className="rc-preview-line";const name=document.createElement("b"),copy=document.createElement("span");name.textContent=(message.username||"Member")+":";copy.textContent=roomPreviewText(message);line.title=name.textContent+" "+copy.textContent;line.append(name,copy);preview.appendChild(line)});card.onclick=()=>selectRoom(room,"push");grid.appendChild(card)});const create=document.createElement("button");create.className="room-card create";create.innerHTML="<strong>＋ Create your own room</strong><small>Open or request-only</small>";create.onclick=openCreate;grid.appendChild(create)}
 function canDeleteRoom(room){return Boolean(currentUser&&(room.isOwner||currentUser.role==="admin"))&&!room.builtIn}
 let confirmAction=null;
 function openConfirm(title,text,action){$("#confirmTitle").textContent=title;$("#confirmText").textContent=text;confirmAction=action;$("#confirmModal").hidden=false}
@@ -191,7 +410,7 @@ function prepareDmsPage(){dmTarget=null;dmPermission=null;ensureDmSocket();$("#d
 function openDmInbox(){prepareDmsPage();showDmsPage("push")}
 function renderDmInbox(){const inbox=$("#dmInbox");inbox.innerHTML="";if(!dmThreads.size){inbox.innerHTML='<p class="dm-inbox-empty">No conversations yet. Open the online list and tap Message on someone.</p>';return}dmThreads.forEach(thread=>{const last=thread.entries[thread.entries.length-1],person=allUsers.find(item=>item.id===thread.person.id)||thread.person,button=document.createElement("button");button.type="button";button.className="dm-thread-item";button.innerHTML='<span class="avatar"></span><span><b></b><small></small></span><span class="dm-unread"></span>';setAvatar(button.querySelector(".avatar"),person);if(userOnlineState(person.id)){const dot=document.createElement("span");dot.className="presence-dot";button.querySelector(".avatar").appendChild(dot)}button.querySelector("b").textContent=(person.profile&&person.profile.displayName)||person.username;colorUsername(button.querySelector("b"),person.username);const threadTag=roleTagElement(person.role);if(threadTag)button.querySelector("b").appendChild(threadTag);button.querySelector("small").textContent=last.kind==="image"?"📷 Photo":last.kind==="voice"?"🎙 Voice note":last.content;const unread=dmUnread.get(person.id)||0,unreadLabel=button.querySelector(".dm-unread");unreadLabel.textContent=unread>9?"9+":String(unread);unreadLabel.hidden=unread===0;button.onclick=()=>openDm(person);inbox.appendChild(button)})}
 function openDm(person){person=allUsers.find(item=>item.id===person.id)||person;ensureKnownUser(person);ensureDmSocket();dmTarget=person;dmPermission=null;dmUnread.delete(person.id);updateDmBadges();setAvatar($("#dmAvatar"),person);renderDmHeadDot();$("#dmInbox").hidden=true;$("#dmChat").hidden=false;$("#dmTitle").textContent=(person.profile&&person.profile.displayName)||person.username;colorUsername($("#dmTitle"),person.username);const dmTag=roleTagElement(person.role);if(dmTag)$("#dmTitle").appendChild(dmTag);renderDmThread();renderDmPermBar();refreshDmPermission();renderPeopleList();showDmsPage("push");$("#dmInput").focus()}
-function renderDmThread(){const list=$("#dmMessages"),thread=dmThreads.get(dmTarget.id);list.innerHTML="";((thread&&thread.entries)||[]).forEach(entry=>{const bubble=document.createElement("div");bubble.className="dm-message"+(entry.fromMe?" me":"");const kind=entry.kind||"text";if(kind==="image"){bubble.classList.add("image");const image=document.createElement("img");image.src=entry.content;image.alt="Shared image";image.loading="lazy";bubble.appendChild(image)}else if(kind==="voice"){bubble.classList.add("voice");const audio=document.createElement("audio");audio.controls=true;audio.preload="metadata";audio.src=entry.content;bubble.appendChild(audio)}else bubble.textContent=entry.content;const time=document.createElement("time");time.textContent=new Intl.DateTimeFormat([],{hour:"numeric",minute:"2-digit"}).format(new Date(entry.at));bubble.appendChild(time);list.appendChild(bubble)});list.scrollTop=list.scrollHeight}
+function renderDmThread(){const list=$("#dmMessages"),thread=dmThreads.get(dmTarget.id);list.innerHTML="";((thread&&thread.entries)||[]).forEach(entry=>{const bubble=document.createElement("div");bubble.className="dm-message"+(entry.fromMe?" me":"");const kind=entry.kind||"text";if(kind==="image"){bubble.classList.add("image");const image=document.createElement("img");image.src=entry.content;image.alt="Shared image";image.loading="lazy";bubble.appendChild(image)}else if(kind==="voice"){bubble.classList.add("voice");const audio=voicePlayer(entry.content);bubble.appendChild(audio)}else bubble.textContent=entry.content;const time=document.createElement("time");time.textContent=new Intl.DateTimeFormat([],{hour:"numeric",minute:"2-digit"}).format(new Date(entry.at));bubble.appendChild(time);list.appendChild(bubble)});list.scrollTop=list.scrollHeight}
 const rtcConfig={iceServers:[{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]}]};
 function callSignal(type,call,payload={}){const channel=activeSocket();if(!channel||!call)return false;channel.send(JSON.stringify({type,to:call.person.id,callId:call.id,...payload}));return true}
 function callLabel(person){return (person&&person.profile&&person.profile.displayName)||person?.username||"Someone"}
@@ -218,11 +437,91 @@ window.addEventListener("beforeunload",()=>{if(currentCall)callSignal("call-end"
 $("#dmBack").onclick=openDmInbox;
 $("#dmImage").onclick=()=>$("#dmImageInput").click();
 $("#dmImageInput").onchange=async event=>{const file=event.target.files[0];event.target.value="";if(!file)return;try{const url=await uploadFile("image",file);sendDm("image",url)}catch(problem){toast(problem.message)}};
-$("#dmVoice").onclick=async()=>{const button=$("#dmVoice");if(recorder){recorder.stop();return}try{recorderStream=await navigator.mediaDevices.getUserMedia({audio:true})}catch{return toast("Microphone is not available.")}recorder=new MediaRecorder(recorderStream);recorderChunks=[];recorder.ondataavailable=event=>{if(event.data.size)recorderChunks.push(event.data)};recorder.onstop=async()=>{button.classList.remove("recording");button.textContent="🎙";if(recorderStream){recorderStream.getTracks().forEach(track=>track.stop());recorderStream=null}recorder=null;const blob=new Blob(recorderChunks,{type:(recorderChunks[0]&&recorderChunks[0].type)||"audio/webm"});recorderChunks=[];if(blob.size<800)return toast("That recording was too short.");try{const url=await uploadFile("voice",new File([blob],"voice.webm",{type:blob.type}));sendDm("voice",url)}catch(problem){toast(problem.message)}};recorder.start();button.classList.add("recording");button.textContent="⏹"};
+$("#dmVoice").onclick=()=>startVoiceNote({button:$("#dmVoice"),idle:"\uD83C\uDF99"},async(blob,durationMs,extension)=>{const url=await uploadFile("voice",new File([blob],`voice.${extension}`,{type:blob.type}));sendDm("voice",url)});
 $("#dmForm").onsubmit=event=>{event.preventDefault();const input=$("#dmInput"),text=input.value.trim();if(!text||!dmTarget)return;const channel=activeSocket();if(!channel)return toast("Reconnecting — try again in a moment");channel.send(JSON.stringify({type:"dm",to:dmTarget.id,kind:"text",content:text}));input.value=""};
 function fileToBase64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=()=>reject(new Error("Could not read that file."));reader.readAsDataURL(file)})}
-async function uploadFile(kind,file){const data=await fileToBase64(file);const result=await request("/api/upload",{method:"POST",body:JSON.stringify({kind,data})});return result.url}
+async function uploadFile(kind,file){const data=await fileToBase64(file);const result=await request("/api/upload",{method:"POST",body:JSON.stringify({kind,data}),timeoutMs:60000});return result.url}
+
+/* ------------------------------------------------------------- voice notes */
+
+// Capture settings are deliberately explicit. Browser defaults pick a profile that varies by device
+// and by Android build, which is how a note ends up sounding like it has holes in it; mono Opus at
+// 96 kbps is transparent for speech and gives a predictable size on disk.
+const VOICE_BITRATE=96000,VOICE_MAX_MS=120000,VOICE_MIN_MS=700,VOICE_MIME_TYPES=["audio/webm;codecs=opus","audio/ogg;codecs=opus","audio/webm","audio/mp4","audio/aac"];
+function voiceSupported(){return Boolean(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder)}
+function voiceMimeType(){if(!window.MediaRecorder||typeof window.MediaRecorder.isTypeSupported!=="function")return "";return VOICE_MIME_TYPES.find(type=>{try{return window.MediaRecorder.isTypeSupported(type)}catch{return false}})||""}
+function voiceExtension(mime){return /ogg/.test(mime)?"ogg":/(mp4|aac)/.test(mime)?"m4a":"webm"}
+function clockText(ms){const seconds=Math.max(0,Math.floor(ms/1000));return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`}
+function releaseMicrophone(stream){if(stream)stream.getTracks().forEach(track=>track.stop())}
+async function startVoiceNote(ui,deliver){
+  if(voice){stopVoiceNote(false);return}
+  if(!voiceSupported())return toast("Voice notes are not supported in this browser.");
+  ui.button.disabled=true;
+  let stream=null;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:{ideal:1},echoCancellation:true,noiseSuppression:true,autoGainControl:true,sampleRate:{ideal:48000}}})}
+  catch{ui.button.disabled=false;return toast("Microphone is not available.")}
+  const mimeType=voiceMimeType();
+  let recorder=null;
+  try{recorder=new MediaRecorder(stream,{...(mimeType?{mimeType}:{}),audioBitsPerSecond:VOICE_BITRATE})}
+  catch{try{recorder=new MediaRecorder(stream)}catch{recorder=null}}
+  if(!recorder){releaseMicrophone(stream);ui.button.disabled=false;return toast("This browser cannot record audio.")}
+  // A one-second timeslice makes the encoder hand over audio as it goes instead of one blob at stop,
+  // so a backgrounded tab or a slow stop cannot cost the end of the note.
+  const session={recorder,stream,ui,deliver,chunks:[],startedAt:performance.now(),timer:null,cancelled:false};
+  voice=session;
+  recorder.ondataavailable=event=>{if(event.data&&event.data.size)session.chunks.push(event.data)};
+  recorder.onerror=()=>{toast("The microphone stopped unexpectedly.");stopVoiceNote(true)};
+  recorder.onstop=()=>finishVoiceNote(session);
+  try{recorder.start(1000)}
+  catch{releaseMicrophone(stream);voice=null;ui.button.disabled=false;return toast("Recording could not start.")}
+  session.timer=setInterval(()=>{
+    if(voice!==session)return;
+    const elapsed=performance.now()-session.startedAt;
+    if(elapsed>=VOICE_MAX_MS){toast("Voice notes stop at two minutes.");stopVoiceNote(false);return}
+    ui.button.textContent="\u23F9 "+clockText(elapsed);
+  },250);
+  ui.button.disabled=false;
+  ui.button.classList.add("recording");
+  ui.button.textContent="\u23F9 0:00";
+}
+function stopVoiceNote(cancelled){
+  const session=voice;
+  if(!session)return;
+  session.cancelled=Boolean(cancelled);
+  clearInterval(session.timer);
+  session.timer=null;
+  try{if(session.recorder.state!=="inactive")session.recorder.stop()}catch{finishVoiceNote(session)}
+  // A recorder that never fires onstop would hold the microphone open, so finish regardless.
+  setTimeout(()=>{if(voice===session)finishVoiceNote(session)},2000);
+}
+function finishVoiceNote(session){
+  if(voice===session)voice=null;
+  clearInterval(session.timer);
+  releaseMicrophone(session.stream);
+  const {ui,chunks}=session,durationMs=performance.now()-session.startedAt,type=session.recorder.mimeType||(chunks[0]&&chunks[0].type)||"audio/webm",blob=new Blob(chunks,{type});
+  ui.button.disabled=false;
+  ui.button.classList.remove("recording");
+  ui.button.textContent=ui.idle;
+  if(session.cancelled)return;
+  if(!blob.size||durationMs<VOICE_MIN_MS)return toast("That recording was too short.");
+  Promise.resolve().then(()=>session.deliver(blob,durationMs,voiceExtension(type))).catch(problem=>toast((problem&&problem.message)||"Could not send that voice note."));
+}
+// MediaRecorder writes a WebM stream whose header carries no duration, so the element reports
+// Infinity and the scrubber behaves as if the clip never ends. Seeking far past the end makes the
+// browser compute the real duration; the jump back to zero is invisible because nothing played.
+function voicePlayer(url){
+  const audio=document.createElement("audio");
+  audio.controls=true;
+  audio.preload="metadata";
+  audio.src=url;
+  audio.addEventListener("loadedmetadata",()=>{
+    if(Number.isFinite(audio.duration))return;
+    audio.currentTime=1e7;
+    audio.addEventListener("timeupdate",()=>{audio.currentTime=0},{once:true});
+  },{once:true});
+  return audio;
+}
 document.querySelector("[data-compose=image]").onclick=()=>$("#imageInput").click();
 $("#imageInput").onchange=async event=>{const files=[...event.target.files].slice(0,4);event.target.value="";if(!files.length)return;if(socket?.readyState!==WebSocket.OPEN)return toast("Reconnecting — try again in a moment");toast(files.length>1?`Sending ${files.length} images…`:"Sending image…");for(const file of files){try{const url=await uploadFile("image",file);send("image",url)}catch(problem){toast(problem.message);break}}};
-document.querySelector("[data-compose=voice]").onclick=async()=>{const button=document.querySelector("[data-compose=voice]");if(recorder){recorder.stop();return}try{recorderStream=await navigator.mediaDevices.getUserMedia({audio:true})}catch{return toast("Microphone is not available.")}recorder=new MediaRecorder(recorderStream);recorderChunks=[];recorder.ondataavailable=event=>{if(event.data.size)recorderChunks.push(event.data)};recorder.onstop=async()=>{button.classList.remove("recording");button.textContent="🎙 Voice";if(recorderStream){recorderStream.getTracks().forEach(track=>track.stop());recorderStream=null}recorder=null;const blob=new Blob(recorderChunks,{type:(recorderChunks[0]&&recorderChunks[0].type)||"audio/webm"});recorderChunks=[];if(blob.size<800)return toast("That recording was too short.");try{const url=await uploadFile("voice",new File([blob],"voice.webm",{type:blob.type}));send("voice",url)}catch(problem){toast(problem.message)}};recorder.start();button.classList.add("recording");button.textContent="⏹ Stop"};
+document.querySelector("[data-compose=voice]").onclick=()=>startVoiceNote({button:document.querySelector("[data-compose=voice]"),idle:"\uD83C\uDF99 Voice"},async(blob,durationMs,extension)=>{const url=await uploadFile("voice",new File([blob],`voice.${extension}`,{type:blob.type}));send("voice",url)});
 async function init(){const hashParams=new URLSearchParams(location.hash.slice(1)),hashToken=hashParams.get("auth"),hashKey=hashParams.get("profileKey"),params=new URLSearchParams(location.search),resetFlow=location.pathname==="/reset-password",queryToken=resetFlow?null:params.get("token"),bootstrapToken=window.__NEARBY_TOKEN__;if(bootstrapToken||queryToken||hashToken)rememberToken(bootstrapToken||queryToken||hashToken);if(hashKey)rememberProfileKey(hashKey);if(window.__NEARBY_NEW_KEY__)rememberProfileKey(window.__NEARBY_NEW_KEY__);if(hashToken||hashKey||queryToken)history.replaceState({},"",location.pathname);if(location.pathname!=="/"&&location.pathname!=="/rooms"&&location.pathname!=="/dms"&&location.pathname!=="/reset-password"&&!location.pathname.startsWith("/room/")&&!location.pathname.startsWith("/profile/"))history.replaceState({},"","/");const requested=params.get("mode"),mode=resetFlow?"reset":["signup","login","key","key-signup","forgot","resend"].includes(requested)?requested:"signup",message=params.get("error"),notice=params.get("notice");if(resetFlow){$("#resetToken").value=params.get("token")||"";history.replaceState({},"","/reset-password");$("#authView").hidden=false;$("#setupView").hidden=true;$("#appView").hidden=true;switchAuth("reset");if(message)error("#resetError",message);return}try{const user=window.__NEARBY_USER__||(await request("/api/auth/me")).user;if(user.profileComplete)await enterApp(user);else showProfileSetup(user,pendingProfileKey)}catch{forgetToken();enterGuestMode();switchAuth(mode);if(message)error(authErrorTarget(mode),message);if(notice){const banner=$("#authNotice");banner.textContent=notice;banner.hidden=false}}}init();

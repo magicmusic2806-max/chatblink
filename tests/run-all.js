@@ -25,6 +25,17 @@ const servers = [
   ] },
   { port: 8801, vars: ["MESSAGE_DAILY_CAP:25", "UPLOAD_DAILY_CAP:2"], env: { MESSAGE_DAILY_CAP: "25", UPLOAD_DAILY_CAP: "2" }, suites: [
     { name: "quotas", file: "tests/quota-caps.js" }
+  ] },
+  // Own server because the signup rate limit is per IP and would otherwise be shared with the suites
+  // above; this one creates four accounts on its own.
+  { port: 8803, vars: [], env: {}, suites: [
+    { name: "actions", file: "tests/message-actions.js" }
+  ] },
+  // The browser suites create rooms too, and room creation is limited to 5 per 10 minutes per IP, so
+  // they get a third server of their own rather than sharing the one above.
+  { port: 8805, vars: [], env: {}, suites: [
+    { name: "room-actions", file: "tests/room-actions-e2e.js" },
+    { name: "voice-note", file: "tests/voice-note-e2e.js" }
   ] }
 ];
 

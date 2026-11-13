@@ -75,17 +75,18 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 | `GET /api/admin/users` · `POST /api/admin/role/:id` · `DELETE /api/admin/users/:id` | Admin only: list users / `{role:"mod"|"user"}` / delete an account outright (also removes the rooms it owns) |
 | `POST /api/migrate?token` | Only when `MIGRATE_TOKEN` is set: `{users, rooms}` bulk upsert (replaces the old `GET /api/export` + `POST /api/restore`) |
 
-Uploaded files are served publicly from `/uploads/<name>` (uuid + validated extension).
+Uploaded files are served from `/uploads/<name>` (uuid + validated extension) with `Accept-Ranges`, `ETag` and `206` support, so a media element can seek without re-downloading the whole file.
 
 ## WebSocket protocol
 
-Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that every client holds whenever they don't have a room socket — signed in or guest — so room-list changes, live room online counts, user presence and request/DM/ban/call events arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `presence {online, users}`, `room-online {roomId, online}`, `rooms-changed`, `users-changed` (signed-in clients only), `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`, and the call signals `call-offer`, `call-answer`, `call-ice`, `call-end`, `call-reject`, `call-busy`, `call-unavailable`, `call-taken`.
-Client messages: `{type:"message", kind:"text|emoji|sticker|gif|image|voice", content}`, `{type:"dm", to, kind, content}`, and authenticated WebRTC signaling messages carrying `to`, `callId`, SDP or ICE candidates as appropriate.
-Limits: 20 messages/10 s per socket (room + DM share the budget), plus 120 call signals/minute per socket; GIF URLs must be `/gifs/<name>.gif` or allowlisted Giphy/Tenor hosts; image/voice room messages only in request-only user-created rooms; DM media only after either participant grants permission. Calls use public STUN servers; a TURN relay should be added for reliable connectivity between restrictive corporate/mobile networks. Server pings every 30 s and drops dead sockets.
+Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that every client holds whenever they don't have a room socket — signed in or guest — so room-list changes, live room online counts, user presence and request/DM/ban/call events arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `message-reactions {messageId, reactions}`, `message-deleted {messageId, by}`, `presence {online, users}`, `room-online {roomId, online}`, `rooms-changed`, `users-changed` (signed-in clients only), `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`, and the call signals `call-offer`, `call-answer`, `call-ice`, `call-end`, `call-reject`, `call-busy`, `call-unavailable`, `call-taken`.
+Client messages: `{type:"message", kind:"text|emoji|sticker|gif|image|voice", content, replyTo?}`, `{type:"react", messageId, emoji}`, `{type:"delete-message", messageId}`, `{type:"dm", to, kind, content}`, and authenticated WebRTC signaling messages carrying `to`, `callId`, SDP or ICE candidates as appropriate.
+Message shape: `{id, userId, username, role, photo, kind, content, createdAt, reply, reactions, deleted}` — `reply` is `{id, username, snippet}` snapshotted when the reply was sent (so a trimmed or later-deleted parent still reads), `reactions` is `{emoji: [userId, …]}`, and a deleted message keeps its slot with `deleted: true`, empty `content` and no reactions. Deletion is a soft delete; anyone who can post in the room may delete their own message, and the room creator, a mod or the admin may delete any message in that room.
+Limits: 20 messages/10 s per socket (room + DM share the budget, reactions and deletions included), plus 120 call signals/minute per socket; GIF URLs must be `/gifs/<name>.gif` or allowlisted Giphy/Tenor hosts; image/voice room messages only in request-only user-created rooms; DM media only after either participant grants permission; reactions are restricted to the server's fixed six (`👍 ❤️ 😂 😮 😢 🔥`) with at most 50 accounts each. Calls use public STUN servers; a TURN relay should be added for reliable connectivity between restrictive corporate/mobile networks. Server pings every 30 s and drops dead sockets.
 
 ## Frontend conventions (read before editing)
 
-- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **64** (the legacy Node server injects the same number from its own copy).
+- **Cache-busting is manual:** static assets with `?v=` are served `immutable` for a year and cached at the edge. After changing anything in `public/`, bump `CLIENT_VERSION` in `worker/index.js` (it is appended to the `multi-room.js` script tag the Worker injects) **and** the CSS `?v=NN` links in `rooms.html`. Current version: **65** (the legacy Node server injects the same number from its own copy).
 - **Mobile-first CSS:** base rules target phones; desktop enhancements live in `@media(min-width:801px)`.
 - Client polls: room online counts every 20 s (rooms page), DM user list every 30 s, pending request check every 4 s — all paused when their view is hidden.
 - LocalStorage keys: `nearby_auth_token` (device token), `nearby_pending_profile_key`, `nearby_hidden_users` (per-user message hiding).
@@ -109,10 +110,12 @@ npm run test:all
 
 `tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 88 checks over HTTP + WebSockets, including verified email signup, attaching email to an existing profile-key account, profile-only verification badges, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset, email-login and profile email UI flows at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` needs no server and drives the Worker handler directly.
 
+`tests/message-actions.js` covers reply, reactions and deletion over the room socket — quote snapshots, the fixed reaction set, toggle-off, refused deletions for a plain member, the creator and author paths, the empty preview on private room cards, and `/uploads` byte ranges. Its admin/mod section needs the one account the server auto-promotes (`dynamic`), which can only be created once per database, so it reports `SKIP` when that account already exists. The runner gives it its own server on port 8803 because signups are rate-limited per IP.
+
 To run a single suite by hand, start the Worker first (`npm run db:local` once, then `npm run dev:worker`) and point the suite at it:
 
 ```powershell
-npm run test:worker        # or test:retention, test:canonical
+npm run test:worker        # or test:retention, test:actions, test:canonical, test:room-actions, test:voice
 ```
 
 `tests/prod-check.js` (`npm run test:prod`) is the post-deploy check for the live domain. It is read-only — it creates no accounts, rooms or messages — so it is safe to run against production, and it fails if `chatblink.chat` is being served by anything other than the Worker. It also checks that `www.chatblink.chat` redirects to the apex, and warns (without failing) while the zone is still serving plain http over the apex.
@@ -120,6 +123,8 @@ npm run test:worker        # or test:retention, test:canonical
 `tests/call-e2e.js` (`npm run test:calls`) drives two Chromium contexts with fake camera/microphone devices. It places and answers both a voice call and a video call, then verifies a connected WebRTC peer and remote media tracks on both sides. Start the local Worker on port `8799` before running it.
 
 `tests/room-design-e2e.js` (`npm run test:room-design`) creates a temporary room in Chromium, verifies consecutive-message grouping and the exact latest-three preview, and captures 390px mobile plus desktop screenshots. `tests/push-gate-e2e.js` (`npm run test:push-gate`) verifies that a failed notification setup restores a retryable button without suppressing the prompt, then completes registration on the retry at a 390px viewport. `tests/theme-e2e.js` (`npm run test:theme`) verifies the dark default, persistent light toggle, mobile overflow and both responsive theme presentations. Start the local Worker on port `8799` before running these browser suites.
+
+`tests/room-actions-e2e.js` (`npm run test:room-actions`) drives the new message UI in Chromium: replying from the hover toolbar into the composer bar, the quote rendering and jumping back to its parent, the reaction picker and chip, the delete confirmation and the deleted placeholder, and that a request-only room card has no preview element at all. `tests/voice-note-e2e.js` (`npm run test:voice`) feeds Chromium's fake microphone a generated 440 Hz WAV, records through the real button and measures the uploaded note — its length has to match how long the button was held and no stretch over 300 ms may be silent, which is what a note with dropouts fails.
 
 ```powershell
 npm run test:prod                          # https://chatblink.chat
@@ -168,6 +173,9 @@ migration/seed.sql          generated data seed for D1
 tools/migrate.js            pull data off an old host / emit seed.sql / R2 copy commands
 tools/extract-catalog.js    regenerates worker/lib/catalog.js from the client + server sources
 tests/worker-smoke.js       end-to-end HTTP + WebSocket suite for the Worker
+tests/message-actions.js    reply / reactions / deletion / private-card previews / upload ranges
+tests/room-actions-e2e.js   browser suite for the reply, reaction and delete UI
+tests/voice-note-e2e.js     browser suite that records a known tone and measures it
 tests/auth-e2e.js           Playwright end-to-end suite for the legacy Node server
 DEPLOY.md                   step-by-step deployment and data migration
 server-multi-room.js        LEGACY Node backend (Render only, being retired)

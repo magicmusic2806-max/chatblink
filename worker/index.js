@@ -4,7 +4,7 @@ import { IMAGE_TYPES, AUDIO_TYPES, matchesMediaType, UPLOAD_CONTENT_TYPES } from
 
 export { ChatHub } from "./hub.js";
 
-const CLIENT_VERSION = "64";
+const CLIENT_VERSION = "65";
 const UPLOAD_NAME = /^[a-f0-9-]{36}\.(jpg|png|gif|webp|webm|mp4|m4a|ogg)$/;
 const PAGE_ROUTES = [/^\/$/, /^\/index\.html$/, /^\/rooms$/, /^\/dms$/, /^\/explore$/, /^\/room\/[^/]+$/, /^\/profile\/[^/]+$/, /^\/reset-password$/];
 const notFound = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -62,15 +62,45 @@ async function putUpload(env, name, bytes, contentType) {
   return env.UPLOADS.put(name, bytes, { metadata: { contentType, cacheControl } });
 }
 
-async function getUpload(env, name) {
+// Uploads are immutable once written (the name is a fresh UUID), so the bytes and a validator are all
+// a reader needs. Both bindings are read into memory here on purpose: the cap is a few megabytes and
+// one code path for KV and R2 is worth more than streaming a range off R2 for files this size.
+async function readUpload(env, name) {
   if (uploadsAreR2(env)) {
     const object = await env.UPLOADS.get(name);
-    return object ? { body: object.body, headers: { "ETag": object.httpEtag } } : null;
+    if (!object) return null;
+    return { bytes: new Uint8Array(await object.arrayBuffer()), etag: object.httpEtag };
   }
   const { value } = await env.UPLOADS.getWithMetadata(name, "arrayBuffer");
   if (!value) return null;
   // Names are UUIDs and content never changes, so a synthetic validator is stable.
-  return { body: value, headers: { "ETag": `W/"${name}"` } };
+  return { bytes: new Uint8Array(value), etag: `W/"${name}"` };
+}
+
+const RANGE_PATTERN = /^bytes=(\d*)-(\d*)$/;
+
+// A media element that cannot range-request seeks by re-downloading from zero, and Safari refuses to
+// play at all without 206 support - which is what a voice note that "lags" on playback looks like.
+function uploadRange(header, size) {
+  const match = RANGE_PATTERN.exec(String(header || "").trim());
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+  const start = match[1] === "" ? Math.max(0, size - Number(match[2])) : Number(match[1]);
+  const end = match[1] === "" || match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  return { start, end, unsatisfiable: !Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size };
+}
+
+async function serveUpload(request, env, name) {
+  const file = await readUpload(env, name);
+  if (!file) return notFound();
+  const { bytes, etag } = file, size = bytes.length;
+  const headers = new Headers({ "Cache-Control": "private, max-age=86400", "Accept-Ranges": "bytes", "Content-Type": UPLOAD_CONTENT_TYPES[name.split(".").pop()] || "application/octet-stream", "ETag": etag });
+  if (request.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers });
+  const range = uploadRange(request.headers.get("Range"), size);
+  if (range && range.unsatisfiable) { headers.set("Content-Range", `bytes */${size}`); return new Response(null, { status: 416, headers }); }
+  const body = range ? bytes.subarray(range.start, range.end + 1) : bytes;
+  headers.set("Content-Length", String(body.length));
+  if (range) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
+  return new Response(body, { status: range ? 206 : 200, headers });
 }
 
 async function handleUpload(request, env) {
@@ -120,10 +150,7 @@ export default {
     if (path.startsWith("/uploads/")) {
       const name = path.slice("/uploads/".length);
       if (!UPLOAD_NAME.test(name)) return notFound();
-      const file = await getUpload(env, name);
-      if (!file) return notFound();
-      const headers = new Headers({ "Cache-Control": "private, max-age=86400", ...file.headers, "Content-Type": UPLOAD_CONTENT_TYPES[name.split(".").pop()] || "application/octet-stream" });
-      return new Response(file.body, { headers });
+      return serveUpload(request, env, name);
     }
 
     if (path.startsWith("/api/")) return forward(env, request);
