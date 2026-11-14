@@ -1,7 +1,13 @@
 import { clean, escapeHtml, bytesToBase64, base64ToBytes, constantTimeEqual } from "./core.js";
 import { sha256Hex } from "./crypto.js";
 
-const PASSWORD_ITERATIONS = 120000;
+// Cloudflare's WebCrypto refuses PBKDF2 above 100,000 iterations ("iteration counts above 100000
+// are not supported"), which is where version 120000 failed in production: every email signup threw
+// before an account or a message existed. The work factor is reached by chaining calls instead of
+// raising the count - each round re-derives from the previous output, so an attacker has to repeat
+// all of them. 6 x 100k is roughly the OWASP figure for PBKDF2-SHA256.
+const PASSWORD_ITERATIONS = 100000;
+const PASSWORD_ROUNDS = 6;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
 
@@ -15,24 +21,36 @@ export function normalizeEmail(value) {
 
 export function validPassword(value) { return typeof value === "string" && value.length >= 10 && value.length <= 128; }
 
-async function derivePassword(password, salt, iterations = PASSWORD_ITERATIONS) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256);
-  return new Uint8Array(bits);
+async function derivePassword(password, salt, iterations = PASSWORD_ITERATIONS, rounds = PASSWORD_ROUNDS) {
+  let secret = new TextEncoder().encode(password), derived = null;
+  for (let round = 0; round < Math.max(1, rounds); round++) {
+    const key = await crypto.subtle.importKey("raw", secret, "PBKDF2", false, ["deriveBits"]);
+    derived = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256));
+    secret = derived;
+  }
+  return derived;
 }
 
 export async function hashPassword(password) {
   if (!validPassword(password)) throw new Error("Password must be 10–128 characters.");
   const salt = crypto.getRandomValues(new Uint8Array(16)), hash = await derivePassword(password, salt);
-  return `pbkdf2-sha256$${PASSWORD_ITERATIONS}$${base64Url(salt)}$${base64Url(hash)}`;
+  return `pbkdf2-sha256$${PASSWORD_ITERATIONS}$${PASSWORD_ROUNDS}$${base64Url(salt)}$${base64Url(hash)}`;
 }
 
 export async function verifyPassword(password, stored) {
   try {
-    const [scheme, rounds, salt, expected] = String(stored || "").split("$");
-    const iterations = Number(rounds);
-    if (scheme !== "pbkdf2-sha256" || !Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000 || !validPassword(password)) return false;
-    const actual = base64Url(await derivePassword(password, fromBase64Url(salt), iterations));
+    // Four parts is the original single-pass format, five carries its own chained round count.
+    const parts = String(stored || "").split("$");
+    if (parts.length !== 4 && parts.length !== 5) return false;
+    const [scheme, iterationsText, ...rest] = parts;
+    if (scheme !== "pbkdf2-sha256") return false;
+    const chained = rest.length === 3, rounds = chained ? Number(rest[0]) : 1, salt = chained ? rest[1] : rest[0], expected = chained ? rest[2] : rest[1];
+    const iterations = Number(iterationsText);
+    // The upper bound stays generous so a hash written before this change can still be attempted on
+    // a runtime that allows it; the deployed runtime rejects those iterations anyway.
+    if (!Number.isInteger(iterations) || iterations < 10000 || iterations > 1000000) return false;
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 20 || !validPassword(password)) return false;
+    const actual = base64Url(await derivePassword(password, fromBase64Url(salt), iterations, rounds));
     return constantTimeEqual(actual, expected);
   } catch { return false; }
 }
