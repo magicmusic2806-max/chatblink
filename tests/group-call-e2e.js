@@ -107,6 +107,25 @@ const waitConnected = page => page.waitForFunction(() => Boolean(groupCall) && g
     await pageB.locator("#groupCallLeave").click();
     await pageB.locator("#groupCall").waitFor({ state: "hidden" });
     ok("the last member leaving ends the call for the room", (await pageA.locator("#groupCallButton").textContent()).includes("Group call"), await pageA.locator("#groupCallButton").textContent());
+
+    /* ------------------------------------------------- ending it as the host */
+    await pageA.locator("#groupCallButton").click();
+    await pageA.locator("#groupCall:not([hidden])").waitFor();
+    await pageB.waitForFunction(() => document.querySelector("#groupCallButton").textContent.includes("Join call"), null, { timeout: 10000 });
+    await pageB.locator("#groupCallButton").click();
+    await pageB.locator("#groupCall:not([hidden])").waitFor();
+    try { await Promise.all([waitConnected(pageA), waitConnected(pageB)]); }
+    catch (error) { console.error("states", await callState(pageA), await callState(pageB)); throw error; }
+
+    ok("only the starter is offered the end-call control", (await pageA.locator("#groupCallEnd").isVisible()) && (await pageB.locator("#groupCallEnd").isHidden()), JSON.stringify({ host: await pageA.locator("#groupCallEnd").isVisible(), guest: await pageB.locator("#groupCallEnd").isVisible() }));
+
+    await pageA.locator("#groupCallEnd").click();
+    await pageA.locator("#groupCall").waitFor({ state: "hidden" });
+    await pageB.locator("#groupCall").waitFor({ state: "hidden" });
+    await pageB.waitForFunction(() => document.querySelector("#groupCallButton").textContent.includes("Group call"), null, { timeout: 10000 });
+    const afterEnd = await Promise.all([callState(pageA), callState(pageB)]);
+    ok("ending the call hangs up for everybody", afterEnd.every(state => state.inCall === false && state.dockHidden && state.peers.length === 0), JSON.stringify(afterEnd));
+    ok("the guest is told the host ended it", await pageB.evaluate(() => document.querySelector("#toast").textContent.includes("ended the room call")), await pageB.evaluate(() => document.querySelector("#toast").textContent));
   } finally {
     await browser.close();
     await fetch(`${BASE}/api/rooms/${room.id}`, { method: "DELETE", headers: { Origin: BASE, Cookie: owner.header } }).catch(() => {});

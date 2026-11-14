@@ -142,6 +142,8 @@ input,select,textarea{font-size:16px}
 .group-call button{border:0;background:#fff;color:#116b46;border-radius:8px;padding:5px 9px;font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap}
 .group-call button:hover{background:#d6f2e4}
 .group-call button.gc-leave{color:#b02a45;background:#ffe9ee}
+.group-call button.gc-end{color:#fff;background:#c33b55}
+.group-call button.gc-end:hover{background:#a92c47}
 .group-call button.off{color:#8a5a00;background:#fff4d6}
 .media-panel{position:absolute;left:10px;right:10px;bottom:112px;max-height:min(52vh,420px);overflow:auto;overscroll-behavior:contain;background:white;border:1px solid #dfe3ea;border-radius:14px;padding:12px;box-shadow:0 15px 45px #24304d24;z-index:5}
 .picker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
@@ -691,6 +693,8 @@ html[data-theme=dark] .gc-person.me{background:#126b47;border-color:#1a8b5d;colo
 html[data-theme=dark] .group-call button{background:#152a22;color:#8fe3bb}
 html[data-theme=dark] .group-call button:hover{background:#1c3a2d}
 html[data-theme=dark] .group-call button.gc-leave{background:#3a1d2a;color:#ff9eb0}
+html[data-theme=dark] .group-call button.gc-end{background:#c33b55;color:#fff}
+html[data-theme=dark] .group-call button.gc-end:hover{background:#a92c47}
 html[data-theme=dark] .group-call button.off{background:#3a2f14;color:#ffd479}
 html[data-theme=dark] .tool-row .room-call-button.active{background:#12324a;color:#8fd4ff;box-shadow:inset 0 0 0 1px #24506d}
 html[data-theme=dark] .tool-row .room-subscribe.active{background:#12352e;color:#77e2bc;box-shadow:inset 0 0 0 1px #235b4d}

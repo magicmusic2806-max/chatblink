@@ -573,6 +573,8 @@ function renderRoomCall(){
   });
   $("#groupCallMute").textContent=groupCall.muted?"🔇 Unmute":"🎙 Mute";
   $("#groupCallMute").classList.toggle("off",groupCall.muted);
+  // Ending the call for everybody is the starter's decision, so only that account sees the control.
+  $("#groupCallEnd").hidden=!(roomCallState&&roomCallState.hostId&&currentUser&&roomCallState.hostId===currentUser.id);
 }
 function groupPeer(userId){
   if(!groupCall)return null;
@@ -687,10 +689,19 @@ async function handleRoomCallEvent(event){
     return;
   }
   if(event.type==="group-call-left"){dropGroupPeer(event.userId);return}
+  if(event.type==="group-call-ended"){toast(`${event.by?.username||"The host"} ended the room call`);leaveRoomCall(true);return}
   if(event.type==="group-call-full"){toast("That room call is full");leaveRoomCall(true)}
+}
+function endRoomCall(){
+  if(!groupCall)return;
+  // The server only honours this from the account that started the call; locally we tear down
+  // whether or not it was accepted, because holding the microphone open is never the right answer.
+  if(roomCallState&&currentUser&&roomCallState.hostId===currentUser.id)groupCallSend({type:"group-call-end"});
+  leaveRoomCall(true);
 }
 $("#groupCallButton").onclick=joinRoomCall;
 $("#groupCallLeave").onclick=()=>leaveRoomCall(false);
+$("#groupCallEnd").onclick=endRoomCall;
 $("#groupCallMute").onclick=toggleRoomCallMute;
 document.querySelector("[data-compose=image]").onclick=()=>$("#imageInput").click();
 $("#imageInput").onchange=async event=>{const files=[...event.target.files].slice(0,4);event.target.value="";if(!files.length)return;if(socket?.readyState!==WebSocket.OPEN)return toast("Reconnecting — try again in a moment");toast(files.length>1?`Sending ${files.length} images…`:"Sending image…");for(const file of files){try{const url=await uploadFile("image",file);send("image",url)}catch(problem){toast(problem.message);break}}};

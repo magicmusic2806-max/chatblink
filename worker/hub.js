@@ -23,7 +23,7 @@ const CALL_TYPES = ["call-offer", "call-answer", "call-ice", "call-end", "call-r
 const CALL_SIGNAL_LIMIT = 120;
 // A room call is a full peer-to-peer mesh: every participant connects to every other one, so the
 // ceiling is kept low enough that one device does not carry a dozen audio streams.
-const GROUP_CALL_TYPES = ["group-call-join", "group-call-leave", "group-call-offer", "group-call-answer", "group-call-ice"];
+const GROUP_CALL_TYPES = ["group-call-join", "group-call-leave", "group-call-end", "group-call-offer", "group-call-answer", "group-call-ice"];
 const GROUP_CALL_MAX = 6;
 // The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
 // so a message can never accumulate arbitrary payload), and the client picker can be one short row.
@@ -485,6 +485,14 @@ export class ChatHub {
     this.broadcast(roomId, { type: "group-call-left", callId: call.id, userId });
     this.broadcast(roomId, this.groupCallState(call));
   }
+  // The starter of the call ends it for everybody; everyone else leaving only removes themselves.
+  endRoomCall(roomId, user) {
+    const call = this.roomCalls.get(roomId);
+    if (!call) return;
+    this.roomCalls.delete(roomId);
+    this.broadcast(roomId, { type: "group-call-ended", callId: call.id, by: { id: user.id, username: user.username } });
+    this.broadcast(roomId, this.groupCallState(null));
+  }
   groupCallSignal(socket, event, user, now) {
     const room = this.findRoom(attachment(socket).roomId);
     // Room calls exist only in request-only user rooms: those are the private, moderated spaces,
@@ -506,6 +514,12 @@ export class ChatHub {
     const call = this.roomCalls.get(room.id);
     if (!call) return true;
     if (event.type === "group-call-leave") { this.leaveRoomCall(room.id, user.id); return true; }
+    // Only the account that started the call can end it for everybody; for anyone else this is a
+    // no-op rather than a silent drop of the whole call.
+    if (event.type === "group-call-end") {
+      if (call.hostId === user.id) this.endRoomCall(room.id, user);
+      return true;
+    }
     if (call.id !== clean(event.callId).slice(0, 80)) return true;
     if (!call.participants.some(person => person.id === user.id)) return true;
     const target = call.participants.find(person => person.id === clean(event.to));

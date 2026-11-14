@@ -145,6 +145,38 @@ async function main() {
   const ended = await waitFor(spareSocket, packet => packet.type === "group-call-state" && packet.active === false, 8000).catch(() => null);
   ok("the call disappears when the last participant leaves", Boolean(ended));
 
+  /* --------------------------------------------------------------- ending */
+  // Fresh sockets: the ones above were closed when the call emptied out.
+  const endOwner = socket(room.id, owner.cookie), endPeer = socket(room.id, peer.cookie);
+  for (const ws of [endOwner, endPeer]) { await open(ws); await waitFor(ws, packet => packet.type === "history"); }
+  endOwner.send(JSON.stringify({ type: "group-call-join" }));
+  const openedAgain = await waitFor(endOwner, packet => packet.type === "group-call-joined");
+  endPeer.send(JSON.stringify({ type: "group-call-join" }));
+  const joinedAgain = await waitFor(endPeer, packet => packet.type === "group-call-joined" && packet.participants?.length === 2).catch(() => null);
+  ok("a second call can be started after the first one ended", Boolean(joinedAgain) && openedAgain.callId && joinedAgain.callId === openedAgain.callId, JSON.stringify({ openedAgain: openedAgain.callId, joinedAgain: joinedAgain?.callId }));
+
+  // A member who did not start the call cannot end it for everybody.
+  endOwner.inbox.length = 0;
+  endPeer.send(JSON.stringify({ type: "group-call-end" }));
+  await sleep(700);
+  ok("a member who did not start the call cannot end it", !endOwner.inbox.some(packet => packet.type === "group-call-state" && packet.active === false), JSON.stringify(endOwner.inbox.filter(packet => packet.type.startsWith("group-call"))));
+
+  endOwner.inbox.length = 0;
+  endPeer.inbox.length = 0;
+  endOwner.send(JSON.stringify({ type: "group-call-end" }));
+  const endedByHost = await waitFor(endPeer, packet => packet.type === "group-call-ended").catch(() => null);
+  ok("the starter can end the call for everybody", Boolean(endedByHost) && endedByHost.by?.username === owner.user.username, JSON.stringify(endedByHost));
+  const peerSawEnd = await waitFor(endPeer, packet => packet.type === "group-call-state" && packet.active === false).catch(() => null);
+  const ownerSawEnd = await waitFor(endOwner, packet => packet.type === "group-call-state" && packet.active === false).catch(() => null);
+  ok("the call is gone for the whole room", Boolean(peerSawEnd) && Boolean(ownerSawEnd));
+
+  endPeer.inbox.length = 0;
+  endPeer.send(JSON.stringify({ type: "group-call-join" }));
+  const fresh = await waitFor(endPeer, packet => packet.type === "group-call-joined").catch(() => null);
+  ok("a new call gets its own id after the previous one was ended", Boolean(fresh) && Boolean(fresh.callId) && fresh.callId !== openedAgain.callId, JSON.stringify({ previous: openedAgain.callId, next: fresh?.callId }));
+  for (const ws of [endOwner, endPeer]) ws.close();
+  await sleep(300);
+
   /* ------------------------------------------------- rooms where it is closed */
   const openRoom = (await (await post("/api/rooms", { name: `Open ${stamp}`, vibe: "No calls here.", access: "open", theme: "forest" }, owner.cookie)).json()).room;
   const openSocket = socket(openRoom.id, owner.cookie);
