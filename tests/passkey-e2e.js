@@ -62,6 +62,15 @@ const waitForSession = async (page, status) => {
     await page.locator("#enterRoomsNow").click();
     await page.locator("#roomsGrid .room-card").first().waitFor({ timeout: 15000 });
 
+    // The options request carries the platform-only selection. It is fetched before the panel opens:
+    // asking again would replace the challenge cookie the panel has already prefetched.
+    const registerOptions = await page.evaluate(async () => {
+      const response = await fetch("/api/auth/passkey/options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "register", origin: location.origin }) });
+      const payload = await response.json();
+      return payload.options && payload.options.authenticatorSelection;
+    });
+    ok("registration is limited to this device's platform authenticator", registerOptions && registerOptions.authenticatorAttachment === "platform" && registerOptions.userVerification === "required", JSON.stringify(registerOptions));
+
     // Account safety lives in the menu.
     await page.locator('[data-action="menu"]:visible').first().click();
     await page.locator('#menuDrop [data-menu="safety"]').click();
@@ -73,12 +82,7 @@ const waitForSession = async (page, status) => {
 
     const panelCopy = await page.locator("#safetyBody").textContent();
     ok("the panel never points at another device", !/another device|other device|phone or laptop/i.test(panelCopy), panelCopy.slice(0, 160));
-    const registerOptions = await page.evaluate(async () => {
-      const response = await fetch("/api/auth/passkey/options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "register", origin: location.origin }) });
-      const payload = await response.json();
-      return payload.options && payload.options.authenticatorSelection;
-    });
-    ok("registration is limited to this device's platform authenticator", registerOptions && registerOptions.authenticatorAttachment === "platform" && registerOptions.userVerification === "required", JSON.stringify(registerOptions));
+    ok("the registration challenge is prefetched for the click", await page.evaluate(() => Boolean(freshRegisterOptions())));
     await page.locator("#safetyAddPasskey").click();
     await page.waitForFunction(() => document.querySelectorAll("#safetyBody .safety-passkey").length === 1, null, { timeout: 15000 });
     ok("adding this device creates a passkey", (await page.locator("#safetyBody .safety-passkey").count()) === 1);
@@ -146,6 +150,20 @@ const waitForSession = async (page, status) => {
     await bare.waitForTimeout(600);
     ok("a device without a platform authenticator gets no fingerprint button", await bare.locator("#passkeyLogin").isHidden());
     await plain.close();
+
+    // When the OS credential manager refuses, the person gets a sentence they can act on instead of
+    // Chromium's "unknown error occurred while talking to the credential manager".
+    await page.locator('[data-action="menu"]:visible').first().click();
+    await page.locator('#menuDrop [data-menu="safety"]').click();
+    await page.locator("#safetyAddPasskey").waitFor();
+    const refusal = await page.evaluate(async () => {
+      const original = navigator.credentials.create.bind(navigator.credentials);
+      navigator.credentials.create = async () => { const error = new Error("unknown error occurred while talking to the credentials manager"); error.name = "UnknownError"; throw error; };
+      try { await addPasskey(); } finally { navigator.credentials.create = original; }
+      return document.querySelector("#toast").textContent;
+    });
+    ok("a credential-manager refusal is explained in plain words", /credential manager refused/.test(refusal) && /Windows Hello|Touch ID|screen lock/.test(refusal), refusal);
+    await page.locator(".modal-close, #safetyClose").first().click().catch(() => {});
   } finally {
     await browser.close();
   }

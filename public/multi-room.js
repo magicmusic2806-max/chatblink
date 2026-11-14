@@ -722,6 +722,53 @@ async function refreshPasskeyAvailability(){
 }
 function devicePasskeys(){try{const list=JSON.parse(localStorage.getItem(PASSKEYS_KEY)||"[]");return Array.isArray(list)?list:[]}catch{return []}}
 function rememberDevicePasskey(id){const list=devicePasskeys().filter(item=>item!==id);list.push(id);try{localStorage.setItem(PASSKEYS_KEY,JSON.stringify(list.slice(-20)))}catch{}}
+let pendingRegisterOptions=null,pendingRegisterAt=0,registerOptionsFlight=null;
+// Chrome (and Android's credential manager) need a live user activation for create()/get(). Awaiting
+// the options request inside the click handler can burn it, so the challenge is fetched ahead of time
+// while the panel is open and the click goes straight to the device prompt.
+async function primeRegisterOptions(){
+  // Only one request may be in flight: two of them would overwrite the challenge cookie, and whichever
+  // arrived last would leave the click holding an options object the server no longer honours.
+  if(registerOptionsFlight)return registerOptionsFlight;
+  if(freshRegisterOptions())return pendingRegisterOptions;
+  const flight=passkeyOptions("register").then(options=>{pendingRegisterOptions=options;pendingRegisterAt=Date.now();return options},()=>null).finally(()=>{if(registerOptionsFlight===flight)registerOptionsFlight=null});
+  registerOptionsFlight=flight;
+  return flight;
+}
+async function takeRegisterOptions(){
+  const options=await primeRegisterOptions();
+  pendingRegisterOptions=null;pendingRegisterAt=0;
+  return options||passkeyOptions("register");
+}
+function freshRegisterOptions(){
+  return pendingRegisterOptions&&Date.now()-pendingRegisterAt<120000?pendingRegisterOptions:null;
+}
+function minimalRegisterOptions(options){
+  // Everything the platform does not strictly need is dropped, but resident keys stay: without a
+  // discoverable credential there is no usernameless sign-in to come back to.
+  return {
+    challenge:options.challenge,
+    rp:options.rp,
+    user:options.user,
+    pubKeyCredParams:options.pubKeyCredParams,
+    authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required",residentKey:"preferred"},
+    attestation:"none"
+  };
+}
+function minimalLoginOptions(options){
+  return {challenge:options.challenge,rpId:options.rpId,allowCredentials:[],authenticatorAttachment:"platform",userVerification:"required"};
+}
+function passkeyErrorMessage(problem){
+  const name=(problem&&problem.name)||"",message=String((problem&&problem.message)||"");
+  if(name==="NotAllowedError")return "The device did not confirm a passkey. Try again and approve the prompt.";
+  if(name==="AbortError")return "The passkey prompt was closed.";
+  if(name==="SecurityError")return "The browser refused a passkey on this address. Use https://chatblink.chat.";
+  if(name==="InvalidStateError")return "This device already has a passkey for your account.";
+  if(name==="ConstraintError"||/not supported/i.test(message))return "This device cannot create a passkey.";
+  console.warn("passkey error:",name,message);
+  return `The device's credential manager refused (${name||"error"}). Check that Windows Hello, Touch ID or a screen lock is set up on this device, then try again.`;
+}
+
 async function passkeyOptions(mode){
   const result=await request("/api/auth/passkey/options",{method:"POST",body:JSON.stringify({mode,origin:location.origin})});
   const options=result.options||{};
@@ -737,13 +784,20 @@ async function signInWithPasskey(){
   if(button){button.disabled=true;button.textContent="Waiting for your device…"}
   try{
     const options=await passkeyOptions("login");
-    const assertion=await navigator.credentials.get({publicKey:options});
+    let assertion;
+    try{assertion=await navigator.credentials.get({publicKey:options})}
+    catch(problem){
+      if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
+      console.warn("passkey get failed, retrying with reduced options:",problem&&problem.name,problem&&problem.message);
+      assertion=await navigator.credentials.get({publicKey:minimalLoginOptions(options)});
+    }
     const result=await request("/api/auth/passkey/verify",{method:"POST",body:JSON.stringify({origin:location.origin,credentialId:assertion.id,response:{clientDataJSON:bytesToBase64Url(assertion.response.clientDataJSON),authenticatorData:bytesToBase64Url(assertion.response.authenticatorData),signature:bytesToBase64Url(assertion.response.signature)}})});
     rememberToken(result.token);
     await enterApp(result.user);
   }catch(problem){
     if(problem&&problem.name==="NotAllowedError")toast("No passkey was used.");
-    else toast((problem&&problem.message)||"That passkey did not work.");
+    else if(problem&&problem.message&&/profile key|not registered|challenge|origin|site/i.test(problem.message))toast(problem.message);
+    else toast(passkeyErrorMessage(problem));
   }finally{if(button){button.disabled=false;button.textContent=copy}}
 }
 async function addPasskey(){
@@ -752,15 +806,22 @@ async function addPasskey(){
   const button=$("#safetyAddPasskey");
   if(button){button.disabled=true;button.textContent="Waiting for your device…"}
   try{
-    const options=await passkeyOptions("register");
-    const credential=await navigator.credentials.create({publicKey:options});
+    const options=await takeRegisterOptions();
+    let credential;
+    try{credential=await navigator.credentials.create({publicKey:options})}
+    catch(problem){
+      if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
+      console.warn("passkey create failed, retrying with reduced options:",problem&&problem.name,problem&&problem.message);
+      credential=await navigator.credentials.create({publicKey:minimalRegisterOptions(options)});
+    }
     const saved=await request("/api/auth/passkey/register",{method:"POST",body:JSON.stringify({origin:location.origin,credential:{id:credential.id,authenticatorAttachment:credential.authenticatorAttachment,response:{clientDataJSON:bytesToBase64Url(credential.response.clientDataJSON),attestationObject:bytesToBase64Url(credential.response.attestationObject),transports:credential.response.getTransports?credential.response.getTransports():[]}}})});
     rememberDevicePasskey(saved.id||credential.id);
     toast("This device can now sign you in with your fingerprint");
     await loadSafety();
   }catch(problem){
-    if(problem&&problem.name==="NotAllowedError")toast("The passkey was not created.");
-    else toast((problem&&problem.message)||"The passkey was not created.");
+    if(problem&&problem.name==="NotAllowedError")toast("The passkey was not created - approve the prompt on this device.");
+    else if(problem&&problem.message&&/already registered for this|profile key|Sign in first|origin|site/i.test(problem.message))toast(problem.message);
+    else toast(passkeyErrorMessage(problem));
   }finally{if(button){button.disabled=false;button.textContent="Add this device"}}
 }
 
@@ -830,6 +891,7 @@ function renderSafety(){
   body.appendChild(key);
 }
 async function loadSafety(){
+  primeRegisterOptions();
   try{safetyState=await request("/api/account/safety");renderSafety()}
   catch(problem){const body=$("#safetyBody");if(body)body.textContent=problem.message}
 }
