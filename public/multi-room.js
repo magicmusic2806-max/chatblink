@@ -758,6 +758,17 @@ function minimalRegisterOptions(options){
 function minimalLoginOptions(options){
   return {challenge:options.challenge,rpId:options.rpId,allowCredentials:[],authenticatorAttachment:"platform",userVerification:"required"};
 }
+// The refusal advice has to name the lock screen this device actually has: telling an Android phone to
+// set up Windows Hello reads as a browser bug and hides the real check. Unknown platforms get the
+// generic sentence.
+function passkeyRefusalAdvice(){
+  const ua=String((navigator&&navigator.userAgent)||"");
+  if(/Android/i.test(ua))return "Set a screen lock (PIN, pattern, fingerprint or face) on this phone and make sure Google Password Manager is turned on in Chrome's settings, then try again.";
+  if(/iPhone|iPad|iPod/i.test(ua))return "Make sure Face ID, Touch ID or a device passcode is set up in Settings, then try again.";
+  if(/Macintosh/i.test(ua))return "Make sure Touch ID or your login password is set up on this Mac, then try again.";
+  if(/Windows/i.test(ua))return "Make sure Windows Hello (PIN, face or fingerprint) is set up in Windows Settings, then try again.";
+  return "Make sure this device has a screen lock set up, then try again.";
+}
 function passkeyErrorMessage(problem){
   const name=(problem&&problem.name)||"",message=String((problem&&problem.message)||"");
   if(name==="NotAllowedError")return "The device did not confirm a passkey. Try again and approve the prompt.";
@@ -765,8 +776,10 @@ function passkeyErrorMessage(problem){
   if(name==="SecurityError")return "The browser refused a passkey on this address. Use https://chatblink.chat.";
   if(name==="InvalidStateError")return "This device already has a passkey for your account.";
   if(name==="ConstraintError"||/not supported/i.test(message))return "This device cannot create a passkey.";
-  console.warn("passkey error:",name,message);
-  return `The device's credential manager refused (${name||"error"}). Check that Windows Hello, Touch ID or a screen lock is set up on this device, then try again.`;
+  // The user agent goes in the log because a refusal report is useless without knowing which passkey
+  // provider answered.
+  console.warn("passkey error:",name,message,navigator.userAgent);
+  return `The device's credential manager refused (${name||"error"}). ${passkeyRefusalAdvice()}`;
 }
 
 async function passkeyOptions(mode){

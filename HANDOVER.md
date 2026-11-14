@@ -2,7 +2,7 @@
 
 Updated 2026-11-14. Live at <https://chatblink.chat>, deployed from `main` by
 `.github/workflows/deploy.yml` (`npm ci` → canonical-host suite → `wrangler deploy`).
-Current client bundle: `multi-room.js?v=73`. D1 schema version: 3
+Current client bundle: `multi-room.js?v=74`. D1 schema version: 3
 (`worker/lib/schema.js`, applied by the Durable Object itself).
 
 ## What the site is now
@@ -47,35 +47,61 @@ Current client bundle: `multi-room.js?v=73`. D1 schema version: 3
 
 ## Current work focus (open)
 
-**"Add this device" failed with Chromium's *"unknown error occurred while talking to the credentials
-manager"*.** The toast was just forwarding that raw string.
+**"Add this device" fails on at least one Android phone with `NotReadableError`.** As of `v=74` this is
+what is known, and what the next person has to get from the device.
 
-Fixed in `cc4a5c1` (`v=73`), not yet confirmed on the reporter's device:
+Evidence from the reporting device (Chrome on Android, seen in the screenshot that opened this thread):
 
-1. The registration challenge is prefetched when the safety panel opens and single-flighted, so the
-   click goes straight from the handler into `navigator.credentials.create()` with a live user
-   activation. (Awaiting the options request inside the click could burn that activation.)
-2. `create()`/`get()` retry once with reduced options when the device refuses for a reason other than
-   a dismissal, keeping platform attachment, user verification and resident keys.
-3. Errors are translated to actionable sentences (dismissal, blocked address, existing credential,
-   unsupported device, generic credential-manager refusal) and the raw `name`/`message` is logged as
-   `passkey error: …`.
+1. The toast was the generic branch of `passkeyErrorMessage`, so `problem.name === "NotReadableError"` —
+   and that toast comes *after* the reduced-options retry, so the retry failed the same way. A dismissal
+   on the second attempt would have printed the `NotAllowedError` sentence instead.
+2. The safety panel printed "This device can use its fingerprint, face or screen lock", so
+   `isUVPAA()` returned true. The refusal sits below the browser's own availability check.
+3. The phone has a screen lock and enrolled fingerprints, so "nothing is set up on this device" is out.
 
-**Needed to close it:** the platform and browser the reporter used, and the new text of the toast or
-the `passkey error:` console line. Ranked hypotheses:
+Ruled out: the `v=73` retry does not test hypothesis "a parameter the device dislikes", because
+`minimalRegisterOptions` keeps the same `authenticatorAttachment: "platform"`, `userVerification:
+"required"`, `residentKey: "preferred"` triple the server sends (`worker/hub.js`); it only drops the
+timeout, extensions and attestation preference. `residentKey` is `"preferred"`, never required.
 
-1. OS platform authenticator not usable — Windows Hello/PIN not set up, Android screen lock or Google
-   Password Manager unavailable, enterprise policy blocking WebAuthn. The new message says so.
-2. A Chrome/OS credential-manager glitch on that specific machine (try an incognito window or another
-   browser on the same device to separate browser state from OS state).
-3. Only after 1 and 2 are excluded: a parameter the device dislikes — the reduced-option retry is the
-   probe for that, and the console log names which attempt failed and how.
+Shipped in `v=74`:
+
+1. The refusal sentence now names the lock screen the device actually has — Android: screen lock (PIN,
+   pattern, fingerprint, face) plus Google Password Manager; Apple: Face ID/Touch ID/passcode; Windows:
+   Windows Hello; anything else: a screen lock. Telling a phone to set up Windows Hello reads as a
+   browser bug and hides the real check. The user agent is logged with the `passkey error:` line.
+2. `public/passkey-check.html` — a same-origin diagnostic page, served as a plain static asset at
+   <https://chatblink.chat/passkey-check.html>. It runs the app's exact `create()` options and then
+   relaxes one field per step (drop `requireResidentKey`, relax user verification, drop `residentKey`,
+   drop the attachment hint, require resident keys), stopping at the first success. Challenges are
+   generated in the page and it never calls the server, so nothing is added to the account; a step that
+   succeeds does leave a test passkey named `passkey-check` on the device.
+
+**Needed to close it:** open that page on the failing phone and screenshot the verdict. Three outcomes:
+
+- **Step 1 works** — the settings are fine and the refusal was transient/contextual; retry in the app.
+- **Step N > 1 works** — that step names the field Android refuses. Then decide whether dropping it is
+  acceptable: the platform-only pin exists deliberately (no phone/QR/security key offered), so dropping
+  `authenticatorAttachment` is a product decision, not a bug fix.
+- **Every step fails** — the blocker is the browser/OS passkey provider, not the request: Play Services
+  or Google Password Manager missing, disabled or policy-blocked, a Chrome/Play Services version issue,
+  or an OEM provider that refuses the `platform` attachment outright. Confirm by registering a passkey
+  at <https://webauthn.io> from the same phone — if that also fails, the site is not the problem.
+
+Ranked hypotheses, unchanged in order but weaker on 1: (1) the OS passkey provider is unusable on that
+device, (2) a Chrome/credential-manager glitch specific to that machine, (3) only after 1 and 2 are
+excluded, a parameter the device dislikes — the probe page is the test for it.
 
 ## Verification
 
 - `npm run test:all` (`tests/run-all.js`) starts one `wrangler dev` per suite group and prints a
-  summary. Last run: **14 groups green** — canonical, schema, smoke, retention, push-gate, theme,
-  quotas, actions, room-actions, voice-note, group-call, group-call-e2e, passkey, notice.
+  summary. Last full run: **14 groups green** at `v=73` — canonical, schema, smoke, retention,
+  push-gate, theme, quotas, actions, room-actions, voice-note, group-call, group-call-e2e, passkey,
+  notice. At `v=74` only `tests/passkey-e2e.js` was re-run: **18 checks green**, including the
+  reworded refusal sentence.
+- `public/passkey-check.html` was driven at 390 px with a CDP virtual authenticator in three modes —
+  step 1 succeeds, every step refused (`NotReadableError` stubbed), and only `platform` refused — and
+  in each the ladder stopped or exhausted correctly and the verdict named the right step.
 - Notable suites: `tests/passkey-e2e.js` (18 checks, Chromium + a CDP virtual authenticator, asserts
   platform-only options, the prefetched challenge, and the plain-words refusal message),
   `tests/notice-board.js` (public read, admin write, live event; the admin half SKIPs when the
@@ -108,6 +134,9 @@ the `passkey error:` console line. Ranked hypotheses:
 - Admin-only paths in `tests/notice-board.js` and `tests/message-actions.js` skip on a database that
   already contains the auto-promoted `dynamic` admin; both were verified once on a fresh
   `--persist-to` state directory.
+- `public/passkey-check.html` is scaffolding for the open passkey item: delete it (and this line) once
+  the Android refusal is explained. It is a static asset, so the Worker never sees it, and it is
+  `noindex`.
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
