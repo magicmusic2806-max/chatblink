@@ -97,19 +97,86 @@ scoring are simple; the DO owns the current question.
   `dwyl/english-words` (Unlicense).
 - Any sprite, icon or sound pack without an explicit CC0/MIT license. `kenney.nl` is the safe source.
 
-## Shared plumbing to build once
+## Settled decisions (owner, 2026-11-14)
 
-A "game dock" in a room: game state per room in the DO, `game-start` / `game-move` / `game-state` /
-`game-end` events, server-side validation, turn timeouts, spectator list, and a resync on reconnect.
-Front end: one dock component in `public/multi-room.js` and one CSS block, reused by every game.
-Game events get their own rate limit in `rateLimited()` so they never touch the chat budgets.
+1. **Every room can host every game.** There is no dedicated games room in the sense of a chat room:
+   games belong to the room they were started in.
+2. **Games are hidden by default.** A room shows a **Games** control; the list only appears when it is
+   opened. Nothing pops up or auto-opens on entry.
+3. **A "Games" entry in the room list is the global view** — every game being played in every room,
+   with **Watch**, **Join** (when the game is open) and **Request to join** (when the host reserves a
+   seat).
+4. **Join policies:** a game is either **open** (anyone may take a free seat) or **by request** (the
+   host approves). Watching is always allowed, including for solo games, where watching is the only
+   option.
+5. **Anyone can start a game**, in any room they are in.
+6. **Draw & Guess:** words are safe/clean for now. Spectators may guess, their guesses count, and a
+   correct one is announced in the room as "<name> guessed the word". Guests' points are kept
+   separately from players' points, and the end-of-game scoreboard shows both so spectators can see
+   who scored best among themselves.
+7. **Chess is human vs human only.** No engine, so no `stockfish.js` (GPL-3.0) and no wasm payload.
 
-## Decisions needed before building
+## Data model (draft, one game per room at a time)
 
-1. **Where games can run:** every room, private rooms only, or a dedicated "games" built-in room?
-2. **Who can start one:** anyone in the room, the room creator, or a vote?
-3. **Draw & Guess details:** words safe for an 18+ chat or a deliberately clean list? Rounds per
-   game and seconds per round? Drawer chosen round-robin or at random?
-4. **Spectators:** can people watch without playing (recommended), and do their messages count as
-   guesses (yes in the room chat)?
-5. **Chess:** human-vs-human only, or is a bot (`stockfish.js`, GPL-3.0) acceptable later?
+Room game state lives in the DO's memory next to `this.roomCalls`, keyed by room id, and is rebuilt
+on restart the same way (a game in progress ends when the object restarts; that is acceptable and
+simpler than persisting mid-game state):
+
+```
+game = {
+  id, kind, roomId, hostId,
+  policy: "open" | "request",
+  status: "lobby" | "playing" | "ended",
+  seats:  { min, max },                    // Connect Four 2, Draw & Guess 3-8, solo 1
+  players: [{ id, username, role, score }],
+  guests:  [{ id, username, score }],      // spectators; scored separately
+  pending: [{ id, username }],             // join requests waiting on the host
+  turn: playerId | null,
+  round: { number, drawerId, wordMask, endsAt } | null,
+  board: {},                               // per-game payload, server-authoritative
+  startedAt, endedAt
+}
+```
+
+Socket events, all in the existing room channel: `game-list`, `game-create`, `game-join`,
+`game-request`, `game-approve`, `game-deny`, `game-leave`, `game-watch`, `game-move`, `game-guess`,
+`game-state`, `game-end`. Everything that changes state is validated in the DO and then broadcast as
+`game-state`; clients never compute a legal move themselves.
+
+Rate limiting: game events use their own `rateLimited()` key so a game never eats `MESSAGE_DAILY_CAP`
+or `MESSAGE_LIMIT_PER_WINDOW`. Drawn strokes are batched (one event per ~50 ms per stroke, capped
+per second) and are never stored per point.
+
+## UI surfaces
+
+- **In a room:** a **Games** button beside the existing actions opens a small dock listing that room's
+  game (or the create list when there is none). The dock carries the player list, seats, host approve
+  / deny controls, the scoreboard and the spectator count. Collapsed by default.
+- **Room list:** a **Games** card above the room grid showing every live game across rooms with its
+  room, game, seats taken and the three actions. It is the only place games are discoverable without
+  opening a room, which is what "hidden by default" means.
+- **Guesses** stay in the room chat (that is where the fun is), with the word masked in the transcript
+  until the round ends and a system line when someone gets it.
+
+## Build plan
+
+1. **Dock + Connect Four.** The dock, the event set, open/request/spectate, host approve/deny,
+   reconnect resync, the Games card, and the game-list aggregation. Connect Four is zero-dependency
+   and proves all of it. Ship this first.
+2. **Draw & Guess** on the same dock: word list (curated, safe, from the Unlicense list), round clock,
+   masked word, guessing in the room chat, separate guest scoring and the end scoreboard.
+3. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
+4. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games card,
+   watchable but not joinable.
+5. **Poker / trivia** only if demand appears.
+
+## Remaining questions
+
+1. **One game at a time per room,** or may a room run several at once? (The draft above assumes one —
+   multiple means a per-game id in every event and a list per room.)
+2. **Who may approve requests:** the host only, or moderators and the admin as well?
+3. Does the **Games card** need a preview of the current drawing/board, or is the room, game and seat
+   count enough?
+4. **Start with Connect Four** to prove the dock, or go straight to Draw & Guess and scope the dock
+   around it? (Recommendation: Connect Four first — it is the cheapest way to find out whether the
+   join/watch/request plumbing actually behaves, and Draw & Guess then reuses all of it.)
