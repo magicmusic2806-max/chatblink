@@ -28,7 +28,7 @@ const GROUP_CALL_MAX = 6;
 // game is turn-based and validated in the Durable Object, because a client-side board is a board
 // people win with the console open.
 const GAME_KINDS = { "connect-four": { name: "Connect Four", seats: 2, solo: false } };
-const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end"];
+const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-sync"];
 const GAME_EVENT_LIMIT = 60;
 const CONNECT_FOUR_COLUMNS = 7, CONNECT_FOUR_ROWS = 6;
 // The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
@@ -95,6 +95,12 @@ export class ChatHub {
       state.storage.sql.exec(MESSAGE_INDEX);
       state.storage.sql.exec(MESSAGE_ID_INDEX);
       await this.migrateDatabase();
+      // Games are the one piece of live state that must outlive the object: a board people stare at for a
+      // minute would otherwise vanish the moment the object hibernates (WebSocket hibernation clears
+      // in-memory fields while the sockets stay open). Spectators are dropped on load because they are
+      // per-connection, not part of the game.
+      const stored = await state.storage.get("roomGames").catch(() => null);
+      this.roomGames = new Map(Object.entries(stored || {}).map(([roomId, game]) => [roomId, { ...game, guests: [] }]));
       await this.hydrate();
     });
   }
@@ -424,12 +430,21 @@ export class ChatHub {
       reason: game.reason || null, createdAt: game.createdAt, startedAt: game.startedAt || null, endedAt: game.endedAt || null
     };
   }
-  broadcastGame(roomId) {
+  broadcastGame(roomId, persist = true) {
+    // Spectator changes are per-connection, so they are not worth a storage write; board and seat
+    // changes are, because the object can hibernate between two moves of a slow game.
+    if (persist) this.saveGames();
     const game = this.roomGames.get(roomId) || null;
     this.broadcast(roomId, { type: "game-state", game: game ? this.gameView(game) : null });
     // The room list's games card is an aggregate, so every client is told that the set changed rather
     // than polling per room.
     this.broadcastAll({ type: "games-changed" });
+  }
+  // One key for every game: writes are per move, not per message, so this is cheap, and it means a
+  // restart or hibernation resumes the board instead of ending the game.
+  saveGames() {
+    const snapshot = Object.fromEntries(this.roomGames);
+    this.background(this.state.storage.put("roomGames", snapshot));
   }
   gameError(socket, message) { this.send(socket, { type: "game-error", message }); }
   // Games get their own window so a click-heavy board never eats the chat message budget.
@@ -458,6 +473,12 @@ export class ChatHub {
     if (this.gameLimited(meta.connectionId || user.id, now)) return;
     const game = this.roomGames.get(room.id) || null;
     const gameId = clean(event.gameId).slice(0, 64);
+
+    // Opening the dock asks for the truth rather than trusting what it last heard: the object may have
+    // restarted, and "nobody is playing here" is the one wrong answer that looks like a bug.
+    if (event.type === "game-sync") {
+      return this.send(socket, { type: "game-state", game: game ? this.gameView(game) : null });
+    }
 
     if (event.type === "game-create") {
       const kind = GAME_KINDS[clean(event.kind).slice(0, 32)];
@@ -505,7 +526,7 @@ export class ChatHub {
     }
     if (event.type === "game-watch") {
       if (!game.guests.some(person => person.id === user.id)) game.guests.push({ id: user.id, username: user.username, score: 0 });
-      return this.broadcastGame(room.id);
+      return this.broadcastGame(room.id, false);
     }
     if (event.type === "game-leave") {
       game.pending = game.pending.filter(person => person.id !== user.id);
@@ -988,7 +1009,7 @@ export class ChatHub {
     }
 
     // Every live game, for the room list's games card. Only games in rooms this account may enter: a
-    // private room's game is as private as the room.
+    // private room's game must not be visible from outside the room, by owner decision.
     if (path === "/api/games" && request.method === "GET") {
       const user = await this.sessionUser(request);
       if (!user) return json(401, { error: "Sign in first." });

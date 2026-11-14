@@ -789,6 +789,7 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .games-card-head small{color:#7b8497;font-size:12px;flex:1}
 .games-card-head button{border:1px solid #dfe4ee;background:#fff;color:#4b5b7a;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700}
 .games-card-list{display:grid;gap:6px}
+.games-card-empty{color:#7b8497;font-size:12.5px;margin:0}
 .games-card-row{text-align:left;border:1px solid #e5eaf3;background:#fff;color:#3a465c;border-radius:10px;padding:9px 11px;font-size:12.5px;font-weight:600}
 .games-card-row:hover{border-color:#b9c6de}
 .games-modal{max-width:440px;width:100%}
@@ -831,6 +832,7 @@ html[data-theme=dark] .games-card-head b{color:#e4e9f2}
 html[data-theme=dark] .games-card-head small{color:#8f9cb2}
 html[data-theme=dark] .games-card-head button{background:#0f1624;border-color:#293243;color:#c3cee0}
 html[data-theme=dark] .games-card-row{background:#101725;border-color:#293243;color:#c3cee0}
+html[data-theme=dark] .games-card-empty{color:#8f9cb2}
 html[data-theme=dark] .game-copy{color:#94a1b6}
 html[data-theme=dark] .game-status{color:#c3cee0}
 html[data-theme=dark] .game-kind{background:#101725;border-color:#293243;color:#a6b2c6}

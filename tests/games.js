@@ -186,6 +186,13 @@ async function main() {
   ok("the games card lists the game with its room and seats", Boolean(entry) && entry.roomName.startsWith("Games ") && entry.seats === 2 && entry.players === 1, JSON.stringify(list.games));
   ok("the games card is closed to signed-out visitors", (await get("/api/games")).status === 401);
 
+  // Opening the dock asks the server for the truth instead of trusting what the client last heard; this
+  // is the check that keeps a stale or hibernated view from saying "nobody is playing here".
+  ownerSocket.inbox.length = 0;
+  send(ownerSocket, { type: "game-sync" });
+  const synced = await waitFor(ownerSocket, packet => packet.type === "game-state");
+  ok("the dock can ask for the current game", Boolean(synced.game) && synced.game.id === listed.game.id, JSON.stringify(synced.game?.id));
+
   const privateRoom = (await (await post("/api/rooms", { name: `Hidden ${stamp}`, vibe: "Private game.", access: "request", theme: "berry" }, owner.cookie)).json()).room;
   const privateSocket = socket(privateRoom.id, owner.cookie);
   await open(privateSocket);
@@ -194,7 +201,8 @@ async function main() {
   send(privateSocket, { type: "game-create", kind: "connect-four", policy: "open" });
   const hidden = await waitFor(privateSocket, packet => packet.type === "game-state" && packet.game);
   const peerList = await (await get("/api/games", peer.cookie)).json();
-  ok("a game in a private room is not advertised to outsiders", !(peerList.games || []).some(item => item.id === hidden.game.id));
+  // Owner's rule: what a private room is playing is not visible from outside it.
+  ok("a game in a private room is not advertised to outsiders", !(peerList.games || []).some(item => item.id === hidden.game.id), JSON.stringify(peerList.games));
   const ownerList = await (await get("/api/games", owner.cookie)).json();
   ok("but the room's own members see it", (ownerList.games || []).some(item => item.id === hidden.game.id));
 

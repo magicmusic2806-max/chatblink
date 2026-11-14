@@ -118,9 +118,11 @@ scoring are simple; the DO owns the current question.
 
 ## Data model (draft, one game per room at a time)
 
-Room game state lives in the DO's memory next to `this.roomCalls`, keyed by room id, and is rebuilt
-on restart the same way (a game in progress ends when the object restarts; that is acceptable and
-simpler than persisting mid-game state):
+Room game state is held on the Durable Object and copied to its storage under the key `roomGames`
+(a plain `{roomId: game}`, rewritten whenever seats, board or status change). Memory alone was not
+enough: WebSocket hibernation clears in-memory fields while sockets stay open, so a board people were
+staring at would vanish between two moves. Spectators are dropped when the state is loaded, because
+they belong to connections rather than to the game.
 
 ```
 game = {
@@ -173,9 +175,13 @@ per second) and are never stored per point.
 
 Everything below is what the code actually does, not the plan it came from:
 
-- **State** lives in the DO's memory as `this.roomGames` (room id → game), next to `this.roomCalls`.
-  One game per room at a time; a finished game stays on the board until the host starts another or
-  closes it.
+- **State** lives on the DO and is persisted under the storage key `roomGames`, so a game survives
+  hibernation and a restart (verified by killing the dev server between a create and a move). One game
+  per room at a time; a finished game stays on the board until the host starts another or closes it.
+- **Privacy:** a game is listed only to accounts that may enter its room. What a request-only room is
+  playing is not visible from outside it (owner's rule). The dock and the card both stay inside that.
+- **The dock asks for the truth** with a `game-sync` event when it opens, so a stale or just-restored
+  view can never say "nobody is playing here" while a game exists.
 - **Seats** come from `GAME_KINDS` (`connect-four: 2`). The host takes the first seat when creating.
   `policy: "open"` fills the seat on `game-join`; `policy: "request"` puts the person in `pending` and
   notifies the host, who approves or denies from the dock.
@@ -191,7 +197,9 @@ Everything below is what the code actually does, not the plan it came from:
 - **HTTP:** `GET /api/games` lists every game in a room the caller may enter, for the room list's card.
 - **UI:** a **🎲 Games** button in the room's tool row opens the dock; the room list gets a **Games in
   rooms** card with the first three live games and a "See all" list; both modes are one modal
-  (`#gamesModal`). Games are invisible until one of those is opened, as specified.
+  (`#gamesModal`). Games are invisible until one of those is opened, as specified — and the card is
+  always present for a signed-in person, showing "no game running" rather than disappearing, because a
+  list that vanishes is indistinguishable from a broken list.
 - **Defaults taken** from the open questions: one game per room; host, moderators and the admin may
   approve/end (a silent host must not strand a room); the card shows room, game and seats, no board
   preview.

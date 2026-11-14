@@ -710,7 +710,7 @@ let safetyState=null,siteNotice=null,noticeEditing=false;
 let gameState=null,liveGames=[],gamesMode="room",gamesRefreshTimer=null,pendingGameAction=null;
 function sendGame(type,extra){if(!socket||socket.readyState!==WebSocket.OPEN)return toast("Reconnecting - try again in a moment");socket.send(JSON.stringify({type,...(extra||{})}))}
 const gameIsMine=(id)=>Boolean(currentUser&&id===currentUser.id);
-function openGames(mode){if(!currentUser)return toast("Sign in to play");gamesMode=mode;$("#gamesModal").hidden=false;renderGames();if(mode==="all")loadLiveGames();else if(gameState&&!gameState.solo)sendGame("game-watch",{gameId:gameState.id})}
+function openGames(mode){if(!currentUser)return toast("Sign in to play");gamesMode=mode;$("#gamesModal").hidden=false;renderGames();if(mode==="all")loadLiveGames();else{sendGame("game-sync");if(gameState&&!gameState.solo)sendGame("game-watch",{gameId:gameState.id})}}
 function closeGames(){$("#gamesModal").hidden=true}
 function renderGames(){
   const body=$("#gamesBody"),title=$("#gamesTitle");
@@ -850,13 +850,14 @@ function renderLiveGames(body){
     const info=document.createElement("span");info.className="game-list-info";
     const name=document.createElement("b");name.textContent=`${game.roomIcon||"🎮"} ${game.name}`;
     const meta=document.createElement("small");
-    meta.textContent=[game.roomName,`${game.players}/${game.seats} players`,game.status==="lobby"?"waiting":"in progress",game.policy==="open"?"open":"by request"].join(" · ");
+    const state=game.status==="lobby"?"waiting":game.status==="playing"?"in progress":"finished";
+    meta.textContent=[game.roomName,`${game.players}/${game.seats} players`,state,game.policy==="open"?"open":"by request"].join(" · ");
     info.append(name,meta);
     const actions=document.createElement("span");actions.className="game-list-actions";
     const open=document.createElement("button");open.type="button";open.className="secondary small";open.textContent="Watch";
     open.onclick=()=>enterGameRoom(game,"watch");
     actions.appendChild(open);
-    if(game.players<game.seats&&game.status==="lobby"){
+    if(game.status==="lobby"&&game.players<game.seats){
       const join=document.createElement("button");join.type="button";join.className="primary small";join.textContent=game.policy==="open"?"Join":"Request";
       join.onclick=()=>enterGameRoom(game,game.policy==="open"?"join":"request");
       actions.appendChild(join);
@@ -894,18 +895,31 @@ async function loadLiveGames(){
 function renderGamesCard(){
   const card=$("#gamesCard");
   if(!card)return;
-  if(!currentUser||!liveGames.length){card.hidden=true;card.innerHTML="";return}
+  // Signed-in people always see the card, even with nothing running: a list that vanishes is
+  // indistinguishable from a broken list, which is exactly how "my game is not there" gets reported.
+  if(!currentUser){card.hidden=true;card.innerHTML="";return}
   card.hidden=false;card.innerHTML="";
   const head=document.createElement("div");head.className="games-card-head";
   const title=document.createElement("b");title.textContent="🎮 Games in rooms";
-  const count=document.createElement("small");count.textContent=`${liveGames.length} ${liveGames.length===1?"game":"games"} running`;
-  const all=document.createElement("button");all.type="button";all.textContent="See all";
-  all.onclick=()=>openGames("all");
-  head.append(title,count,all);
+  const count=document.createElement("small");
+  count.textContent=liveGames.length?`${liveGames.length} ${liveGames.length===1?"game":"games"} running`:"no game running";
+  head.append(title,count);
+  if(liveGames.length){
+    const all=document.createElement("button");all.type="button";all.textContent="See all";
+    all.onclick=()=>openGames("all");
+    head.appendChild(all);
+  }
+  card.appendChild(head);
+  if(!liveGames.length){
+    const empty=document.createElement("p");empty.className="games-card-empty";empty.textContent="Start one from inside any room with the 🎲 Games button.";
+    card.appendChild(empty);
+    return;
+  }
   const list=document.createElement("div");list.className="games-card-list";
   liveGames.slice(0,3).forEach(game=>{
     const row=document.createElement("button");row.type="button";row.className="games-card-row";
-    row.textContent=`${game.roomIcon||"🎮"} ${game.name} · ${game.roomName} · ${game.players}/${game.seats}`;
+    const state=game.status==="lobby"?"waiting":game.status==="playing"?"in progress":"finished";
+    row.textContent=`${game.roomIcon||"🎮"} ${game.name} · ${game.roomName} · ${game.players}/${game.seats} · ${state}`;
     row.onclick=()=>enterGameRoom(game,game.status==="lobby"&&game.players<game.seats&&game.policy==="open"?"join":"watch");
     list.appendChild(row);
   });
