@@ -1,8 +1,12 @@
 // The D1 schema, mirroring schema.sql statement for statement (tests/schema-parity.js fails if the
-// two drift apart). It lives here as well as in the .sql file because the Worker applies it itself
-// now: production drifted once - tables a read path touched were never created because `db:remote`
-// was a manual step - and a missing table must not be able to break an unrelated page again.
-export const D1_SCHEMA_VERSION = 1;
+// two drift apart). It lives here as well as in the .sql file because the Worker applies it itself:
+// production drifted once - tables a read path touched were never created because `db:remote` was a
+// manual step - and a missing table must not be able to break an unrelated page again.
+//
+// The account system is profile-key only. The email/password tables that earlier versions created
+// (email_credentials, pending_email_signups, pending_email_links, auth_tokens) are no longer part of
+// the schema; where they already exist they are simply unused and can be dropped by hand.
+export const D1_SCHEMA_VERSION = 2;
 
 export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -51,49 +55,5 @@ export const D1_SCHEMA = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (user_id, room_id)
   )`,
-  "CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id)",
-  `CREATE TABLE IF NOT EXISTS email_credentials (
-    user_id TEXT PRIMARY KEY,
-    email TEXT NOT NULL,
-    email_lower TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    verified_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`,
-  `CREATE TABLE IF NOT EXISTS pending_email_signups (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    username_lower TEXT NOT NULL UNIQUE,
-    age INTEGER NOT NULL,
-    email TEXT NOT NULL,
-    email_lower TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    adult_confirmed_at TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    expires_at INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-  )`,
-  "CREATE INDEX IF NOT EXISTS pending_email_signups_expires ON pending_email_signups (expires_at)",
-  `CREATE TABLE IF NOT EXISTS pending_email_links (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL,
-    email_lower TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    expires_at INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-  )`,
-  "CREATE INDEX IF NOT EXISTS pending_email_links_expires ON pending_email_links (expires_at)",
-  `CREATE TABLE IF NOT EXISTS auth_tokens (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    expires_at INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-  )`,
-  "CREATE INDEX IF NOT EXISTS auth_tokens_user_kind ON auth_tokens (user_id, kind)",
-  "CREATE INDEX IF NOT EXISTS auth_tokens_expires ON auth_tokens (expires_at)"
+  "CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id)"
 ];

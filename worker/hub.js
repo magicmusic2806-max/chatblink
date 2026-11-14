@@ -3,7 +3,6 @@ import { clean, safeDecode, json, publicUser, profileDoc, parseCookies, ipOf, is
 import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } from "./lib/crypto.js";
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
 import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, roomSubscription, setRoomSubscription, removeRoomSubscriptions, pushToUser, pushToRoomSubscribers, pushToAll, pushConfigured } from "./lib/push.js";
-import { normalizeEmail, validPassword, hashPassword, verifyPassword, opaqueToken, tokenHash, verificationExpiry, resetExpiry, sendVerificationEmail, sendAccountEmailVerification, sendResetEmail } from "./lib/email-auth.js";
 import { D1_SCHEMA, D1_SCHEMA_VERSION } from "./lib/schema.js";
 
 const MAX_MESSAGES = 100;
@@ -139,7 +138,7 @@ export class ChatHub {
     const body = await readJson(request, 16384);
     const action = clean(body.action);
     const ip = ipOf(request);
-    const limit = action === "signup" ? 10 : action === "email-signup" || action === "email-resend" || action === "email-forgot" ? 5 : 20;
+    const limit = action === "signup" ? 10 : 20;
     if (this.rateLimited(ip, `${action}-form`, limit)) return json(429, { status: 429, error: "Too many attempts. Try again later." });
     if (action === "signup") {
       try {
@@ -151,30 +150,6 @@ export class ChatHub {
       const user = await this.userForProfileKey((body.fields || {}).key);
       if (!user) return json(200, { status: 401, error: "That profile key is not valid." });
       return json(200, { status: 200, user: publicUser(user), token: await this.token(user) });
-    }
-    if (action === "email-signup") {
-      try { return json(200, { status: 202, ...(await this.startEmailSignup(body.fields || {})) }); }
-      catch (error) { return json(200, { status: 400, error: error.message }); }
-    }
-    if (action === "email-login") {
-      try { const user = await this.emailLogin(body.fields || {}); return json(200, { status: 200, user: publicUser(user), token: await this.token(user) }); }
-      catch (error) { return json(200, { status: 401, error: error.message }); }
-    }
-    if (action === "email-verify") {
-      try { const result = await this.verifyEmailToken((body.fields || {}).token); return json(200, { status: 200, user: publicUser(result.user), token: await this.token(result.user), ...(result.profileKey ? { profileKey: result.profileKey } : {}) }); }
-      catch (error) { return json(200, { status: 400, error: error.message }); }
-    }
-    if (action === "email-resend") {
-      try { return json(200, { status: 200, ...(await this.resendVerification((body.fields || {}).email)) }); }
-      catch (error) { return json(200, { status: 400, error: error.message }); }
-    }
-    if (action === "email-forgot") {
-      try { return json(200, { status: 200, ...(await this.requestPasswordReset((body.fields || {}).email)) }); }
-      catch (error) { return json(200, { status: 400, error: error.message }); }
-    }
-    if (action === "email-reset") {
-      try { return json(200, { status: 200, ...(await this.resetPassword((body.fields || {}).token, (body.fields || {}).password)) }); }
-      catch (error) { return json(200, { status: 400, error: error.message }); }
     }
     if (action === "enter") {
       const user = await verifyAuthToken(clean((body.fields || {}).token), this.env.AUTH_SECRET, id => this.userById(id));
@@ -275,134 +250,6 @@ export class ChatHub {
     await saveUser(this.env, user);
     this.users.push(user);
     return { user, profileKey };
-  }
-  async startEmailSignup(body) {
-    const username = clean(body.username), usernameLower = username.toLowerCase(), age = Number(body.age), email = normalizeEmail(body.email), password = String(body.password || "");
-    if (body.adultConfirmed !== true) throw new Error("Confirm that you are 18 or older.");
-    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) throw new Error("Username must be 3–24 characters using letters, numbers, or underscores.");
-    if (!Number.isInteger(age) || age < 18 || age > 120) throw new Error("Enter a valid age of 18 or older.");
-    if (!email) throw new Error("Enter a valid email address.");
-    if (!validPassword(password)) throw new Error("Password must be 10–128 characters.");
-    await this.env.DB.prepare("DELETE FROM pending_email_signups WHERE expires_at <= ?").bind(Date.now()).run();
-    if (this.userByUsernameLower(usernameLower) || await this.env.DB.prepare("SELECT 1 FROM pending_email_signups WHERE username_lower = ? LIMIT 1").bind(usernameLower).first()) throw new Error("That username is already taken.");
-    if (await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE email_lower = ? LIMIT 1").bind(email).first()) throw new Error("That email is already linked to an account.");
-    if (await this.env.DB.prepare("SELECT 1 FROM pending_email_signups WHERE email_lower = ? LIMIT 1").bind(email).first()) throw new Error("That email is waiting for verification. Resend the verification email instead.");
-    if (await this.env.DB.prepare("SELECT 1 FROM pending_email_links WHERE email_lower = ? AND expires_at > ? LIMIT 1").bind(email, Date.now()).first()) throw new Error("That email is waiting for verification on an existing account.");
-    const passwordHash = await hashPassword(password), token = await opaqueToken(), id = crypto.randomUUID(), createdAt = new Date().toISOString(), expiresAt = verificationExpiry();
-    await this.env.DB.prepare("INSERT INTO pending_email_signups (id, username, username_lower, age, email, email_lower, password_hash, adult_confirmed_at, token_hash, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id, username, usernameLower, age, clean(body.email), email, passwordHash, createdAt, token.hash, expiresAt, createdAt).run();
-    try { await sendVerificationEmail(this.env, email, username, token.raw, id); }
-    catch (error) { await this.env.DB.prepare("DELETE FROM pending_email_signups WHERE id = ?").bind(id).run(); throw error; }
-    return { notice: "Check your email and open the verification link to finish signing up.", ...(String(this.env.EMAIL_TEST_MODE || "").toLowerCase() === "true" ? { verificationToken: token.raw } : {}) };
-  }
-  async verifyEmailSignup(rawToken) {
-    const hash = await tokenHash(rawToken), now = Date.now();
-    await this.env.DB.prepare("DELETE FROM pending_email_signups WHERE expires_at <= ?").bind(now).run();
-    const pending = await this.env.DB.prepare("SELECT * FROM pending_email_signups WHERE token_hash = ? AND expires_at > ? LIMIT 1").bind(hash, now).first();
-    if (!pending) throw new Error("That verification link is invalid or has expired.");
-    if (this.userByUsernameLower(pending.username_lower)) throw new Error("That username is no longer available.");
-    if (await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE email_lower = ? LIMIT 1").bind(pending.email_lower).first()) throw new Error("That email is already linked to an account.");
-    const profileKey = generateProfileKey(), createdAt = new Date().toISOString(), user = { id: crypto.randomUUID(), username: pending.username, usernameLower: pending.username_lower, age: pending.age, keyHash: await hashProfileKey(profileKey), role: pending.username_lower === "dynamic" ? "admin" : "user", profile: { displayName: pending.username, avatar: "✨", bio: "", gender: "", interests: [], photo: null, photos: [] }, dmMediaGranted: [], dmMediaRequests: [], adultConfirmedAt: pending.adult_confirmed_at, createdAt, profileComplete: true };
-    await this.env.DB.batch([
-      this.env.DB.prepare(USER_UPSERT).bind(...userToRow(user)),
-      this.env.DB.prepare("INSERT INTO email_credentials (user_id, email, email_lower, password_hash, verified_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").bind(user.id, pending.email, pending.email_lower, pending.password_hash, createdAt, createdAt, createdAt),
-      this.env.DB.prepare("DELETE FROM pending_email_signups WHERE id = ?").bind(pending.id)
-    ]);
-    this.users.push(user);
-    return { user, profileKey };
-  }
-  async verifyEmailToken(rawToken) {
-    const hash = await tokenHash(rawToken), now = Date.now();
-    await this.env.DB.prepare("DELETE FROM pending_email_links WHERE expires_at <= ?").bind(now).run();
-    const pending = await this.env.DB.prepare("SELECT * FROM pending_email_links WHERE token_hash = ? AND expires_at > ? LIMIT 1").bind(hash, now).first();
-    if (!pending) return this.verifyEmailSignup(rawToken);
-    const user = this.userById(pending.user_id);
-    if (!user) throw new Error("That verification link is invalid or has expired.");
-    const existing = await this.env.DB.prepare("SELECT email_lower FROM email_credentials WHERE user_id = ? LIMIT 1").bind(user.id).first();
-    if (existing) { await this.env.DB.prepare("DELETE FROM pending_email_links WHERE id = ?").bind(pending.id).run(); throw new Error("This account already has a verified email."); }
-    if (await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE email_lower = ? LIMIT 1").bind(pending.email_lower).first()) throw new Error("That email is already linked to an account.");
-    const createdAt = new Date().toISOString();
-    await this.env.DB.batch([
-      this.env.DB.prepare("INSERT INTO email_credentials (user_id, email, email_lower, password_hash, verified_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").bind(user.id, pending.email, pending.email_lower, pending.password_hash, createdAt, createdAt, createdAt),
-      this.env.DB.prepare("DELETE FROM pending_email_links WHERE id = ?").bind(pending.id)
-    ]);
-    return { user };
-  }
-  async accountEmailStatus(userId) {
-    const credential = await this.env.DB.prepare("SELECT email FROM email_credentials WHERE user_id = ? LIMIT 1").bind(userId).first();
-    if (credential) return { linked: true, email: credential.email, pendingEmail: null };
-    const pending = await this.env.DB.prepare("SELECT email FROM pending_email_links WHERE user_id = ? AND expires_at > ? LIMIT 1").bind(userId, Date.now()).first();
-    return { linked: false, email: null, pendingEmail: pending ? pending.email : null };
-  }
-  async startEmailLink(user, body) {
-    const email = normalizeEmail(body.email), password = String(body.password || "");
-    if (!email) throw new Error("Enter a valid email address.");
-    if (!validPassword(password)) throw new Error("Password must be 10–128 characters.");
-    await this.env.DB.prepare("DELETE FROM pending_email_links WHERE expires_at <= ?").bind(Date.now()).run();
-    if (await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE user_id = ? LIMIT 1").bind(user.id).first()) throw new Error("This account already has a verified email.");
-    if (await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE email_lower = ? LIMIT 1").bind(email).first()) throw new Error("That email is already linked to an account.");
-    if (await this.env.DB.prepare("SELECT 1 FROM pending_email_signups WHERE email_lower = ? AND expires_at > ? LIMIT 1").bind(email, Date.now()).first()) throw new Error("That email is already waiting for verification on another account.");
-    const otherPending = await this.env.DB.prepare("SELECT user_id FROM pending_email_links WHERE email_lower = ? AND expires_at > ? LIMIT 1").bind(email, Date.now()).first();
-    if (otherPending && otherPending.user_id !== user.id) throw new Error("That email is already waiting for verification on another account.");
-    const passwordHash = await hashPassword(password), token = await opaqueToken(), id = crypto.randomUUID(), createdAt = new Date().toISOString(), expiresAt = verificationExpiry();
-    await this.env.DB.prepare("DELETE FROM pending_email_links WHERE user_id = ?").bind(user.id).run();
-    await this.env.DB.prepare("INSERT INTO pending_email_links (id, user_id, email, email_lower, password_hash, token_hash, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?)").bind(id, user.id, clean(body.email), email, passwordHash, token.hash, expiresAt, createdAt).run();
-    try { await sendAccountEmailVerification(this.env, email, user.username, token.raw, id); }
-    catch (error) { await this.env.DB.prepare("DELETE FROM pending_email_links WHERE id = ?").bind(id).run(); throw error; }
-    return { notice: "Check your email and open the verification link to add email sign-in.", email: clean(body.email), ...(String(this.env.EMAIL_TEST_MODE || "").toLowerCase() === "true" ? { verificationToken: token.raw } : {}) };
-  }
-  async emailLogin(body) {
-    const email = normalizeEmail(body.email), password = String(body.password || "");
-    if (!email || !validPassword(password)) throw new Error("Email or password is incorrect.");
-    const credential = await this.env.DB.prepare("SELECT user_id, password_hash FROM email_credentials WHERE email_lower = ? LIMIT 1").bind(email).first();
-    if (credential) {
-      if (!await verifyPassword(password, credential.password_hash)) throw new Error("Email or password is incorrect.");
-      const user = this.userById(credential.user_id);
-      if (!user) throw new Error("Email or password is incorrect.");
-      return user;
-    }
-    const now = Date.now(), pending = await this.env.DB.prepare("SELECT password_hash FROM pending_email_signups WHERE email_lower = ? AND expires_at > ? LIMIT 1").bind(email, now).first() || await this.env.DB.prepare("SELECT password_hash FROM pending_email_links WHERE email_lower = ? AND expires_at > ? LIMIT 1").bind(email, now).first();
-    if (pending && await verifyPassword(password, pending.password_hash)) throw new Error("Verify your email before signing in. You can resend the verification email below.");
-    await hashPassword("invalid-login-password");
-    throw new Error("Email or password is incorrect.");
-  }
-  async resendVerification(value) {
-    const email = normalizeEmail(value), notice = "If that address has a pending account, a new verification email is on its way.";
-    if (!email) return { notice };
-    const pending = await this.env.DB.prepare("SELECT id, email, username FROM pending_email_signups WHERE email_lower = ? AND expires_at > ? LIMIT 1").bind(email, Date.now()).first();
-    if (!pending) return { notice };
-    const token = await opaqueToken(), expiresAt = verificationExpiry();
-    await this.env.DB.prepare("UPDATE pending_email_signups SET token_hash = ?, expires_at = ? WHERE id = ?").bind(token.hash, expiresAt, pending.id).run();
-    await sendVerificationEmail(this.env, email, pending.username, token.raw, crypto.randomUUID());
-    return { notice, ...(String(this.env.EMAIL_TEST_MODE || "").toLowerCase() === "true" ? { verificationToken: token.raw } : {}) };
-  }
-  async requestPasswordReset(value) {
-    const email = normalizeEmail(value), notice = "If that email belongs to a verified account, a password reset link is on its way.";
-    if (!email) return { notice };
-    const credential = await this.env.DB.prepare("SELECT user_id, email FROM email_credentials WHERE email_lower = ? LIMIT 1").bind(email).first();
-    if (!credential) return { notice };
-    const user = this.userById(credential.user_id);
-    if (!user) return { notice };
-    const token = await opaqueToken(), id = crypto.randomUUID();
-    await this.env.DB.batch([
-      this.env.DB.prepare("DELETE FROM auth_tokens WHERE user_id = ? AND kind = 'password-reset'").bind(user.id),
-      this.env.DB.prepare("INSERT INTO auth_tokens (id, user_id, kind, token_hash, expires_at, created_at) VALUES (?,?,?,?,?,?)").bind(id, user.id, "password-reset", token.hash, resetExpiry(), new Date().toISOString())
-    ]);
-    await sendResetEmail(this.env, email, user.username, token.raw, id);
-    return { notice, ...(String(this.env.EMAIL_TEST_MODE || "").toLowerCase() === "true" ? { resetToken: token.raw } : {}) };
-  }
-  async resetPassword(rawToken, password) {
-    if (!validPassword(password)) throw new Error("Password must be 10–128 characters.");
-    const hash = await tokenHash(rawToken), now = Date.now(), row = await this.env.DB.prepare("SELECT user_id FROM auth_tokens WHERE token_hash = ? AND kind = 'password-reset' AND expires_at > ? LIMIT 1").bind(hash, now).first();
-    if (!row) throw new Error("That password reset link is invalid or has expired.");
-    const user = this.userById(row.user_id);
-    if (!user) throw new Error("That password reset link is invalid or has expired.");
-    const passwordHash = await hashPassword(password); user.tokenVersion = (Number(user.tokenVersion) || 0) + 1;
-    await this.env.DB.batch([
-      this.env.DB.prepare("UPDATE email_credentials SET password_hash = ?, updated_at = ? WHERE user_id = ?").bind(passwordHash, new Date().toISOString(), user.id),
-      this.env.DB.prepare("DELETE FROM auth_tokens WHERE user_id = ? AND kind = 'password-reset'").bind(user.id),
-      this.env.DB.prepare(USER_UPSERT).bind(...userToRow(user))
-    ]);
-    return { notice: "Password updated. Sign in with your new password." };
   }
   slugify(name) {
     const base = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "room";
@@ -769,10 +616,7 @@ export class ChatHub {
       if (!user) return json(401, { error: "Sign in first." });
       const username = safeDecode(profileMatch[1]), account = username && this.userByUsernameLower(username.toLowerCase());
       if (!account) return json(404, { error: "Profile not found." });
-      // Viewing a profile must not depend on the email tables: the badge is optional, so a failure
-      // here means "no verified email", never a 500 for the whole page.
-      const emailVerified = await this.env.DB.prepare("SELECT 1 FROM email_credentials WHERE user_id = ? LIMIT 1").bind(account.id).first().then(Boolean).catch(() => false);
-      return json(200, { profile: { ...profileDoc(account), online: this.onlineUserIds().has(account.id), isSelf: account.id === user.id, emailVerified } });
+      return json(200, { profile: { ...profileDoc(account), online: this.onlineUserIds().has(account.id), isSelf: account.id === user.id } });
     }
 
     if (path.startsWith("/api/dm/permissions/")) {
@@ -856,9 +700,6 @@ export class ChatHub {
         await deleteUser(this.env, target.id);
         await removeRoomSubscriptions(this.env, { userId: target.id });
         await this.env.DB.batch([
-          this.env.DB.prepare("DELETE FROM email_credentials WHERE user_id = ?").bind(target.id),
-          this.env.DB.prepare("DELETE FROM pending_email_links WHERE user_id = ?").bind(target.id),
-          this.env.DB.prepare("DELETE FROM auth_tokens WHERE user_id = ?").bind(target.id),
           this.env.DB.prepare("DELETE FROM push_subscriptions WHERE user_id = ?").bind(target.id)
         ]);
         for (const socket of this.sockets()) if (attachment(socket).userId === target.id) { this.send(socket, { type: "account-deleted" }); try { socket.close(1000, "account deleted"); } catch {} }
@@ -866,21 +707,6 @@ export class ChatHub {
         this.broadcastUsersChanged();
         return json(200, { ok: true, deleted: removed, roomsDeleted: orphaned.length });
       } catch (error) { return json(400, { error: error.message }); }
-    }
-
-    const emailAuthAction = ({ "/api/auth/email/signup": "signup", "/api/auth/email/login": "login", "/api/auth/email/verify": "verify", "/api/auth/email/resend": "resend", "/api/auth/email/forgot": "forgot", "/api/auth/email/reset": "reset" })[path];
-    if (emailAuthAction && request.method === "POST") {
-      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
-      if (this.rateLimited(ipOf(request), `email-${emailAuthAction}`, emailAuthAction === "login" ? 20 : 5)) return json(429, { error: "Too many attempts. Try again later." });
-      try {
-        const body = await readJson(request);
-        if (emailAuthAction === "signup") return json(202, await this.startEmailSignup(body));
-        if (emailAuthAction === "login") { const user = await this.emailLogin(body), token = await this.token(user); return json(200, { user: publicUser(user), token }, { "Set-Cookie": sessionCookie(token, Math.floor(30 * 24 * 60 * 60), isSecure(request)) }); }
-        if (emailAuthAction === "verify") { const result = await this.verifyEmailToken(body.token), token = await this.token(result.user); return json(200, { user: publicUser(result.user), token, ...(result.profileKey ? { profileKey: result.profileKey } : {}) }, { "Set-Cookie": sessionCookie(token, Math.floor(30 * 24 * 60 * 60), isSecure(request)) }); }
-        if (emailAuthAction === "resend") return json(200, await this.resendVerification(body.email));
-        if (emailAuthAction === "forgot") return json(200, await this.requestPasswordReset(body.email));
-        return json(200, await this.resetPassword(body.token, body.password));
-      } catch (error) { return json(emailAuthAction === "login" ? 401 : 400, { error: error.message }); }
     }
 
     if (path === "/api/auth/signup" && request.method === "POST") {
@@ -912,18 +738,6 @@ export class ChatHub {
       const user = await this.sessionUser(request);
       if (user) { user.tokenVersion = (Number(user.tokenVersion) || 0) + 1; await saveUser(this.env, user); }
       return json(200, { ok: true }, { "Set-Cookie": sessionCookie("", 0, isSecure(request)) });
-    }
-
-    if (path === "/api/account/email") {
-      const user = await this.sessionUser(request);
-      if (!user) return json(401, { error: "Sign in first." });
-      if (request.method === "GET") return json(200, await this.accountEmailStatus(user.id));
-      if (request.method === "POST") {
-        if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
-        if (this.rateLimited(user.id, "account-email", 5)) return json(429, { error: "Too many attempts. Try again later." });
-        try { return json(202, await this.startEmailLink(user, await readJson(request))); }
-        catch (error) { return json(400, { error: error.message }); }
-      }
     }
 
     if (path === "/api/profile" && request.method === "POST") {

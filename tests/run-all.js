@@ -16,11 +16,10 @@ const ROOT = path.join(__dirname, "..");
 const READY_TRIES = 45, READY_WAIT_MS = 2000;
 
 const servers = [
-  { port: 8799, vars: ["EMAIL_TEST_MODE:true"], env: { EMAIL_TEST_MODE: "true" }, suites: [
+  { port: 8799, vars: [], env: {}, suites: [
     { name: "smoke", file: "tests/worker-smoke.js" },
     { name: "retention", file: "tests/message-retention.js" },
     { name: "push-gate", file: "tests/push-gate-e2e.js" },
-    { name: "email-auth", file: "tests/email-auth-e2e.js" },
     { name: "theme", file: "tests/theme-e2e.js" }
   ] },
   { port: 8801, vars: ["MESSAGE_DAILY_CAP:25", "UPLOAD_DAILY_CAP:2"], env: { MESSAGE_DAILY_CAP: "25", UPLOAD_DAILY_CAP: "2" }, suites: [
@@ -45,7 +44,7 @@ const servers = [
 ];
 
 // No server and no port: these load the Worker module and call it in-process.
-const offline = [{ name: "canonical", file: "tests/canonical-host.js" }, { name: "schema", file: "tests/schema-parity.js" }, { name: "password", file: "tests/password-policy.js" }];
+const offline = [{ name: "canonical", file: "tests/canonical-host.js" }, { name: "schema", file: "tests/schema-parity.js" }];
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 

@@ -19,7 +19,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 - **Backend (legacy):** `server-multi-room.js` — the original single long-running Node process (plain `http` + `ws`). Still runnable locally with `npm start` for reference/parity checks, and still what Render serves until the cutover completes.
 - **Frontend:** one SPA in `public/` — `rooms.html` (shell + all views), `multi-room.js` (all client logic), `multi-room.css` (mobile-first styles), `profile-key.css` (setup/key screens). Vanilla JS, History-API routing (`/rooms`, `/room/<id>`, `/dms`, `/explore`, `/profile/<username>`), views are `<section>`s toggled via the `hidden` attribute.
 - **Storage layers (important):**
-  - **D1** (`schema.sql`): accounts (`users`), verified email credentials and pending links, rooms (`rooms`), Web Push devices and room-alert subscriptions. Survives restarts and deploys, unlike the old JSON files.
+  - **D1** (`schema.sql`): accounts (`users`), rooms (`rooms`), Web Push devices and room-alert subscriptions. Survives restarts and deploys, unlike the old JSON files.
   - **Durable Object SQLite**: room message history (latest 100/room). **This survives restarts — the old build lost history on every deploy.**
   - **Memory** (reset on restart, inside the Durable Object): sessions, rate-limit counters, presence. DM threads live in each browser's memory only.
   - **R2** (`chatblink-uploads`): uploaded photos and voice notes, served from `/uploads/<name>`.
@@ -27,7 +27,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 
 ## Features
 
-- **Entry:** new users can sign up with email/password (verification required) or create a key-only account. Email accounts receive a backup profile key after verification, while existing profile-key accounts can add verified email/password sign-in from profile editing without changing their account identity. Verified email login, one-use password-reset links, verification resend, session revocation after reset, and the original profile-key login all coexist.
+- **Entry:** profile key only. Pick a username and an age; the account is handed a `CHATBLINK-…` key exactly once, on the setup screen (copy it, download it, or read it later from the menu). Logging in is that key: no email, no password, no recovery address, so the key is the account. The server stores only its SHA-256 hash.
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details. A bell beside GIF subscribes the account to room-entry alerts; incoming DMs notify every registered device even if Chatblink is open in a background tab.
@@ -40,12 +40,9 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 | Variable | Required | Purpose |
 |---|---|---|
 | `AUTH_SECRET` | production secret | Signs session/device tokens |
-| `RESEND_API_KEY` | email secret | Resend API key used only by the Worker for verification and reset messages |
-| `EMAIL_FROM` | email | Verified sender, default `Chatblink <account@chatblink.chat>` |
-| `PUBLIC_ORIGIN` | production | Absolute public origin used in email links and canonical URLs |
+| `PUBLIC_ORIGIN` | production | Absolute public origin used for canonical URLs and the www redirect |
 | `VAPID_PRIVATE_KEY` | push secret | Encrypts Web Push messages |
 | `MIGRATE_TOKEN` | migration only | Enables the token-gated migration endpoint |
-| `EMAIL_TEST_MODE` | tests only | Skips delivery and exposes generated tokens to local automated tests; never set in production |
 
 ## REST API
 
@@ -53,12 +50,9 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 
 | Endpoint | Notes |
 |---|---|
-| `POST /auth/signup`, `POST /auth/login` | HTML form endpoints (redirect/serve the app) |
-| `POST /auth/email/signup`, `/login`, `/forgot`, `/resend`, `/reset` | Email-auth HTML forms; verification links use `GET /verify-email?token=...` |
-| `POST /api/auth/email/signup`, `/login`, `/verify`, `/forgot`, `/resend`, `/reset` | JSON equivalents for email authentication and recovery |
+| `POST /auth/signup`, `POST /auth/login`, `POST /enter` | HTML form endpoints: create a profile-key account, sign in with a key, or consume an entry link (redirect/serve the app) |
 | `POST /api/auth/logout` | Clears session and bumps `tokenVersion` (revokes device tokens) |
 | `GET /api/auth/me` | Current user |
-| `GET`, `POST /api/account/email` | Read the current account's private email status or send a verification link to add email/password sign-in |
 | `GET /api/users` | All users + `online` flag (DM page) |
 | `GET /api/explore?limit&q&cursor` | D1-backed profile directory, newest first |
 | `GET /api/profiles/:username` | Single profile + `online`/`isSelf` |
@@ -95,7 +89,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget, reactions and d
 
 ## Secrets, migration, and the retired Firestore
 
-- **Worker secrets:** `AUTH_SECRET` signs device tokens / entry links, `RESEND_API_KEY` sends verification and reset emails, `VAPID_PRIVATE_KEY` encrypts push, and `MIGRATE_TOKEN` is only for migration. Set them with `npx wrangler secret put <NAME>`; locally they live in `.dev.vars`, which is gitignored.
+- **Worker secrets:** `AUTH_SECRET` signs device tokens / entry links, `VAPID_PRIVATE_KEY` encrypts push, and `MIGRATE_TOKEN` is only for migration. Set them with `npx wrangler secret put <NAME>`; locally they belong in `.dev.vars`. There is no mail provider secret because the site sends no email.
 - **No longer needed:** `FIREBASE_SERVICE_ACCOUNT` (Firestore retired) and `GIPHY_API_KEY` (the UI no longer calls GIPHY, so `/api/config` returning null is expected and harmless).
 - **Profile keys do not depend on any secret** — they are plain SHA-256 hashes — so accounts migrated from the old host sign in with the same keys.
 - **Moving data in:** `node tools/migrate.js pull <oldUrl> <token>` copies `data/` off the old host, `node tools/migrate.js sql` regenerates `migration/seed.sql`, `npx wrangler d1 execute chatblink --remote --file=migration/seed.sql` loads it, and `node tools/migrate.js uploads` prints the R2 copy commands. See [DEPLOY.md](DEPLOY.md) for the exact order.
@@ -109,7 +103,7 @@ Limits: 20 messages/10 s per socket (room + DM share the budget, reactions and d
 npm run test:all
 ```
 
-`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 88 checks over HTTP + WebSockets, including verified email signup, attaching email to an existing profile-key account, profile-only verification badges, one-use verification/reset tokens, session revocation and profile-key compatibility. `tests/email-auth-e2e.js` drives the full verification, reset, email-login and profile email UI flows at 390px. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` and `tests/schema-parity.js` need no server: the first drives the Worker handler directly, the second fails if `schema.sql` and `worker/lib/schema.js` (the copy the Worker applies itself) drift apart.
+`tests/worker-smoke.js` is the fast, dependency-light end-to-end suite for the Cloudflare build — 73 checks over HTTP + WebSockets, including profile-key signup and login, that the removed email endpoints stay removed, session revocation, uploads, DMs, rooms, bans and the history cap. `tests/message-retention.js` proves the history cap keeps exactly the newest 100 messages, and `tests/quota-caps.js` proves the per-user daily budgets — it needs small budgets, so the runner gives it its own server on port 8801 with `--var MESSAGE_DAILY_CAP:25 --var UPLOAD_DAILY_CAP:2`. `tests/canonical-host.js` and `tests/schema-parity.js` need no server: the first drives the Worker handler directly, the second fails if `schema.sql` and `worker/lib/schema.js` (the copy the Worker applies itself) drift apart.
 
 `tests/message-actions.js` covers reply, reactions and deletion over the room socket — quote snapshots, the fixed reaction set, toggle-off, refused deletions for a plain member, the creator and author paths, the empty preview on private room cards, and `/uploads` byte ranges. Its admin/mod section needs the one account the server auto-promotes (`dynamic`), which can only be created once per database, so it reports `SKIP` when that account already exists. The runner gives it its own server on port 8803 because signups are rate-limited per IP.
 
@@ -167,7 +161,6 @@ worker/index.js             router: pages, assets, /api/*, /auth/*, /uploads/*
 worker/hub.js               ChatHub Durable Object — the whole live backend
 worker/lib/core.js          helpers (cookies, JSON, origin checks, base64)
 worker/lib/crypto.js        profile-key hashing + HMAC device tokens
-worker/lib/email-auth.js    password hashing, secure tokens + Resend delivery
 worker/lib/db.js            D1 access (users, rooms)
 worker/lib/catalog.js       built-in rooms, emoji/sticker/GIF catalog, media validation
 wrangler.jsonc              Cloudflare bindings (DO, D1, R2, assets, vars)
