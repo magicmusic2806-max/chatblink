@@ -70,12 +70,14 @@ Shipped in `v=74`:
    pattern, fingerprint, face) plus Google Password Manager; Apple: Face ID/Touch ID/passcode; Windows:
    Windows Hello; anything else: a screen lock. Telling a phone to set up Windows Hello reads as a
    browser bug and hides the real check. The user agent is logged with the `passkey error:` line.
-2. `public/passkey-check.html` — a same-origin diagnostic page, served as a plain static asset at
-   <https://chatblink.chat/passkey-check.html>. It runs the app's exact `create()` options and then
+2. `public/passkey-check.html` — a same-origin diagnostic page, reachable at
+   <https://chatblink.chat/passkey-check>. It runs the app's exact `create()` options and then
    relaxes one field per step (drop `requireResidentKey`, relax user verification, drop `residentKey`,
    drop the attachment hint, require resident keys), stopping at the first success. Challenges are
    generated in the page and it never calls the server, so nothing is added to the account; a step that
-   succeeds does leave a test passkey named `passkey-check` on the device.
+   succeeds does leave a test passkey named `passkey-check` on the device. Static assets use Cloudflare's
+   `auto-trailing-slash` handling, so `/passkey-check.html` 307s to `/passkey-check` — give people the
+   extensionless URL.
 
 **Needed to close it:** open that page on the failing phone and screenshot the verdict. Three outcomes:
 
@@ -101,7 +103,8 @@ excluded, a parameter the device dislikes — the probe page is the test for it.
   reworded refusal sentence.
 - `public/passkey-check.html` was driven at 390 px with a CDP virtual authenticator in three modes —
   step 1 succeeds, every step refused (`NotReadableError` stubbed), and only `platform` refused — and
-  in each the ladder stopped or exhausted correctly and the verdict named the right step.
+  in each the ladder stopped or exhausted correctly and the verdict named the right step. Deployed in
+  `v=74`: `/passkey-check` is 200, `tests/prod-check.js` all green with the bundle at `v=74`.
 - Notable suites: `tests/passkey-e2e.js` (18 checks, Chromium + a CDP virtual authenticator, asserts
   platform-only options, the prefetched challenge, and the plain-words refusal message),
   `tests/notice-board.js` (public read, admin write, live event; the admin half SKIPs when the
