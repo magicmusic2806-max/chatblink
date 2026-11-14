@@ -704,10 +704,6 @@ document.querySelector("[data-compose=voice]").onclick=()=>startVoiceNote({butto
 /* ------------------------------------------------------------ passkeys */
 
 const PASSKEYS_KEY="chatblink.passkeys";
-// Set once this browser has proved that its platform provider refuses resident keys (Android answers
-// NotReadableError for any create() that so much as prefers one), so later registrations skip the
-// attempt that is known to fail here.
-const PASSKEY_NO_RESIDENT_KEY="chatblink.passkeyNoResident";
 let passkeyAvailableCache=null,platformAuthenticatorCache=null,safetyState=null,siteNotice=null,noticeEditing=false;
 function base64UrlToBytes(value){const text=String(value||"").replace(/-/g,"+").replace(/_/g,"/"),binary=atob(text+"=".repeat((4-text.length%4)%4)),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return bytes}
 function bytesToBase64Url(value){let binary="";for(const byte of new Uint8Array(value))binary+=String.fromCharCode(byte);return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
@@ -730,8 +726,6 @@ function rememberDevicePasskey(id){const list=devicePasskeys().filter(item=>item
 // the ids it remembers for this site. An empty list keeps the discoverable path, which is what a passkey
 // synced onto this phone from another device needs.
 function rememberedCredentialIds(){return devicePasskeys().map(id=>({type:"public-key",id:base64UrlToBytes(id)}))}
-function deviceRefusesResidentKeys(){try{return localStorage.getItem(PASSKEY_NO_RESIDENT_KEY)==="1"}catch{return false}}
-function rememberResidentRefusal(){try{localStorage.setItem(PASSKEY_NO_RESIDENT_KEY,"1")}catch{}}
 let pendingRegisterOptions=null,pendingRegisterAt=0,registerOptionsFlight=null;
 // Chrome (and Android's credential manager) need a live user activation for create()/get(). Awaiting
 // the options request inside the click handler can burn it, so the challenge is fetched ahead of time
@@ -837,25 +831,26 @@ async function addPasskey(){
   if(button){button.disabled=true;button.textContent="Waiting for your device…"}
   try{
     const options=await takeRegisterOptions();
-    let credential;
-    if(deviceRefusesResidentKeys()){
-      // This browser already proved the point: asking for a resident key fails, so go straight to the
-      // options that work instead of showing the person a prompt that is going to be refused.
+    let credential,synced=true;
+    // The discoverable attempt goes first every time, even on a device that refused it before: a passkey
+    // its provider cannot sync is a local door only, so nothing here may stop a device from getting a
+    // synced one the moment its provider starts working (Google Password Manager enabled, iCloud on,
+    // Windows account with Hello). The refusal costs a few milliseconds and never reaches a prompt.
+    try{credential=await navigator.credentials.create({publicKey:options})}
+    catch(problem){
+      if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
+      console.warn("passkey create failed, retrying without resident keys:",problem&&problem.name,problem&&problem.message);
       credential=await navigator.credentials.create({publicKey:minimalRegisterOptions(options)});
-    }else{
-      try{credential=await navigator.credentials.create({publicKey:options})}
-      catch(problem){
-        if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
-        console.warn("passkey create failed, retrying with reduced options:",problem&&problem.name,problem&&problem.message);
-        credential=await navigator.credentials.create({publicKey:minimalRegisterOptions(options)});
-        // Reaching this line means the same device, same prompt, accepted the request without resident
-        // keys: remember it so the next attempt on this browser starts from what works.
-        rememberResidentRefusal();
-      }
+      synced=false;
     }
     const saved=await request("/api/auth/passkey/register",{method:"POST",body:JSON.stringify({origin:location.origin,credential:{id:credential.id,authenticatorAttachment:credential.authenticatorAttachment,response:{clientDataJSON:bytesToBase64Url(credential.response.clientDataJSON),attestationObject:bytesToBase64Url(credential.response.attestationObject),transports:credential.response.getTransports?credential.response.getTransports():[]}}})});
     rememberDevicePasskey(saved.id||credential.id);
-    toast("This device can now sign you in with your fingerprint");
+    // Say which kind of passkey this is. A device whose provider refuses discoverable credentials gets a
+    // credential this browser alone can use, and the person should hear that now rather than when they
+    // reach for a fingerprint on another device and find nothing there.
+    toast(synced
+      ?"This device can now sign you in with your fingerprint"
+      :"This browser can sign you in with your fingerprint. That passkey stays on this device - your device's passkey manager refused to store a synced one");
     await loadSafety();
   }catch(problem){
     if(problem&&problem.name==="NotAllowedError")toast("The passkey was not created - approve the prompt on this device.");

@@ -210,7 +210,7 @@ const waitForSession = async (page, status) => {
     await phone.locator("#safetyAddPasskey").click();
     await phone.waitForFunction(() => document.querySelectorAll("#safetyBody .safety-passkey").length === 1, null, { timeout: 20000 });
     ok("a device that refuses resident keys still gets a passkey", (await phone.locator("#safetyBody .safety-passkey").count()) === 1);
-    ok("the refusal is remembered for this browser", await phone.evaluate(() => localStorage.getItem("chatblink.passkeyNoResident") === "1"));
+    ok("and the toast says that passkey stays on this device", /stays on this device/.test(await phone.locator("#toast").textContent()), await phone.locator("#toast").textContent());
     await phone.locator("#safetyClose").click();
 
     await phone.locator('[data-action="menu"]:visible').first().click();

@@ -2,7 +2,7 @@
 
 Updated 2026-11-14. Live at <https://chatblink.chat>, deployed from `main` by
 `.github/workflows/deploy.yml` (`npm ci` → canonical-host suite → `wrangler deploy`).
-Current client bundle: `multi-room.js?v=75`. D1 schema version: 3
+Current client bundle: `multi-room.js?v=76`. D1 schema version: 3
 (`worker/lib/schema.js`, applied by the Durable Object itself).
 
 ## What the site is now
@@ -65,31 +65,71 @@ Fixed in `v=75` (`public/multi-room.js`):
 1. `minimalRegisterOptions` drops the resident-key request; `authenticatorAttachment: "platform"` and
    `userVerification: "required"` stay, so the ceremony is still this device's own lock screen and never a
    phone/QR/security key.
-2. A successful fallback sets `chatblink.passkeyNoResident=1` in localStorage, so later registrations on
-   that browser skip the attempt already known to fail instead of showing a prompt that is refused.
+2. The discoverable attempt runs first on every registration, even on a device that refused it before.
+   The refusal costs 15-64 ms and never reaches a prompt, and a remembered "this device can't" flag would
+   have blocked the device forever if its passkey provider later started working (Google Password Manager
+   enabled, iCloud on, Windows account added) — the exact recovery a person would want.
 3. The passkey is then device-bound, not discoverable, so a usernameless `get()` cannot see it:
    `rememberedCredentialIds()` puts the ids this browser stored in `allowCredentials`, and an empty list
    keeps the discoverable path for a passkey synced onto the phone from elsewhere. No server change was
    needed — `allowCredentials` is client-side, and `/api/auth/passkey/register` already returned the id.
+4. The success toast says which kind was created ("stays on this device") so nobody finds out by
+   reaching for a fingerprint on another device and finding nothing there.
 
-The cost, stated for whoever reads this next: on such a device the passkey is tied to that browser
-profile. Clearing site data means the profile key is the way back in. On devices whose provider does
-store discoverable credentials nothing changes.
+**Be honest about what this buys, because it is less than "fingerprint login anywhere".** A biometric
+never leaves the device; what travels is the passkey, and it only travels if the device's passkey provider
+stores it as a discoverable credential and syncs it (Google Password Manager, iCloud Keychain, a Windows
+account with Hello). On a device like the reporting phone, whose provider refuses discoverable
+credentials, the passkey is local to that browser profile: the fingerprint door exists on that device
+only, and another device still needs the profile key (or its own passkey, added from Account safety while
+signed in). Making "any device with a fingerprint" true therefore needs either a working sync provider on
+the enrolling device, or a way to enrol a second device without retyping the key — see the open item
+below.
 
 `public/passkey-check.html` and the `v=74` platform-aware refusal text stay: the page is how the next
 odd device gets diagnosed without a console, and the refusal advice is now correct per platform (Android:
 screen lock + Google Password Manager; Apple: Face ID/Touch ID/passcode; Windows: Hello; UA logged with
 `passkey error:`).
 
+## Open: sign in on a device that has never seen the account
+
+The owner's goal is fingerprint sign-in from any device or browser, and today's passkeys only deliver it
+where the device has a credential: a synced one (provider storing discoverable credentials) or one added
+on that device while signed in with the profile key. On the reporting phone neither is available, because
+its provider refuses discoverable credentials, so nothing can sync.
+
+Three routes, in order of how much they buy:
+
+1. **Provider sync working on the enrolling device** (no code): with Google Password Manager, iCloud
+   Keychain or a Windows account behind it, `residentKey: "preferred"` produces a discoverable passkey that
+   follows the person to any device signed into the same provider, and the existing pinned `get()` finds it
+   there. Worth checking on the phone first: Chrome → Settings → Autofill and passwords → Google Password
+   Manager, signed in, passkeys available.
+2. **Pair a second device without retyping the key** (feature, not started): the signed-in device shows a
+   short-lived code or QR, the new device claims it, then creates its own platform passkey for the same
+   account. `passkey_credentials` already allows eight per account and the safety panel already lists and
+   removes them, so the account side exists; what is missing is a pairing token (single use, ~5 minutes,
+   bound to the user) and a registration challenge issued against it, plus the client screen. This is the
+   only route that helps on a phone whose provider cannot sync.
+3. **Cross-device (hybrid) at sign-in**: dropping the `platform` pin from `get()` would let a desktop ask a
+   phone to answer over QR. It cannot help the reporting phone (its passkey is not discoverable, so the
+   phone has no credential to offer without an `allowCredentials` id that the desktop does not know), and it
+   weakens the deliberate no-phone rule, so it stays out unless a real case appears.
+
+Never possible: authenticating on an arbitrary device with a bare fingerprint. The biometric is matched
+locally and never leaves the device, so some key has to be on that device (synced or enrolled) or reachable
+from it (a trusted device answering over QR).
+
 ## Verification
 
 - `npm run test:all` (`tests/run-all.js`) starts one `wrangler dev` per suite group and prints a
   summary. Last full run: **14 groups green** at `v=73` — canonical, schema, smoke, retention,
   push-gate, theme, quotas, actions, room-actions, voice-note, group-call, group-call-e2e, passkey,
-  notice. `tests/passkey-e2e.js` re-run alone at `v=74`: 18 checks, and at `v=75`: **22 checks, green**,
-  now including a context whose `create()` refuses any request carrying `residentKey` (Android's
-  behaviour, stubbed because Chromium's virtual authenticator accepts resident keys) and a sign-in that
-  asserts the stored credential id was named in `allowCredentials`.
+  notice. `tests/passkey-e2e.js` re-run alone: 18 checks at `v=74`, **22 checks green at `v=75` and
+  `v=76`**, now including a context whose `create()` refuses any request carrying `residentKey`
+  (Android's behaviour, stubbed because Chromium's virtual authenticator accepts resident keys), the
+  "stays on this device" toast, and a sign-in that asserts the stored credential id was named in
+  `allowCredentials`.
 - Writing suites against accounts: `/api/auth/logout` bumps the account's `tokenVersion`, so one context
   signing out ends every other session for that account. A second context must run last, or be dropped by
   clearing cookies rather than by logging out — a session that dies mid-suite shows up as
