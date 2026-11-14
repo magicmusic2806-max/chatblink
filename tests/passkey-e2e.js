@@ -164,6 +164,65 @@ const waitForSession = async (page, status) => {
     });
     ok("a credential-manager refusal is explained in plain words", /credential manager refused/.test(refusal) && /Windows Hello|Touch ID|screen lock/.test(refusal), refusal);
     await page.locator(".modal-close, #safetyClose").first().click().catch(() => {});
+
+    // A platform provider that refuses resident keys: Android answers NotReadableError for every create()
+    // that so much as prefers one, which is what public/passkey-check.html narrowed down on the reporting
+    // phone. Chromium's virtual authenticator accepts resident keys happily, so the refusal is stubbed;
+    // the fallback options, the stored credential and the sign-in that names its id are all real.
+    // Last in the suite on purpose: signing out here bumps the account's tokenVersion and ends every
+    // other session for it, and the page above is still signed in until this point.
+    const residentContext = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    const phone = await residentContext.newPage();
+    phone.on("pageerror", error => console.log("  PAGEERROR", error.message));
+    await phone.addInitScript(() => {
+      localStorage.setItem("chatblink.pushPrompted", "1");
+      const create = navigator.credentials.create.bind(navigator.credentials);
+      navigator.credentials.create = async options => {
+        const selection = options && options.publicKey && options.publicKey.authenticatorSelection;
+        if (selection && selection.residentKey) {
+          const error = new Error("An unknown error occurred while talking to the credential manager.");
+          error.name = "NotReadableError";
+          throw error;
+        }
+        return create(options);
+      };
+      const get = navigator.credentials.get.bind(navigator.credentials);
+      navigator.credentials.get = async options => {
+        // Recorded so the test can see that sign-in named the credential instead of asking for a
+        // discoverable one that this device never stored.
+        window.__namedCredentials = options && options.publicKey ? (options.publicKey.allowCredentials || []).length : -1;
+        return get(options);
+      };
+    });
+    await phone.goto(BASE, { waitUntil: "domcontentloaded" });
+    await phone.locator("#authView:not([hidden])").waitFor();
+    const phoneCdp = await residentContext.newCDPSession(phone);
+    await phoneCdp.send("WebAuthn.enable");
+    await phoneCdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "internal", hasResidentKey: false, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+    await phone.locator('[data-switch="key"]').click();
+    await phone.locator("#loginForm input[name=key]").fill(profileKey);
+    await phone.locator("#loginForm button[type=submit]").click();
+    await phone.locator("#roomsGrid .room-card").first().waitFor({ timeout: 15000 });
+
+    await phone.locator('[data-action="menu"]:visible').first().click();
+    await phone.locator('#menuDrop [data-menu="safety"]').click();
+    await phone.locator("#safetyAddPasskey").waitFor();
+    await phone.locator("#safetyAddPasskey").click();
+    await phone.waitForFunction(() => document.querySelectorAll("#safetyBody .safety-passkey").length === 1, null, { timeout: 20000 });
+    ok("a device that refuses resident keys still gets a passkey", (await phone.locator("#safetyBody .safety-passkey").count()) === 1);
+    ok("the refusal is remembered for this browser", await phone.evaluate(() => localStorage.getItem("chatblink.passkeyNoResident") === "1"));
+    await phone.locator("#safetyClose").click();
+
+    await phone.locator('[data-action="menu"]:visible').first().click();
+    await phone.locator('#menuDrop [data-menu="logout"]').click();
+    await phone.locator("#authView:not([hidden])").waitFor();
+    await waitForSession(phone, 401);
+    await phone.locator("#passkeyLogin").click();
+    await waitForSession(phone, 200);
+    const namedCredentials = await phone.evaluate(() => window.__namedCredentials);
+    ok("sign-in names the stored credential", namedCredentials >= 1, String(namedCredentials));
+    ok("a device-bound passkey signs the account in", await phone.evaluate(async () => (await fetch("/api/auth/me")).status === 200));
+    await residentContext.close();
   } finally {
     await browser.close();
   }

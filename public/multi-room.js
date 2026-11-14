@@ -704,6 +704,10 @@ document.querySelector("[data-compose=voice]").onclick=()=>startVoiceNote({butto
 /* ------------------------------------------------------------ passkeys */
 
 const PASSKEYS_KEY="chatblink.passkeys";
+// Set once this browser has proved that its platform provider refuses resident keys (Android answers
+// NotReadableError for any create() that so much as prefers one), so later registrations skip the
+// attempt that is known to fail here.
+const PASSKEY_NO_RESIDENT_KEY="chatblink.passkeyNoResident";
 let passkeyAvailableCache=null,platformAuthenticatorCache=null,safetyState=null,siteNotice=null,noticeEditing=false;
 function base64UrlToBytes(value){const text=String(value||"").replace(/-/g,"+").replace(/_/g,"/"),binary=atob(text+"=".repeat((4-text.length%4)%4)),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return bytes}
 function bytesToBase64Url(value){let binary="";for(const byte of new Uint8Array(value))binary+=String.fromCharCode(byte);return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
@@ -722,6 +726,12 @@ async function refreshPasskeyAvailability(){
 }
 function devicePasskeys(){try{const list=JSON.parse(localStorage.getItem(PASSKEYS_KEY)||"[]");return Array.isArray(list)?list:[]}catch{return []}}
 function rememberDevicePasskey(id){const list=devicePasskeys().filter(item=>item!==id);list.push(id);try{localStorage.setItem(PASSKEYS_KEY,JSON.stringify(list.slice(-20)))}catch{}}
+// A credential created without resident keys is invisible to a usernameless get(), so this browser names
+// the ids it remembers for this site. An empty list keeps the discoverable path, which is what a passkey
+// synced onto this phone from another device needs.
+function rememberedCredentialIds(){return devicePasskeys().map(id=>({type:"public-key",id:base64UrlToBytes(id)}))}
+function deviceRefusesResidentKeys(){try{return localStorage.getItem(PASSKEY_NO_RESIDENT_KEY)==="1"}catch{return false}}
+function rememberResidentRefusal(){try{localStorage.setItem(PASSKEY_NO_RESIDENT_KEY,"1")}catch{}}
 let pendingRegisterOptions=null,pendingRegisterAt=0,registerOptionsFlight=null;
 // Chrome (and Android's credential manager) need a live user activation for create()/get(). Awaiting
 // the options request inside the click handler can burn it, so the challenge is fetched ahead of time
@@ -744,19 +754,21 @@ function freshRegisterOptions(){
   return pendingRegisterOptions&&Date.now()-pendingRegisterAt<120000?pendingRegisterOptions:null;
 }
 function minimalRegisterOptions(options){
-  // Everything the platform does not strictly need is dropped, but resident keys stay: without a
-  // discoverable credential there is no usernameless sign-in to come back to.
+  // Everything the platform does not strictly need is dropped, starting with resident keys: a platform
+  // provider that cannot store a discoverable credential answers NotReadableError even when residentKey
+  // is only "preferred" (proved on an Android phone by public/passkey-check.html). The passkey is still
+  // worth creating, because sign-in names the credential id this browser remembers.
   return {
     challenge:options.challenge,
     rp:options.rp,
     user:options.user,
     pubKeyCredParams:options.pubKeyCredParams,
-    authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required",residentKey:"preferred"},
+    authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required"},
     attestation:"none"
   };
 }
 function minimalLoginOptions(options){
-  return {challenge:options.challenge,rpId:options.rpId,allowCredentials:[],authenticatorAttachment:"platform",userVerification:"required"};
+  return {challenge:options.challenge,rpId:options.rpId,allowCredentials:options.allowCredentials||[],authenticatorAttachment:"platform",userVerification:"required"};
 }
 // The refusal advice has to name the lock screen this device actually has: telling an Android phone to
 // set up Windows Hello reads as a browser bug and hides the real check. Unknown platforms get the
@@ -797,6 +809,11 @@ async function signInWithPasskey(){
   if(button){button.disabled=true;button.textContent="Waiting for your device…"}
   try{
     const options=await passkeyOptions("login");
+    // One get() has to serve two kinds of credential: a discoverable passkey (allowCredentials empty, the
+    // device picks) and a device-bound one created when the platform refused resident keys, which is only
+    // found when its id is named. Both lists are already this browser's business, so no server round trip.
+    const known=rememberedCredentialIds();
+    if(known.length)options.allowCredentials=known;
     let assertion;
     try{assertion=await navigator.credentials.get({publicKey:options})}
     catch(problem){
@@ -821,11 +838,20 @@ async function addPasskey(){
   try{
     const options=await takeRegisterOptions();
     let credential;
-    try{credential=await navigator.credentials.create({publicKey:options})}
-    catch(problem){
-      if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
-      console.warn("passkey create failed, retrying with reduced options:",problem&&problem.name,problem&&problem.message);
+    if(deviceRefusesResidentKeys()){
+      // This browser already proved the point: asking for a resident key fails, so go straight to the
+      // options that work instead of showing the person a prompt that is going to be refused.
       credential=await navigator.credentials.create({publicKey:minimalRegisterOptions(options)});
+    }else{
+      try{credential=await navigator.credentials.create({publicKey:options})}
+      catch(problem){
+        if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
+        console.warn("passkey create failed, retrying with reduced options:",problem&&problem.name,problem&&problem.message);
+        credential=await navigator.credentials.create({publicKey:minimalRegisterOptions(options)});
+        // Reaching this line means the same device, same prompt, accepted the request without resident
+        // keys: remember it so the next attempt on this browser starts from what works.
+        rememberResidentRefusal();
+      }
     }
     const saved=await request("/api/auth/passkey/register",{method:"POST",body:JSON.stringify({origin:location.origin,credential:{id:credential.id,authenticatorAttachment:credential.authenticatorAttachment,response:{clientDataJSON:bytesToBase64Url(credential.response.clientDataJSON),attestationObject:bytesToBase64Url(credential.response.attestationObject),transports:credential.response.getTransports?credential.response.getTransports():[]}}})});
     rememberDevicePasskey(saved.id||credential.id);
