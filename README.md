@@ -196,4 +196,4 @@ data/                       local snapshot of runtime state (gitignored — neve
 - Uploads are publicly readable via `/uploads/<uuid>.<ext>`; names are random UUIDs.
 - The client sends no Authorization header on form posts; same-origin checks protect state-changing requests.
 - Only one Durable Object instance (`HUB.idFromName("hub")`) holds all live state. That is deliberate: it is what makes presence and broadcasting correct, and Cloudflare routes all clients to it automatically. If traffic ever outgrows a single object, rooms would need to be sharded by room id.
-- Legacy prototype files from the earlier "Nearby" iterations may still exist in the repo (`server*.js`, `public/app*.js`, `global.*`, `location*`, `room-levels*`, `simple-auth.js`, etc.) — none are used by the live app.
+- Legacy prototype files from the earlier "Nearby" iterations may still exist in the repo (`server*.js`, `public/app*.js`, `index.html`, `styles.css`, `location*`, `room-levels*`, etc.) — none are used by the live app. The email/password prototype group has been deleted along with the email account system.

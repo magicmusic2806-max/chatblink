@@ -295,14 +295,6 @@ input,select,textarea{font-size:16px}
 .profile-head small{display:block;color:#7e8799;margin-top:2px}
 .profile-account-head{justify-content:space-between}
 .profile-identity{display:flex;align-items:center;gap:12px;min-width:0}
-.profile-email-button{flex:none;border:1px solid #d7deea;background:#f4f7fb;color:#42516a;border-radius:10px;padding:9px 11px;font-size:11px;font-weight:800}
-.profile-email-panel{background:#f5f7fb;border:1px solid #e0e5ed;border-radius:14px;padding:14px;margin:-4px 0 14px}
-.profile-email-panel b,.profile-email-panel span,.profile-email-panel small{display:block}
-.profile-email-panel span{font-size:13px;font-weight:700;color:#303b50;margin-top:4px;overflow-wrap:anywhere}
-.profile-email-panel small{color:#788398;line-height:1.45;margin-top:4px}
-.profile-email-panel p{color:#6d788c;font-size:12px;line-height:1.45;margin:5px 0 10px}
-.profile-email-panel label{font-size:11px}
-.profile-email-panel .primary{margin-top:10px}
 .profile-grid{display:grid;grid-template-columns:1fr;gap:0 12px}
 .modal .avatar-choices{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .modal .avatar-choices span{width:auto;height:48px;font-size:22px;border-radius:12px;background:#fbfcff}
@@ -367,7 +359,6 @@ input,select,textarea{font-size:16px}
 .secondary.danger{color:#c33b55;border-color:#f0c4ce}
 .role-tag{display:inline-block;border-radius:6px;padding:1px 5px;font-size:9px;font-weight:800;letter-spacing:.06em;margin-left:6px;vertical-align:middle}
 .role-tag.admin{background:#fff1d6;color:#9a5b00}
-.email-verified-badge{display:inline-flex;align-items:center;margin-left:8px;border-radius:999px;padding:3px 7px;background:#e9f7f0;color:#247a54!important;font-size:9px;font-weight:800;letter-spacing:.02em;vertical-align:middle;white-space:nowrap}
 .role-tag.mod{background:#e8f4ff;color:#1d6fb8}
 #bannedWrap{margin-top:18px}
 .online-ban{color:#c33b55!important}
@@ -740,11 +731,6 @@ html[data-theme=dark] .theme-choices span{border-color:#162033;box-shadow:0 0 0 
 html[data-theme=dark] .theme-choices input:checked+span{box-shadow:0 0 0 2px #b4acff}
 html[data-theme=dark] .request-person,html[data-theme=dark] .online-person{border-color:#273348}
 html[data-theme=dark] .online-person button:not(.avatar),html[data-theme=dark] .photo-actions button{background:#1a2537;color:#b8c3d5}
-html[data-theme=dark] .profile-email-button{background:#1a2537;border-color:#344158;color:#d2dbea}
-html[data-theme=dark] .profile-email-panel{background:#111a29;border-color:#2d394d}
-html[data-theme=dark] .profile-email-panel span{color:#e1e7f1}
-html[data-theme=dark] .profile-email-panel small,html[data-theme=dark] .profile-email-panel p{color:#93a0b5}
-html[data-theme=dark] .email-verified-badge{background:#16372c;color:#83e0b4!important}
 html[data-theme=dark] .secondary{background:#151e2d;border-color:#2d394d;color:#c6d0df}
 html[data-theme=dark] .modal code{background:#0c1527;border-color:#5367a8;color:#aec5ff}
 html[data-theme=dark] .menu-drop{background:#111a29;border-color:#2a374b;box-shadow:0 22px 60px #000a}
