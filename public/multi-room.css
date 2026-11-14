@@ -782,6 +782,76 @@ html[data-theme=dark] .safety-row{color:#a6b2c6;border-color:#222a3a}
 html[data-theme=dark] .safety-row b{color:#e4e9f2}
 html[data-theme=dark] .safety-copy{color:#94a1b6}
 
+/* --- games ---------------------------------------------------------------- */
+.games-card{background:#f6f8fc;border:1px solid #e5eaf3;border-radius:14px;padding:12px 14px;margin:0 0 14px}
+.games-card-head{display:flex;align-items:center;gap:10px;margin:0 0 8px}
+.games-card-head b{font-size:13.5px;color:#26303f}
+.games-card-head small{color:#7b8497;font-size:12px;flex:1}
+.games-card-head button{border:1px solid #dfe4ee;background:#fff;color:#4b5b7a;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700}
+.games-card-list{display:grid;gap:6px}
+.games-card-row{text-align:left;border:1px solid #e5eaf3;background:#fff;color:#3a465c;border-radius:10px;padding:9px 11px;font-size:12.5px;font-weight:600}
+.games-card-row:hover{border-color:#b9c6de}
+.games-modal{max-width:440px;width:100%}
+.game-copy{color:#6d788c;font-size:12.5px;line-height:1.5;margin:0 0 10px}
+.game-status{color:#4a5568;font-size:13px;font-weight:700;margin:10px 0 8px}
+.game-kinds{display:flex;gap:8px;margin:0 0 10px}
+.game-kind{flex:1;border:1px solid #dfe4ee;background:#fff;border-radius:10px;padding:10px;font-size:13px;font-weight:700;color:#5a6579}
+.game-kind.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
+.game-policy{display:grid;gap:6px;margin:0 0 12px}
+.game-policy label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#5a6579;font-weight:600}
+.game-seats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 10px}
+.game-seat{display:grid;gap:2px;border:1px solid #e5eaf3;border-radius:12px;padding:10px;background:#fff}
+.game-seat.turn{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff22}
+.game-seat b{font-size:13px;color:#26303f;overflow-wrap:anywhere}
+.game-seat small{font-size:11.5px;color:#7b8497}
+.game-disc{width:14px;height:14px;border-radius:50%;display:inline-block}
+.game-disc.seat1{background:#ef476f}
+.game-disc.seat2{background:#f9c74f}
+.cf-board{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;background:#1d3b73;border-radius:12px;padding:6px;margin:0 0 10px}
+.cf-cell{aspect-ratio:1;border-radius:50%;border:0;background:#dde5f3;padding:0}
+.cf-cell.p1{background:#ef476f}
+.cf-cell.p2{background:#f9c74f}
+.cf-cell:disabled{cursor:default}
+.cf-cell:not(:disabled):hover{background:#c3d2ea}
+.game-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.game-actions button{flex:1 1 auto;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}
+.game-pending{border-top:1px solid #e7eaf1;padding-top:10px;margin-top:4px}
+.game-pending-row{display:flex;align-items:center;gap:8px;margin:0 0 6px}
+.game-pending-row b{flex:1;font-size:12.5px;color:#26303f}
+.small{padding:7px 10px !important;font-size:12px !important;flex:0 0 auto !important}
+.game-end-link{border:0;background:none;color:#a3423c;font-size:12px;font-weight:700;text-decoration:underline;padding:0}
+.game-list{display:grid;gap:8px}
+.game-list-row{display:flex;align-items:center;gap:10px;border:1px solid #e5eaf3;border-radius:12px;padding:10px;background:#fff}
+.game-list-info{display:grid;gap:2px;flex:1;min-width:0}
+.game-list-info b{font-size:13px;color:#26303f}
+.game-list-info small{font-size:11.5px;color:#7b8497}
+.game-list-actions{display:flex;gap:6px;flex-wrap:wrap}
+html[data-theme=dark] .games-card{background:#141926;border-color:#2a3245}
+html[data-theme=dark] .games-card-head b{color:#e4e9f2}
+html[data-theme=dark] .games-card-head small{color:#8f9cb2}
+html[data-theme=dark] .games-card-head button{background:#0f1624;border-color:#293243;color:#c3cee0}
+html[data-theme=dark] .games-card-row{background:#101725;border-color:#293243;color:#c3cee0}
+html[data-theme=dark] .game-copy{color:#94a1b6}
+html[data-theme=dark] .game-status{color:#c3cee0}
+html[data-theme=dark] .game-kind{background:#101725;border-color:#293243;color:#a6b2c6}
+html[data-theme=dark] .game-kind.active{background:#1b2340;border-color:#5b6cff;color:#dfe6ff}
+html[data-theme=dark] .game-policy label{color:#a6b2c6}
+html[data-theme=dark] .game-seat{background:#101725;border-color:#293243}
+html[data-theme=dark] .game-seat b{color:#e4e9f2}
+html[data-theme=dark] .game-seat small{color:#8f9cb2}
+html[data-theme=dark] .cf-board{background:#0d1b33}
+html[data-theme=dark] .cf-cell{background:#22304a}
+/* The dark cell rule is more specific than a bare .cf-cell.p1, so the discs need their own dark rules or
+   they turn invisible in the default theme. */
+html[data-theme=dark] .cf-cell.p1{background:#ef476f}
+html[data-theme=dark] .cf-cell.p2{background:#f9c74f}
+html[data-theme=dark] .cf-cell:not(:disabled):hover{background:#2f405e}
+html[data-theme=dark] .game-pending{border-color:#222a3a}
+html[data-theme=dark] .game-pending-row b{color:#e4e9f2}
+html[data-theme=dark] .game-list-row{background:#101725;border-color:#293243}
+html[data-theme=dark] .game-list-info b{color:#e4e9f2}
+html[data-theme=dark] .game-list-info small{color:#8f9cb2}
+
 /* --- notice board --------------------------------------------------------- */
 .notice-board{display:flex;align-items:flex-start;gap:10px;margin:0 0 14px;padding:12px 14px;border-radius:14px;border:1px solid #dbe6f6;background:linear-gradient(135deg,#eef4ff,#f7f4ff);color:#26303f}
 .notice-board.editing{display:grid;gap:8px}

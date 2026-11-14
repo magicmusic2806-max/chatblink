@@ -24,6 +24,13 @@ const CALL_SIGNAL_LIMIT = 120;
 // ceiling is kept low enough that one device does not carry a dozen audio streams.
 const GROUP_CALL_TYPES = ["group-call-join", "group-call-leave", "group-call-end", "group-call-offer", "group-call-answer", "group-call-ice"];
 const GROUP_CALL_MAX = 6;
+// Games live in the room they were started in (see GAME_KINDS). Connect Four is the first one; every
+// game is turn-based and validated in the Durable Object, because a client-side board is a board
+// people win with the console open.
+const GAME_KINDS = { "connect-four": { name: "Connect Four", seats: 2, solo: false } };
+const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end"];
+const GAME_EVENT_LIMIT = 60;
+const CONNECT_FOUR_COLUMNS = 7, CONNECT_FOUR_ROWS = 6;
 // The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
 // so a message can never accumulate arbitrary payload), and the client picker can be one short row.
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
@@ -46,6 +53,21 @@ const reactionMap = value => { if (!value) return {}; try { const parsed = JSON.
 // What a reply quote shows for its parent. Denormalized on purpose: the parent can be trimmed out of
 // the room's retained history, and a quote that disappears with it would be worse than a snapshot.
 const replySnippet = message => { const kind = message.kind || "text"; if (kind === "image") return "📷 Photo"; if (kind === "voice") return "🎙 Voice note"; if (kind === "gif") return "GIF"; return String(message.content || "").replace(/\s+/g, " ").trim().slice(0, REPLY_SNIPPET_MAX); };
+// A Connect Four board is one flat array so a move is a single assignment: index = column * rows + row,
+// with row 0 at the bottom. 0 is empty, 1 and 2 are the two seats.
+const emptyBoard = () => new Array(CONNECT_FOUR_COLUMNS * CONNECT_FOUR_ROWS).fill(0);
+const connectFourWinner = (board, column, row, disc) => {
+  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  for (const [dx, dy] of directions) {
+    let run = 1;
+    for (const sign of [1, -1]) {
+      let c = column + dx * sign, r = row + dy * sign;
+      while (c >= 0 && c < CONNECT_FOUR_COLUMNS && r >= 0 && r < CONNECT_FOUR_ROWS && board[c * CONNECT_FOUR_ROWS + r] === disc) { run++; c += dx * sign; r += dy * sign; }
+    }
+    if (run >= 4) return true;
+  }
+  return false;
+};
 
 const builtInRooms = () => BUILT_INS.map(room => ({ ...room, emojis: [...room.emojis], stickers: [...room.stickers], gifs: [...room.gifs], members: [], requests: [], bans: [] }));
 
@@ -61,6 +83,8 @@ export class ChatHub {
     this.callWindows = new Map();
     this.roomVisitNotices = new Map();
     this.roomCalls = new Map();
+    this.roomGames = new Map();
+    this.gameWindows = new Map();
     this.daily = new Map();
     this.dailyDay = 0;
     this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
@@ -385,6 +409,142 @@ export class ChatHub {
     this.notifyRoomUsers(room.id, [target.id], payload);
     return true;
   }
+  /* ----------------------------------------------------------------- games */
+  // Games belong to the room they were started in and live in memory only: a Durable Object restart
+  // ends a game, which is simpler and more honest than persisting a board nobody can resume.
+  gameView(game) {
+    const kind = GAME_KINDS[game.kind] || { name: game.kind, seats: 2, solo: false };
+    return {
+      id: game.id, kind: game.kind, name: kind.name, roomId: game.roomId, hostId: game.hostId,
+      policy: game.policy, status: game.status, seats: kind.seats, solo: Boolean(kind.solo),
+      players: game.players.map(player => ({ id: player.id, username: player.username, score: player.score || 0 })),
+      spectators: game.guests.length,
+      pending: game.pending.map(person => ({ id: person.id, username: person.username })),
+      turn: game.turn || null, board: game.board.slice(), winnerId: game.winnerId || null,
+      reason: game.reason || null, createdAt: game.createdAt, startedAt: game.startedAt || null, endedAt: game.endedAt || null
+    };
+  }
+  broadcastGame(roomId) {
+    const game = this.roomGames.get(roomId) || null;
+    this.broadcast(roomId, { type: "game-state", game: game ? this.gameView(game) : null });
+    // The room list's games card is an aggregate, so every client is told that the set changed rather
+    // than polling per room.
+    this.broadcastAll({ type: "games-changed" });
+  }
+  gameError(socket, message) { this.send(socket, { type: "game-error", message }); }
+  // Games get their own window so a click-heavy board never eats the chat message budget.
+  gameLimited(connectionId, now) {
+    const record = this.gameWindows.get(connectionId) || { start: now, count: 0 };
+    if (now - record.start > MESSAGE_WINDOW_MS) { record.start = now; record.count = 0; }
+    record.count++;
+    this.gameWindows.set(connectionId, record);
+    return record.count > GAME_EVENT_LIMIT;
+  }
+  // The host runs the game; moderators and the admin can cover for a host who has gone quiet.
+  canRunGame(room, game, user) { return user.id === game.hostId || this.canModerate(room, user); }
+  addGamePlayer(game, user) {
+    game.pending = game.pending.filter(person => person.id !== user.id);
+    if (!game.players.some(player => player.id === user.id)) game.players.push({ id: user.id, username: user.username, score: 0 });
+    const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
+    if (game.status === "lobby" && game.players.length >= seats) { game.status = "playing"; game.startedAt = Date.now(); game.turn = game.players[0].id; }
+  }
+  endGame(game, winnerId = null, reason = null) {
+    game.status = "ended"; game.turn = null; game.winnerId = winnerId; game.reason = reason; game.endedAt = Date.now();
+    if (winnerId) { const winner = game.players.find(player => player.id === winnerId); if (winner) winner.score = (winner.score || 0) + 1; }
+  }
+  gameEvent(socket, event, user, now) {
+    const meta = attachment(socket), room = this.findRoom(meta.roomId);
+    if (!room || (Array.isArray(room.bans) && room.bans.includes(user.id))) return;
+    if (this.gameLimited(meta.connectionId || user.id, now)) return;
+    const game = this.roomGames.get(room.id) || null;
+    const gameId = clean(event.gameId).slice(0, 64);
+
+    if (event.type === "game-create") {
+      const kind = GAME_KINDS[clean(event.kind).slice(0, 32)];
+      if (!kind) return this.gameError(socket, "That game is not available.");
+      if (game && game.status !== "ended") return this.gameError(socket, "This room already has a game running.");
+      const fresh = {
+        id: crypto.randomUUID(), kind: clean(event.kind), roomId: room.id, hostId: user.id,
+        policy: clean(event.policy) === "open" ? "open" : "request", status: "lobby",
+        players: [{ id: user.id, username: user.username, score: 0 }], guests: [], pending: [],
+        turn: null, board: emptyBoard(), winnerId: null, reason: null,
+        createdAt: Date.now(), startedAt: null, endedAt: null
+      };
+      if (kind.solo) { fresh.status = "playing"; fresh.startedAt = fresh.createdAt; fresh.turn = user.id; }
+      this.roomGames.set(room.id, fresh);
+      return this.broadcastGame(room.id);
+    }
+    if (!game || (gameId && game.id !== gameId)) return;
+    const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
+    const isPlayer = game.players.some(player => player.id === user.id);
+
+    if (event.type === "game-join" || event.type === "game-request") {
+      if (game.status !== "lobby") return this.gameError(socket, "That game already started.");
+      if (isPlayer) return;
+      if (game.players.length >= seats) return this.gameError(socket, "That game is full - you can watch it.");
+      if (game.policy === "open") { this.addGamePlayer(game, user); return this.broadcastGame(room.id); }
+      if (game.pending.some(person => person.id === user.id)) return;
+      game.pending.push({ id: user.id, username: user.username });
+      this.notifyUser(game.hostId, { type: "game-request", roomId: room.id, by: { id: user.id, username: user.username }, game: this.gameView(game) });
+      return this.broadcastGame(room.id);
+    }
+    if (event.type === "game-approve" || event.type === "game-deny") {
+      if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can do that.");
+      const targetId = clean(event.userId).slice(0, 64), target = this.userById(targetId);
+      if (!game.pending.some(person => person.id === targetId)) return;
+      game.pending = game.pending.filter(person => person.id !== targetId);
+      if (event.type === "game-approve" && target && game.players.length < seats) {
+        this.addGamePlayer(game, target);
+        this.notifyUser(targetId, { type: "game-approved", roomId: room.id, gameId: game.id });
+      } else if (event.type === "game-approve") {
+        return this.gameError(socket, "That game is full.");
+      } else {
+        this.notifyUser(targetId, { type: "game-denied", roomId: room.id, gameId: game.id });
+      }
+      return this.broadcastGame(room.id);
+    }
+    if (event.type === "game-watch") {
+      if (!game.guests.some(person => person.id === user.id)) game.guests.push({ id: user.id, username: user.username, score: 0 });
+      return this.broadcastGame(room.id);
+    }
+    if (event.type === "game-leave") {
+      game.pending = game.pending.filter(person => person.id !== user.id);
+      game.guests = game.guests.filter(person => person.id !== user.id);
+      if (isPlayer) {
+        game.players = game.players.filter(player => player.id !== user.id);
+        // Walking out of a running two-player game is a forfeit; walking out of a lobby game the host
+        // started closes it, because there is nothing left to join.
+        if (game.status === "playing") this.endGame(game, game.players[0] ? game.players[0].id : null, "left");
+        else if (user.id === game.hostId || !game.players.length) this.roomGames.delete(room.id);
+      }
+      return this.broadcastGame(room.id);
+    }
+    if (event.type === "game-move") {
+      if (game.kind !== "connect-four" || game.status !== "playing") return this.gameError(socket, "That game is not running.");
+      const seat = game.players.findIndex(player => player.id === user.id);
+      if (seat < 0) return this.gameError(socket, "Only the players can move.");
+      if (game.turn !== user.id) return this.gameError(socket, "It is not your turn.");
+      const column = Number(event.column);
+      if (!Number.isInteger(column) || column < 0 || column >= CONNECT_FOUR_COLUMNS) return this.gameError(socket, "That column is not on the board.");
+      let row = -1;
+      for (let level = 0; level < CONNECT_FOUR_ROWS; level++) if (!game.board[column * CONNECT_FOUR_ROWS + level]) { row = level; break; }
+      if (row < 0) return this.gameError(socket, "That column is full.");
+      game.board[column * CONNECT_FOUR_ROWS + row] = seat + 1;
+      if (connectFourWinner(game.board, column, row, seat + 1)) return (this.endGame(game, user.id, "four"), this.broadcastGame(room.id));
+      if (game.board.every(cell => cell !== 0)) return (this.endGame(game, null, "draw"), this.broadcastGame(room.id));
+      const other = game.players.find(player => player.id !== user.id);
+      game.turn = other ? other.id : null;
+      return this.broadcastGame(room.id);
+    }
+    if (event.type === "game-end") {
+      if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can do that.");
+      // Ending an already-ended game clears the board out of the room, which is how the host closes it.
+      if (game.status === "ended") this.roomGames.delete(room.id);
+      else this.endGame(game, null, "ended");
+      return this.broadcastGame(room.id);
+    }
+  }
+
   addMessage(roomId, message) {
     const sql = this.state.storage.sql;
     sql.exec("INSERT INTO messages (room_id, id, user_id, username, role, photo, kind, content, created_at, reply_to, reply_username, reply_snippet, reactions, deleted_at, deleted_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'{}',NULL,NULL)", roomId, message.id, message.userId, message.username, message.role, message.photo, message.kind, message.content, message.createdAt, message.reply?.id || null, message.reply?.username || null, message.reply?.snippet || null);
@@ -417,6 +577,8 @@ export class ChatHub {
       server.send(JSON.stringify({ type: "history", messages: this.history(roomId), online: this.roomOnlineCount(roomId), users: this.presenceUsers(roomId) }));
       const call = this.roomCalls.get(roomId);
       if (call) server.send(JSON.stringify(this.groupCallState(call)));
+      const game = this.roomGames.get(roomId);
+      if (game) server.send(JSON.stringify({ type: "game-state", game: this.gameView(game) }));
       this.broadcastPresence(roomId);
     }
     this.broadcastRoomOnline(roomId);
@@ -452,6 +614,9 @@ export class ChatHub {
     // Room-call signaling is relayed inside the room and counted against the call budget, not the
     // message window, so a busy call cannot mute a member's chat.
     if (GROUP_CALL_TYPES.includes(event.type)) { this.groupCallSignal(socket, event, user, now); return; }
+    // Games are their own budget for the same reason, and a board click must never count as a chat
+    // message - see gameLimited().
+    if (GAME_EVENT_TYPES.includes(event.type)) { this.gameEvent(socket, event, user, now); return; }
     // Kept in memory: the attachment this used to live in cost a persisted write on every single
     // message, potentially doubling a message's row-write cost. Eviction only happens after ~10s
     // of quiet, already longer than the window, so a counter lost to it would have expired anyway.
@@ -522,12 +687,20 @@ export class ChatHub {
     const meta = attachment(socket);
     if (meta.connectionId) this.messageWindows.delete(meta.connectionId);
     if (meta.connectionId) this.callWindows.delete(meta.connectionId);
+    if (meta.connectionId) this.gameWindows.delete(meta.connectionId);
     try { socket.close(1000, "closed"); } catch {}
     if (meta.roomId && meta.roomId !== "__notify") {
       // The call only loses this member when their last socket in the room goes; a second tab in the
       // same room keeps them in the mesh.
       const stillHere = this.sockets().some(other => other !== socket && attachment(other).roomId === meta.roomId && attachment(other).userId === meta.userId);
       if (!stillHere && meta.userId) this.leaveRoomCall(meta.roomId, meta.userId);
+      // A spectator who closes the tab stops being a spectator; a player stays in the seat so they can
+      // reload and carry on.
+      const game = this.roomGames.get(meta.roomId);
+      if (game && meta.userId && !stillHere) {
+        game.guests = game.guests.filter(person => person.id !== meta.userId);
+        this.broadcast(meta.roomId, { type: "game-state", game: this.gameView(game) });
+      }
       this.broadcastPresence(meta.roomId);
       this.broadcastRoomOnline(meta.roomId);
     }
@@ -685,6 +858,7 @@ export class ChatHub {
           this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
           this.pendingTrim.delete(room.id);
           this.roomCalls.delete(room.id);
+          this.roomGames.delete(room.id);
           await deleteRoom(this.env, room.id);
           await removeRoomSubscriptions(this.env, { roomId: room.id });
           this.broadcastAll({ type: "room-deleted", roomId: room.id });
@@ -813,6 +987,23 @@ export class ChatHub {
       return json(200, { online: counts });
     }
 
+    // Every live game, for the room list's games card. Only games in rooms this account may enter: a
+    // private room's game is as private as the room.
+    if (path === "/api/games" && request.method === "GET") {
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      const games = [];
+      for (const game of this.roomGames.values()) {
+        const room = this.findRoom(game.roomId);
+        if (!room || !this.canEnter(room, user)) continue;
+        const kind = GAME_KINDS[game.kind] || { name: game.kind, seats: 2 };
+        const host = this.userById(game.hostId);
+        games.push({ id: game.id, kind: game.kind, name: kind.name, roomId: room.id, roomName: room.name, roomIcon: room.icon, hostId: game.hostId, hostUsername: host ? host.username : "Host", policy: game.policy, status: game.status, seats: kind.seats, players: game.players.length, spectators: game.guests.length, createdAt: game.createdAt });
+      }
+      games.sort((left, right) => right.createdAt - left.createdAt);
+      return json(200, { games });
+    }
+
     if (path.startsWith("/api/rooms")) return this.apiRooms(request, url, path);
 
     return json(404, { error: "Not found." });
@@ -915,6 +1106,7 @@ export class ChatHub {
       this.state.storage.sql.exec("DELETE FROM messages WHERE room_id = ?", room.id);
       this.pendingTrim.delete(room.id);
       this.roomCalls.delete(room.id);
+      this.roomGames.delete(room.id);
       await deleteRoom(this.env, room.id);
       await removeRoomSubscriptions(this.env, { roomId: room.id });
       this.broadcastAll({ type: "room-deleted", roomId: room.id });

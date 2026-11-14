@@ -2,7 +2,7 @@
 
 Updated 2026-11-14. Live at <https://chatblink.chat>, deployed from `main` by
 `.github/workflows/deploy.yml` (`npm ci` → canonical-host suite → `wrangler deploy`).
-Current client bundle: `multi-room.js?v=77`. D1 schema version: 4
+Current client bundle: `multi-room.js?v=78`. D1 schema version: 4
 (`worker/lib/schema.js`, applied by the Durable Object itself).
 
 ## What the site is now
@@ -77,6 +77,7 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 | Profile-key only | Email signup/login/reset, the mail module, the badge, the tables and the dangling scripts are gone | many | `d2ccab6`, `b52084d` |
 | Notice board | One admin-written announcement above the room list with a show/hide toggle, pushed live | `worker/hub.js`, `public/multi-room.js` | `aa01d31` |
 | Passkeys removed | WebAuthn sign-in, its Worker routes, its verification module and its schema table are gone; sign-in is the key | many | `8095c45` then the removal commit |
+| Games | Room dock with open/by-request seats, host approve/deny, spectators, server-validated Connect Four, and a room-list games card | `worker/hub.js`, `public/multi-room.js`, `public/multi-room.css`, `tests/games.js` | this round, `v=78` |
 
 ## Verification
 
@@ -84,11 +85,18 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   summary. At `v=77` (passkeys removed): **13 groups green** — canonical, schema, smoke, retention,
   push-gate, theme, quotas, actions, room-actions, voice-note, group-call, group-call-e2e, notice.
   The passkey suite is deleted with the feature, so there is no longer a localhost-only rpId rule to
-  remember.
+  remember. At `v=78`: **14 groups green**, the new one being `tests/games.js` (30 checks: lobby, open
+  and by-request seats, approve/deny authority, out-of-turn and spectator refusals, a full game to a
+  four-in-a-column win, forfeit by leaving, the game list and private-room visibility, and that a burst
+  of game events does not spend the chat message window).
 - The profile-key door was also driven at 390 px in Chromium: signup hands over a key, the key signs
   in, `Menu → Account details` shows the account with no passkey row and no buttons, the login pane
   has no fingerprint control, `/api/auth/passkey/options` and `/api/account/passkeys/remove` answer
   404, and `/api/account/safety` returns `{account}` only.
+- The games dock was driven at 390 px with two signed-in contexts: create, request from the second
+  player, approve from the host, a 42-cell board, two drops reflected on both sides, and the room-list
+  card showing the running game. That run also caught a real dark-theme bug — the dark `.cf-cell` rule
+  outranked `.cf-cell.p1`, so discs were invisible until `.cf-cell.p1/.p2` got dark-theme rules.
 - Writing suites against accounts: `/api/auth/logout` bumps the account's `tokenVersion`, so one
   context signing out ends every other session for that account. A second context must run last, or
   be dropped by clearing cookies rather than by logging out — a session that dies mid-suite shows up
@@ -121,7 +129,8 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
-- **Games:** users asked for Draw & Guess and nothing is built yet. `GAMES.md` holds the roadmap and
-  the owner's settled decisions (games live in every room but hidden by default, open or by-request
-  seats, watch always allowed, spectators guess and score separately in Draw & Guess, chess is human
-  only), plus the draft data model, the event list and the build order.
+- **Games:** Connect Four is live (`v=78`) and `GAMES.md` is the spec plus the as-built notes. Games are
+  per room and hidden until the 🎲 Games button or the room list's games card is opened; seats are open
+  or by request; the host (or a mod/admin) approves; spectators are counted; every move is validated in
+  the Durable Object. Draw & Guess is next on the same dock — its design (safe words, guest scoring,
+  masked word, batched strokes) is written down there.

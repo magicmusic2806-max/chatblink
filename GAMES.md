@@ -160,9 +160,8 @@ per second) and are never stored per point.
 
 ## Build plan
 
-1. **Dock + Connect Four.** The dock, the event set, open/request/spectate, host approve/deny,
-   reconnect resync, the Games card, and the game-list aggregation. Connect Four is zero-dependency
-   and proves all of it. Ship this first.
+1. **Dock + Connect Four.** ✅ Shipped in `v=78`. The dock, the event set, open/request/spectate, host
+   approve/deny, reconnect resync, the games card, and the game-list aggregation all exist now.
 2. **Draw & Guess** on the same dock: word list (curated, safe, from the Unlicense list), round clock,
    masked word, guessing in the room chat, separate guest scoring and the end scoreboard.
 3. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
@@ -170,13 +169,37 @@ per second) and are never stored per point.
    watchable but not joinable.
 5. **Poker / trivia** only if demand appears.
 
-## Remaining questions
+## As built (v=78, Connect Four)
 
-1. **One game at a time per room,** or may a room run several at once? (The draft above assumes one —
-   multiple means a per-game id in every event and a list per room.)
-2. **Who may approve requests:** the host only, or moderators and the admin as well?
-3. Does the **Games card** need a preview of the current drawing/board, or is the room, game and seat
-   count enough?
-4. **Start with Connect Four** to prove the dock, or go straight to Draw & Guess and scope the dock
-   around it? (Recommendation: Connect Four first — it is the cheapest way to find out whether the
-   join/watch/request plumbing actually behaves, and Draw & Guess then reuses all of it.)
+Everything below is what the code actually does, not the plan it came from:
+
+- **State** lives in the DO's memory as `this.roomGames` (room id → game), next to `this.roomCalls`.
+  One game per room at a time; a finished game stays on the board until the host starts another or
+  closes it.
+- **Seats** come from `GAME_KINDS` (`connect-four: 2`). The host takes the first seat when creating.
+  `policy: "open"` fills the seat on `game-join`; `policy: "request"` puts the person in `pending` and
+  notifies the host, who approves or denies from the dock.
+- **Refusals carry a sentence** in a `game-error` event: not your turn, only players may move, that
+  column is not on the board / is full, the game already started, only the host can do that.
+- **The board is one flat array** of 42 cells (`index = column * 6 + row`, row 0 at the bottom; 0 empty,
+  1 and 2 the seats). Win detection is a four-direction run check on the disc just placed.
+- **Leaving** a running game forfeits it (the other player wins, `reason: "left"`); leaving a lobby game
+  the host created closes it. A closing socket removes a spectator but keeps a player seated so a
+  reload can carry on.
+- **Budgets:** game events use `gameLimited()` (60 per 10 s per connection), never the chat window. A
+  suite check sends 25 game events and then a message to prove the message still lands.
+- **HTTP:** `GET /api/games` lists every game in a room the caller may enter, for the room list's card.
+- **UI:** a **🎲 Games** button in the room's tool row opens the dock; the room list gets a **Games in
+  rooms** card with the first three live games and a "See all" list; both modes are one modal
+  (`#gamesModal`). Games are invisible until one of those is opened, as specified.
+- **Defaults taken** from the open questions: one game per room; host, moderators and the admin may
+  approve/end (a silent host must not strand a room); the card shows room, game and seats, no board
+  preview.
+
+## Remaining for Draw & Guess
+
+- Word list: curated and safe, from `dwyl/english-words` (Unlicense). Never fetched at runtime.
+- Rounds, seconds per round, drawer rotation, masked word in the transcript, guesses in the room chat.
+- Guests: separate score list, "xyz guest guessed the word" system line, end-of-game scoreboard showing
+  players and guests independently.
+- Strokes: batched (~50 ms per stroke, capped), redrawn from state on rejoin, never stored per point.

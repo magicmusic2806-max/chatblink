@@ -41,6 +41,11 @@ const servers = [
     { name: "group-call", file: "tests/group-call.js" },
     { name: "group-call-e2e", file: "tests/group-call-e2e.js" }
   ] },
+  // Games create their own room and need three accounts, so they get a server of their own rather than
+  // spending the signup rate limit of the groups above.
+  { port: 8791, vars: [], env: {}, suites: [
+    { name: "games", file: "tests/games.js" }
+  ] },
   // The notice board is the only suite here, and it needs an admin account, so it keeps a server of its
   // own rather than sharing room-creation budgets with the browser suites above.
   { port: 8809, vars: [], env: {}, suites: [

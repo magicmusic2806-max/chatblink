@@ -32,6 +32,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 - **Notice board:** a single announcement at the top of the room list, written and shown/hidden by the admin from an Edit control on the board itself. It is public to read, reaches open tabs live over the socket, and never leaks a hidden draft's text.
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
+- **Games:** every room can host a game, and nothing is visible until someone opens it — the **🎲 Games** button in the room's tool row opens that room's dock, and a **Games in rooms** card on the room list shows every live game with Watch / Join / Request. Seats are **open** (anyone may take one) or **by request** (the host approves from the dock; moderators and the admin can cover). Watching needs no seat. Connect Four is the first game: the Durable Object owns the board, validates every move and turn, and endings are four-in-a-row, a draw, or a forfeit when a player leaves. Game traffic has its own rate limit and never counts against the chat message budget. See `GAMES.md` for the rules, the licence checks and what is queued next (Draw & Guess).
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details. A bell beside GIF subscribes the account to room-entry alerts; incoming DMs notify every registered device even if Chatblink is open in a background tab.
 - **Appearance:** a dark-first responsive theme covers entry, setup, rooms, chats, DMs, profiles and dialogs; the top theme control switches to the original light palette and remembers the browser's choice.
 - **Moderation:** the account named `dynamic` (case-insensitive) is the admin — promoted at startup and at signup. Admin panel promotes/demotes mods and can delete an account outright (its rooms, bans, DM grants and sessions go with it). Mods and room creators can ban users per room; bans block that user's messages in that room only (they can still read and DM). Only the admin can ban mods. Role tags (ADMIN/MOD) render next to names.
@@ -55,6 +56,7 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 | `POST /auth/signup`, `POST /auth/login`, `POST /enter` | HTML form endpoints: create a profile-key account, sign in with a key, or consume an entry link (redirect/serve the app) |
 | `POST /api/auth/logout` | Clears session and bumps `tokenVersion` (revokes device tokens) |
 | `GET /api/account/safety` | Session required: the signed-in account's own details (username, display name, age, role, created at) |
+| `GET /api/games` | Session required: every live room game in a room the caller may enter (room, game, seats, status, policy) |
 | `GET /api/notice` | Public: the room-list notice (message only while it is visible) |
 | `POST /api/notice` | Admin only: `{message, visible}`, broadcast as `notice-changed` |
 | `GET /api/auth/me` | Current user |
@@ -128,6 +130,8 @@ npm run test:worker        # or test:retention, test:actions, test:canonical, te
 
 `tests/notice-board.js` (`npm run test:notice`) covers the notice board: public read, anonymous and member writes refused, the admin publishing it, the live `notice-changed` push, hiding it, and refusing to show an empty notice. Its admin half needs the one-shot `dynamic` account, so it reports SKIP when that already exists.
 
+`tests/games.js` (`npm run test:games`) drives room games over HTTP and the room socket: starting a game, an open seat filling, watching without a seat, the refusals (out of turn, a spectator moving, an impossible column, joining once the game started), a whole Connect Four game to a four-in-a-column win, a request that waits for the host, approval authority, forfeiting by leaving, the host clearing the board, `GET /api/games` including the private-room visibility rule, and that a burst of game events does not spend the chat message window.
+
 `tests/group-call.js` (`npm run test:group-call`) drives the room-call relay with three accounts — two participants and one member who never joined — covering join/leave/state, offer/answer/ICE routing, the refusals (oversized candidates, wrong SDP types, a stale call id, a non-participant), cleanup when sockets close, and that only the starter can end the call for the room. `tests/group-call-e2e.js` (`npm run test:group-call:e2e`) opens two Chromium contexts with fake microphones in one private room and requires a connected peer-to-peer mesh with a live remote audio track on both sides, then checks mute, the leave/teardown path, and the host-only End call control hanging up for both sides.
 
 ```powershell
@@ -182,6 +186,7 @@ tests/room-actions-e2e.js   browser suite for the reply, reaction and delete UI
 tests/voice-note-e2e.js     browser suite that records a known tone and measures it
 tests/group-call.js         room-call signaling: join, relay, refusals, cleanup
 tests/group-call-e2e.js     two-browser room-call mesh with real WebRTC audio
+tests/games.js              room games over HTTP and the socket, including a full Connect Four game
 tests/notice-board.js       notice board reads, admin writes and the live event
 tests/auth-e2e.js           Playwright end-to-end suite for the legacy Node server
 DEPLOY.md                   step-by-step deployment and data migration
