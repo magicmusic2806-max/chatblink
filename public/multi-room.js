@@ -27,7 +27,7 @@ const request=async(url,options={})=>{const controller=new AbortController(),tim
 const initials=name=>String(name||"?").slice(0,2).toUpperCase();
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300)}
 function error(id,message){const el=$(id);el.textContent=message;el.hidden=!message}
-function switchAuth(mode){const selected=mode==="signup"||mode==="key-signup"?"signup":"key";document.querySelectorAll("[data-auth-pane]").forEach(pane=>pane.classList.toggle("active",pane.dataset.authPane===selected))}
+function switchAuth(mode){const selected=mode==="signup"||mode==="key-signup"?"signup":"key";document.querySelectorAll("[data-auth-pane]").forEach(pane=>pane.classList.toggle("active",pane.dataset.authPane===selected));if(selected==="key")refreshPasskeyAvailability()}
 function authErrorTarget(mode){return ({signup:"#signupError","key-signup":"#signupError",login:"#keyLoginError",key:"#keyLoginError"})[mode]||"#keyLoginError"}
 document.querySelectorAll("[data-switch]").forEach(b=>b.onclick=()=>switchAuth(b.dataset.switch));
 function busy(form,value){const button=form.querySelector("button[type=submit]");if(!button)return;if(!button.dataset.copy)button.dataset.copy=button.innerHTML;button.disabled=value;button.innerHTML=value?"Please wait…":button.dataset.copy}
@@ -708,7 +708,18 @@ let passkeyAvailableCache=null,platformAuthenticatorCache=null,safetyState=null,
 function base64UrlToBytes(value){const text=String(value||"").replace(/-/g,"+").replace(/_/g,"/"),binary=atob(text+"=".repeat((4-text.length%4)%4)),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return bytes}
 function bytesToBase64Url(value){let binary="";for(const byte of new Uint8Array(value))binary+=String.fromCharCode(byte);return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
 function webauthnAvailable(){if(passkeyAvailableCache===null)passkeyAvailableCache=Boolean(window.PublicKeyCredential&&navigator.credentials&&navigator.credentials.get&&navigator.credentials.create);return passkeyAvailableCache}
-async function platformAuthenticatorAvailable(){if(platformAuthenticatorCache!==null)return platformAuthenticatorCache;try{platformAuthenticatorCache=Boolean(window.PublicKeyCredential&&PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable&&await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())}catch{platformAuthenticatorCache=false}return platformAuthenticatorCache}
+async function platformAuthenticatorAvailable(){
+  // Only a positive answer is cached: the platform authenticator can appear later (a virtual one in
+  // tests, Windows Hello being set up mid-session), and a cached "no" would hide the door forever.
+  if(platformAuthenticatorCache===true)return true;
+  try{platformAuthenticatorCache=Boolean(window.PublicKeyCredential&&PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable&&await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())}catch{platformAuthenticatorCache=false}
+  return platformAuthenticatorCache;
+}
+async function refreshPasskeyAvailability(){
+  if(!await platformAuthenticatorAvailable())return;
+  $("#passkeyLogin").hidden=false;
+  $("#passkeyDivider").hidden=false;
+}
 function devicePasskeys(){try{const list=JSON.parse(localStorage.getItem(PASSKEYS_KEY)||"[]");return Array.isArray(list)?list:[]}catch{return []}}
 function rememberDevicePasskey(id){const list=devicePasskeys().filter(item=>item!==id);list.push(id);try{localStorage.setItem(PASSKEYS_KEY,JSON.stringify(list.slice(-20)))}catch{}}
 async function passkeyOptions(mode){
@@ -786,7 +797,9 @@ function renderSafety(){
     if(!deviceText.isConnected)return;
     deviceText.textContent=available
       ?"This device can use its fingerprint, face or screen lock to sign you in."
-      :"This device does not offer a fingerprint or screen-lock authenticator. You can still sign in with your profile key, or add a passkey from a phone or laptop that does.";
+      :"This device has no fingerprint, face or screen lock set up, so there is nothing to add here. Your profile key signs you in on this device.";
+    if(available&&add.parentElement!==device)device.appendChild(add);
+    if(!available)add.remove();
   });
   const add=document.createElement("button");add.type="button";add.className="primary safety-add";add.id="safetyAddPasskey";add.textContent="Add this device";
   add.disabled=!webauthnAvailable();add.onclick=addPasskey;
@@ -824,6 +837,7 @@ function openSafety(){
   if(!currentUser)return toast("Join the chatrooms first");
   $("#safetyModal").hidden=false;
   const body=$("#safetyBody");if(body)body.innerHTML='<p class="dm-inbox-empty">Loading…</p>';
+  platformAuthenticatorCache=null;
   loadSafety();
 }
 function askRemovePasskey(passkey){
@@ -895,6 +909,8 @@ async function loadNotice(){
 $("#passkeyLogin").onclick=signInWithPasskey;
 $("#safetyClose").onclick=()=>{$("#safetyModal").hidden=true};
 $("#menuDrop").querySelector('[data-menu="safety"]').onclick=()=>{$("#menuDrop").hidden=true;openSafety()};
-if(webauthnAvailable()){$("#passkeyLogin").hidden=false;$("#passkeyDivider").hidden=false}
+// The fingerprint door is only offered where this device actually has a platform authenticator; a
+// browser that would fall back to "use a phone instead" gets the profile key form and nothing else.
+refreshPasskeyAvailability();
 
 async function init(){const hashParams=new URLSearchParams(location.hash.slice(1)),hashToken=hashParams.get("auth"),hashKey=hashParams.get("profileKey"),params=new URLSearchParams(location.search),bootstrapToken=window.__NEARBY_TOKEN__;if(bootstrapToken||hashToken)rememberToken(bootstrapToken||hashToken);if(hashKey)rememberProfileKey(hashKey);if(window.__NEARBY_NEW_KEY__)rememberProfileKey(window.__NEARBY_NEW_KEY__);if(hashToken||hashKey)history.replaceState({},"",location.pathname);if(location.pathname!=="/"&&location.pathname!=="/rooms"&&location.pathname!=="/dms"&&!location.pathname.startsWith("/room/")&&!location.pathname.startsWith("/profile/"))history.replaceState({},"","/");const requested=params.get("mode"),mode=["signup","login","key","key-signup"].includes(requested)?requested:"signup",message=params.get("error"),notice=params.get("notice");try{const user=window.__NEARBY_USER__||(await request("/api/auth/me")).user;if(window.__NEARBY_NEW_KEY__){showProfileSetup(user,window.__NEARBY_NEW_KEY__);return}if(user.profileComplete)await enterApp(user);else showProfileSetup(user,pendingProfileKey)}catch{forgetToken();enterGuestMode();switchAuth(mode);if(message)error(authErrorTarget(mode),message);if(notice){const banner=$("#authNotice");banner.textContent=notice;banner.hidden=false}}}init();

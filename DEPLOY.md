@@ -244,7 +244,7 @@ Web Push needs a VAPID key pair, which is deliberately not in the repo. The publ
 
 ## Passkeys and the notice board
 
-Passkeys need no secret and no extra service: the account menu registers the device (WebAuthn, ES256 only) and the Worker verifies the signature with `crypto.subtle`, storing the public key in D1 (`passkey_credentials`). Two things are configuration-sensitive - the relying-party id is the host the browser is on, so the ceremony only works on `https://chatblink.chat` in production and on `http://localhost:PORT` in dev (`127.0.0.1` cannot be an rpId), and the origin the client claims is checked against `PUBLIC_ORIGIN` or a loopback origin on a non-https request. The room-list notice lives in `site_notice` and is edited by the admin account only.
+Passkeys need no secret and no extra service: the account menu registers the device (WebAuthn, ES256 only, `authenticatorAttachment: "platform"` so only this device's own fingerprint/face/screen lock can be used) and the Worker verifies the signature with `crypto.subtle`, storing the public key in D1 (`passkey_credentials`). Two things are configuration-sensitive - the relying-party id is the host the browser is on, so the ceremony only works on `https://chatblink.chat` in production and on `http://localhost:PORT` in dev (`127.0.0.1` cannot be an rpId), and the origin the client claims is checked against `PUBLIC_ORIGIN` or a loopback origin on a non-https request. The room-list notice lives in `site_notice` and is edited by the admin account only.
 
 ## Accounts are profile-key only
 

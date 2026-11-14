@@ -815,7 +815,9 @@ export class ChatHub {
             rp: { id: rpId, name: "Chatblink" },
             user: { id: base64Url(new TextEncoder().encode(user.id)), name: user.username, displayName: (user.profile && user.profile.displayName) || user.username },
             pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-            authenticatorSelection: { userVerification: "required", residentKey: "preferred", requireResidentKey: false },
+            // Platform only: fingerprint / face / screen lock on THIS device. Without this a browser is
+            // free to offer "use a phone or security key instead", which is not what was asked for.
+            authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred", requireResidentKey: false },
             excludeCredentials: existing.map(row => ({ type: "public-key", id: row.credential_id, ...(row.transports ? { transports: (() => { try { return JSON.parse(row.transports); } catch { return undefined; } })() } : {}) })),
             attestation: "none",
             timeout: 120000
@@ -824,8 +826,8 @@ export class ChatHub {
       }
       const cookie = await this.passkeyCookie(request, "login");
       // An empty allowCredentials list asks the device itself which passkey belongs to this site, so
-      // signing in never needs a username first.
-      return json(200, { mode, options: { challenge: cookie.challenge, rpId, allowCredentials: [], userVerification: "required", timeout: 120000 } }, { "Set-Cookie": cookie.header });
+      // signing in never needs a username first. Platform attachment keeps the prompt on this device.
+      return json(200, { mode, options: { challenge: cookie.challenge, rpId, allowCredentials: [], authenticatorAttachment: "platform", userVerification: "required", timeout: 120000 } }, { "Set-Cookie": cookie.header });
     }
 
     if (path === "/api/auth/passkey/register" && request.method === "POST") {

@@ -40,17 +40,15 @@ const waitForSession = async (page, status) => {
     await page.goto(BASE, { waitUntil: "domcontentloaded" });
     await page.locator("#authView:not([hidden])").waitFor();
 
-    await page.locator('[data-switch="key"]').click();
-    ok("the login pane offers a fingerprint button", await page.locator("#passkeyLogin").isVisible());
-    await page.locator('[data-switch="signup"]').click();
-
     // A virtual authenticator with user verification: this is the fingerprint sensor for the test.
     const cdp = await context.newCDPSession(page);
     await cdp.send("WebAuthn.enable");
-    const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
-      options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true }
-    });
+    const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
     ok("a virtual authenticator is attached", Boolean(authenticatorId));
+    await page.locator('[data-switch="key"]').click();
+    await page.locator("#passkeyLogin").waitFor({ state: "visible", timeout: 10000 });
+    ok("the login pane offers a fingerprint button", await page.locator("#passkeyLogin").isVisible());
+    await page.locator('[data-switch="signup"]').click();
 
     // Sign up with a profile key, then enter the rooms.
     const username = `pk_${stamp}`;
@@ -73,6 +71,14 @@ const waitForSession = async (page, status) => {
     ok("the panel shows the account details", accountText.includes(`@${username}`), accountText.slice(0, 120));
     ok("the panel lists no passkey yet", accountText.includes("No passkey yet"));
 
+    const panelCopy = await page.locator("#safetyBody").textContent();
+    ok("the panel never points at another device", !/another device|other device|phone or laptop/i.test(panelCopy), panelCopy.slice(0, 160));
+    const registerOptions = await page.evaluate(async () => {
+      const response = await fetch("/api/auth/passkey/options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "register", origin: location.origin }) });
+      const payload = await response.json();
+      return payload.options && payload.options.authenticatorSelection;
+    });
+    ok("registration is limited to this device's platform authenticator", registerOptions && registerOptions.authenticatorAttachment === "platform" && registerOptions.userVerification === "required", JSON.stringify(registerOptions));
     await page.locator("#safetyAddPasskey").click();
     await page.waitForFunction(() => document.querySelectorAll("#safetyBody .safety-passkey").length === 1, null, { timeout: 15000 });
     ok("adding this device creates a passkey", (await page.locator("#safetyBody .safety-passkey").count()) === 1);
@@ -85,6 +91,12 @@ const waitForSession = async (page, status) => {
     await page.locator("#authView:not([hidden])").waitFor();
     await waitForSession(page, 401);
     await page.locator("#passkeyLogin").waitFor();
+    const loginOptions = await page.evaluate(async () => {
+      const response = await fetch("/api/auth/passkey/options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "login", origin: location.origin }) });
+      const payload = await response.json();
+      return payload.options && { attachment: payload.options.authenticatorAttachment, allow: payload.options.allowCredentials, uv: payload.options.userVerification };
+    });
+    ok("sign-in is limited to this device's platform authenticator", loginOptions.attachment === "platform" && loginOptions.uv === "required", JSON.stringify(loginOptions));
     await page.locator("#passkeyLogin").click();
     // The guest room list is on screen already, so wait on the session itself rather than on the grid.
     await waitForSession(page, 200);
@@ -119,6 +131,21 @@ const waitForSession = async (page, status) => {
     ok("the profile key still signs in afterwards", await page.evaluate(async () => (await fetch("/api/auth/me")).status === 200));
 
     await page.screenshot({ path: ".forge/shots/passkey-rooms.png" });
+
+    // A browser that reports no platform authenticator must not be offered the door at all: that is the
+    // case where the browser itself would start suggesting "use a phone instead". Headless Chromium
+    // always claims to have one, so the answer is stubbed to exercise our own gate.
+    const plain = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    const bare = await plain.newPage();
+    await bare.addInitScript(() => {
+      if (window.PublicKeyCredential) PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = async () => false;
+    });
+    await bare.goto(BASE, { waitUntil: "domcontentloaded" });
+    await bare.locator("#authView:not([hidden])").waitFor();
+    await bare.locator('[data-switch="key"]').click();
+    await bare.waitForTimeout(600);
+    ok("a device without a platform authenticator gets no fingerprint button", await bare.locator("#passkeyLogin").isHidden());
+    await plain.close();
   } finally {
     await browser.close();
   }
