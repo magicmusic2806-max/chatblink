@@ -54,3 +54,26 @@ CREATE TABLE IF NOT EXISTS room_subscriptions (
   PRIMARY KEY (user_id, room_id)
 );
 CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id);
+
+-- Passkeys (WebAuthn): one row per registered device. The public key is stored already converted from
+-- COSE to SPKI so a login is one importKey plus one verify; counter feeds clone detection.
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+  credential_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  counter INTEGER NOT NULL DEFAULT 0,
+  transports TEXT,
+  device_type TEXT,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS passkey_credentials_user ON passkey_credentials (user_id);
+
+-- The room-list notice board: a single row the admin edits, plus the flag that shows or hides it.
+CREATE TABLE IF NOT EXISTS site_notice (
+  id TEXT PRIMARY KEY,
+  message TEXT NOT NULL,
+  visible INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);

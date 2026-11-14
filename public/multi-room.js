@@ -63,7 +63,7 @@ $("#roomSubscribe").onclick=toggleRoomSubscription;
 function selectRoom(room,mode="push"){if(!room)return;if(voice)stopVoiceNote(true);setReplyTarget(null);leaveRoomCall(true);roomCallState=null;currentRoom=room;liveMessages=[];loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed});renderRoomCall()}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
-function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
+function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
 function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message||room.access==="request")return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
 async function refreshRoomsList(){try{await loadRooms();if(!$("#roomsView").hidden)renderRoomsGrid();if(currentRoom){const room=rooms.find(item=>item.id===currentRoom.id);if(room){currentRoom=room;$("#requestCount").textContent=room.pendingCount||0}}}catch{}}
 async function refreshUsers(){if(!currentUser)return;await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot();if(!$("#onlineModal").hidden)renderOnlineList();refreshMessageAvatars()}
@@ -330,7 +330,7 @@ $("#requestsButton").onclick=async()=>{const modal=$("#requestsModal"),list=$("#
 async function manageRequest(userId,action,row){try{await request(`/api/rooms/${encodeURIComponent(currentRoom.id)}/requests/${encodeURIComponent(userId)}`,{method:"POST",body:JSON.stringify({action})});row.remove();currentRoom.pendingCount=Math.max(0,(currentRoom.pendingCount||0)-1);$("#requestCount").textContent=currentRoom.pendingCount}catch(e){toast(e.message)}}
 function roomPath(id){return `/room/${encodeURIComponent(id)}`}
 function markActiveNav(action){document.querySelectorAll("[data-action]").forEach(button=>button.classList.toggle("active",button.dataset.action===action))}
-function showRoomsPage(mode){stopRequestPoll();stopViewPolls();const path="/rooms";if(mode==="push"&&location.pathname!==path)history.pushState({},"",path);else if(mode==="replace"&&location.pathname!==path)history.replaceState({},"",path);hideAllViews();markActiveNav("rooms");$("#roomsView").hidden=false;renderRoomsGrid();startRoomsPoll();loadRooms().then(()=>{if(!$("#roomsView").hidden)renderRoomsGrid()}).catch(()=>{})}
+function showRoomsPage(mode){stopRequestPoll();stopViewPolls();const path="/rooms";if(mode==="push"&&location.pathname!==path)history.pushState({},"",path);else if(mode==="replace"&&location.pathname!==path)history.replaceState({},"",path);hideAllViews();markActiveNav("rooms");$("#roomsView").hidden=false;renderRoomsGrid();renderNotice();loadNotice();startRoomsPoll();loadRooms().then(()=>{if(!$("#roomsView").hidden)renderRoomsGrid()}).catch(()=>{})}
 function showDmsPage(mode){stopViewPolls();const path="/dms";if(mode==="push"&&location.pathname!==path)history.pushState({},"",path);else if(mode==="replace"&&location.pathname!==path)history.replaceState({},"",path);hideAllViews();markActiveNav("dms");$("#dmsView").hidden=false;startDmsPoll()}
 function hideAllViews(){hideRoomLoader(true);$("#chatPanel").hidden=true;$("#roomsView").hidden=true;$("#dmsView").hidden=true;$("#exploreView").hidden=true;$("#profileView").hidden=true}
 function showExplorePage(mode){stopViewPolls();stopRequestPoll();const path="/explore";if(mode==="push"&&location.pathname!==path)history.pushState({},"",path);else if(mode==="replace"&&location.pathname!==path)history.replaceState({},"",path);hideAllViews();markActiveNav("explore");$("#exploreView").hidden=false;renderExplore(true)}
@@ -701,4 +701,200 @@ $("#groupCallMute").onclick=toggleRoomCallMute;
 document.querySelector("[data-compose=image]").onclick=()=>$("#imageInput").click();
 $("#imageInput").onchange=async event=>{const files=[...event.target.files].slice(0,4);event.target.value="";if(!files.length)return;if(socket?.readyState!==WebSocket.OPEN)return toast("Reconnecting — try again in a moment");toast(files.length>1?`Sending ${files.length} images…`:"Sending image…");for(const file of files){try{const url=await uploadFile("image",file);send("image",url)}catch(problem){toast(problem.message);break}}};
 document.querySelector("[data-compose=voice]").onclick=()=>startVoiceNote({button:document.querySelector("[data-compose=voice]"),idle:"\uD83C\uDF99 Voice"},async(blob,durationMs,extension)=>{const url=await uploadFile("voice",new File([blob],`voice.${extension}`,{type:blob.type}));send("voice",url)});
+/* ------------------------------------------------------------ passkeys */
+
+const PASSKEYS_KEY="chatblink.passkeys";
+let passkeyAvailableCache=null,platformAuthenticatorCache=null,safetyState=null,siteNotice=null,noticeEditing=false;
+function base64UrlToBytes(value){const text=String(value||"").replace(/-/g,"+").replace(/_/g,"/"),binary=atob(text+"=".repeat((4-text.length%4)%4)),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return bytes}
+function bytesToBase64Url(value){let binary="";for(const byte of new Uint8Array(value))binary+=String.fromCharCode(byte);return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
+function webauthnAvailable(){if(passkeyAvailableCache===null)passkeyAvailableCache=Boolean(window.PublicKeyCredential&&navigator.credentials&&navigator.credentials.get&&navigator.credentials.create);return passkeyAvailableCache}
+async function platformAuthenticatorAvailable(){if(platformAuthenticatorCache!==null)return platformAuthenticatorCache;try{platformAuthenticatorCache=Boolean(window.PublicKeyCredential&&PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable&&await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())}catch{platformAuthenticatorCache=false}return platformAuthenticatorCache}
+function devicePasskeys(){try{const list=JSON.parse(localStorage.getItem(PASSKEYS_KEY)||"[]");return Array.isArray(list)?list:[]}catch{return []}}
+function rememberDevicePasskey(id){const list=devicePasskeys().filter(item=>item!==id);list.push(id);try{localStorage.setItem(PASSKEYS_KEY,JSON.stringify(list.slice(-20)))}catch{}}
+async function passkeyOptions(mode){
+  const result=await request("/api/auth/passkey/options",{method:"POST",body:JSON.stringify({mode,origin:location.origin})});
+  const options=result.options||{};
+  options.challenge=base64UrlToBytes(options.challenge);
+  if(options.user)options.user.id=base64UrlToBytes(options.user.id);
+  (options.excludeCredentials||[]).forEach(item=>{item.id=base64UrlToBytes(item.id)});
+  (options.allowCredentials||[]).forEach(item=>{item.id=base64UrlToBytes(item.id)});
+  return options;
+}
+async function signInWithPasskey(){
+  if(!webauthnAvailable())return toast("This browser cannot use a passkey.");
+  const button=$("#passkeyLogin"),copy=button&&button.textContent;
+  if(button){button.disabled=true;button.textContent="Waiting for your device…"}
+  try{
+    const options=await passkeyOptions("login");
+    const assertion=await navigator.credentials.get({publicKey:options});
+    const result=await request("/api/auth/passkey/verify",{method:"POST",body:JSON.stringify({origin:location.origin,credentialId:assertion.id,response:{clientDataJSON:bytesToBase64Url(assertion.response.clientDataJSON),authenticatorData:bytesToBase64Url(assertion.response.authenticatorData),signature:bytesToBase64Url(assertion.response.signature)}})});
+    rememberToken(result.token);
+    await enterApp(result.user);
+  }catch(problem){
+    if(problem&&problem.name==="NotAllowedError")toast("No passkey was used.");
+    else toast((problem&&problem.message)||"That passkey did not work.");
+  }finally{if(button){button.disabled=false;button.textContent=copy}}
+}
+async function addPasskey(){
+  if(!currentUser)return toast("Join the chatrooms first");
+  if(!webauthnAvailable())return toast("This browser cannot use a passkey.");
+  const button=$("#safetyAddPasskey");
+  if(button){button.disabled=true;button.textContent="Waiting for your device…"}
+  try{
+    const options=await passkeyOptions("register");
+    const credential=await navigator.credentials.create({publicKey:options});
+    const saved=await request("/api/auth/passkey/register",{method:"POST",body:JSON.stringify({origin:location.origin,credential:{id:credential.id,authenticatorAttachment:credential.authenticatorAttachment,response:{clientDataJSON:bytesToBase64Url(credential.response.clientDataJSON),attestationObject:bytesToBase64Url(credential.response.attestationObject),transports:credential.response.getTransports?credential.response.getTransports():[]}}})});
+    rememberDevicePasskey(saved.id||credential.id);
+    toast("This device can now sign you in with your fingerprint");
+    await loadSafety();
+  }catch(problem){
+    if(problem&&problem.name==="NotAllowedError")toast("The passkey was not created.");
+    else toast((problem&&problem.message)||"The passkey was not created.");
+  }finally{if(button){button.disabled=false;button.textContent="Add this device"}}
+}
+
+/* ------------------------------------------------------ account safety */
+
+function renderSafetyRows(container,rows){
+  container.innerHTML="";
+  rows.forEach(([label,value])=>{
+    const row=document.createElement("div");row.className="safety-row";
+    const key=document.createElement("span");key.textContent=label;
+    const val=document.createElement("b");val.textContent=value;
+    row.append(key,val);container.appendChild(row);
+  });
+}
+function renderSafety(){
+  const body=$("#safetyBody");
+  if(!body)return;
+  body.innerHTML="";
+  const account=(safetyState&&safetyState.account)||{},passkeys=(safetyState&&safetyState.passkeys)||[];
+  const details=document.createElement("div");details.className="safety-card";
+  const rows=[["Username","@"+account.username]];
+  if(account.displayName&&account.displayName!==account.username)rows.push(["Display name",account.displayName]);
+  if(account.age)rows.push(["Age",String(account.age)]);
+  if(account.role&&account.role!=="user")rows.push(["Role",account.role==="admin"?"Admin":"Moderator"]);
+  if(account.createdAt){const when=new Date(account.createdAt);if(!Number.isNaN(when.getTime()))rows.push(["Member since",when.toLocaleDateString()])}
+  rows.push(["Devices with a passkey",String(passkeys.length)]);
+  renderSafetyRows(details,rows);
+  body.appendChild(details);
+
+  const device=document.createElement("div");device.className="safety-card";
+  const deviceText=document.createElement("p");deviceText.className="safety-copy";deviceText.textContent="Checking this device…";
+  device.appendChild(deviceText);
+  platformAuthenticatorAvailable().then(available=>{
+    if(!deviceText.isConnected)return;
+    deviceText.textContent=available
+      ?"This device can use its fingerprint, face or screen lock to sign you in."
+      :"This device does not offer a fingerprint or screen-lock authenticator. You can still sign in with your profile key, or add a passkey from a phone or laptop that does.";
+  });
+  const add=document.createElement("button");add.type="button";add.className="primary safety-add";add.id="safetyAddPasskey";add.textContent="Add this device";
+  add.disabled=!webauthnAvailable();add.onclick=addPasskey;
+  device.appendChild(add);
+  body.appendChild(device);
+
+  const list=document.createElement("div");list.className="safety-card";
+  const title=document.createElement("p");title.className="safety-title";title.textContent="Your passkeys";list.appendChild(title);
+  if(!passkeys.length){
+    const empty=document.createElement("p");empty.className="safety-copy";empty.textContent="No passkey yet. Add this device to sign in with your fingerprint instead of typing your key.";list.appendChild(empty);
+  }
+  const mine=devicePasskeys();
+  passkeys.forEach(passkey=>{
+    const row=document.createElement("div");row.className="safety-passkey";
+    const info=document.createElement("span");
+    const label=document.createElement("b");label.textContent=mine.includes(passkey.id)?"This device":"Passkey";
+    const meta=document.createElement("small");
+    const created=passkey.createdAt?new Date(passkey.createdAt):null;
+    meta.textContent=[created&&!Number.isNaN(created.getTime())?"Added "+created.toLocaleDateString():null,passkey.lastUsedAt?"last used "+new Date(passkey.lastUsedAt).toLocaleDateString():"not used yet"].filter(Boolean).join(" · ");
+    info.append(label,meta);
+    const remove=document.createElement("button");remove.type="button";remove.className="safety-remove";remove.textContent="Remove";
+    remove.onclick=()=>askRemovePasskey(passkey);
+    row.append(info,remove);list.appendChild(row);
+  });
+  body.appendChild(list);
+
+  const key=document.createElement("p");key.className="safety-copy";key.textContent="Your profile key still works everywhere, including on a device without a passkey. Keep it somewhere safe - it is the only way back in if you lose every passkey.";
+  body.appendChild(key);
+}
+async function loadSafety(){
+  try{safetyState=await request("/api/account/safety");renderSafety()}
+  catch(problem){const body=$("#safetyBody");if(body)body.textContent=problem.message}
+}
+function openSafety(){
+  if(!currentUser)return toast("Join the chatrooms first");
+  $("#safetyModal").hidden=false;
+  const body=$("#safetyBody");if(body)body.innerHTML='<p class="dm-inbox-empty">Loading…</p>';
+  loadSafety();
+}
+function askRemovePasskey(passkey){
+  openConfirm("Remove this passkey?","That device will no longer sign you in with its fingerprint. Your profile key still works.",()=>removePasskey(passkey));
+}
+async function removePasskey(passkey){
+  try{
+    await request("/api/account/passkeys/remove",{method:"POST",body:JSON.stringify({credentialId:passkey.id})});
+    toast("Passkey removed");
+    await loadSafety();
+  }catch(problem){toast(problem.message)}
+}
+
+/* --------------------------------------------------------- notice board */
+
+function renderNotice(){
+  const board=$("#noticeBoard");
+  if(!board)return;
+  const admin=Boolean(currentUser&&currentUser.role==="admin");
+  const notice=siteNotice||{};
+  const showing=Boolean(notice.visible&&notice.message);
+  if(!showing&&!admin&&!noticeEditing){board.hidden=true;board.innerHTML="";return}
+  board.hidden=false;
+  board.innerHTML="";
+  if(noticeEditing){
+    board.classList.add("editing");
+    const label=document.createElement("label");label.className="notice-label";label.textContent="Notice for the room list";
+    const area=document.createElement("textarea");area.id="noticeInput";area.maxLength=600;area.rows=3;area.placeholder="What is new? Ship notes, downtime, house rules…";area.value=notice.message||"";
+    const toggle=document.createElement("label");toggle.className="notice-toggle";
+    const check=document.createElement("input");check.type="checkbox";check.id="noticeVisible";check.checked=Boolean(notice.visible);
+    const toggleText=document.createElement("span");toggleText.textContent="Show on the room list";
+    toggle.append(check,toggleText);
+    const actions=document.createElement("div");actions.className="notice-actions";
+    const save=document.createElement("button");save.type="button";save.className="primary";save.textContent="Save notice";save.onclick=saveNotice;
+    const cancel=document.createElement("button");cancel.type="button";cancel.className="secondary";cancel.textContent="Cancel";cancel.onclick=()=>{noticeEditing=false;renderNotice()};
+    actions.append(save,cancel);
+    board.append(label,area,toggle,actions);
+    return;
+  }
+  board.classList.remove("editing");
+  if(showing){
+    const icon=document.createElement("span");icon.className="notice-icon";icon.textContent="📣";
+    const copy=document.createElement("p");copy.className="notice-copy";copy.textContent=notice.message;
+    board.append(icon,copy);
+  }else{
+    const copy=document.createElement("p");copy.className="notice-copy empty";copy.textContent="No notice is showing on the room list.";
+    board.appendChild(copy);
+  }
+  if(admin){
+    const edit=document.createElement("button");edit.type="button";edit.className="notice-edit";edit.textContent=showing?"Edit":"Write a notice";
+    edit.onclick=()=>{noticeEditing=true;renderNotice()};
+    board.appendChild(edit);
+  }
+}
+async function saveNotice(){
+  const area=$("#noticeInput"),check=$("#noticeVisible");
+  if(!area)return;
+  try{
+    const result=await request("/api/notice",{method:"POST",body:JSON.stringify({message:area.value,visible:Boolean(check&&check.checked)})});
+    siteNotice=result.notice;noticeEditing=false;renderNotice();
+    toast(result.notice.visible?"Notice is live on the room list":"Notice hidden");
+  }catch(problem){toast(problem.message)}
+}
+async function loadNotice(){
+  try{siteNotice=(await request("/api/notice")).notice}catch{}
+  renderNotice();
+}
+
+$("#passkeyLogin").onclick=signInWithPasskey;
+$("#safetyClose").onclick=()=>{$("#safetyModal").hidden=true};
+$("#menuDrop").querySelector('[data-menu="safety"]').onclick=()=>{$("#menuDrop").hidden=true;openSafety()};
+if(webauthnAvailable()){$("#passkeyLogin").hidden=false;$("#passkeyDivider").hidden=false}
+
 async function init(){const hashParams=new URLSearchParams(location.hash.slice(1)),hashToken=hashParams.get("auth"),hashKey=hashParams.get("profileKey"),params=new URLSearchParams(location.search),bootstrapToken=window.__NEARBY_TOKEN__;if(bootstrapToken||hashToken)rememberToken(bootstrapToken||hashToken);if(hashKey)rememberProfileKey(hashKey);if(window.__NEARBY_NEW_KEY__)rememberProfileKey(window.__NEARBY_NEW_KEY__);if(hashToken||hashKey)history.replaceState({},"",location.pathname);if(location.pathname!=="/"&&location.pathname!=="/rooms"&&location.pathname!=="/dms"&&!location.pathname.startsWith("/room/")&&!location.pathname.startsWith("/profile/"))history.replaceState({},"","/");const requested=params.get("mode"),mode=["signup","login","key","key-signup"].includes(requested)?requested:"signup",message=params.get("error"),notice=params.get("notice");try{const user=window.__NEARBY_USER__||(await request("/api/auth/me")).user;if(window.__NEARBY_NEW_KEY__){showProfileSetup(user,window.__NEARBY_NEW_KEY__);return}if(user.profileComplete)await enterApp(user);else showProfileSetup(user,pendingProfileKey)}catch{forgetToken();enterGuestMode();switchAuth(mode);if(message)error(authErrorTarget(mode),message);if(notice){const banner=$("#authNotice");banner.textContent=notice;banner.hidden=false}}}init();

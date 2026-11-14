@@ -1,6 +1,7 @@
 import { BUILT_INS, ALL_EMOJIS, ALL_STICKERS, ALL_GIFS, roomMedia, safeUploadUrl, safeMediaUrl } from "./lib/catalog.js";
-import { clean, safeDecode, json, publicUser, profileDoc, parseCookies, ipOf, isSecure, sameOrigin, bearerToken, sessionCookie, readJson, constantTimeEqual } from "./lib/core.js";
-import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } from "./lib/crypto.js";
+import { clean, safeDecode, json, publicUser, profileDoc, parseCookies, ipOf, isSecure, sameOrigin, bearerToken, sessionCookie, readJson, constantTimeEqual, hostOf } from "./lib/core.js";
+import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey, hmacBase64Url } from "./lib/crypto.js";
+import { base64Url, rpIdHashFor, verifyRegistration, verifyAssertion } from "./lib/webauthn.js";
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
 import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, roomSubscription, setRoomSubscription, removeRoomSubscriptions, pushToUser, pushToRoomSubscribers, pushToAll, pushConfigured } from "./lib/push.js";
 import { D1_SCHEMA, D1_SCHEMA_VERSION } from "./lib/schema.js";
@@ -304,6 +305,58 @@ export class ChatHub {
   }
   messageRow(roomId, messageId) {
     return this.state.storage.sql.exec("SELECT id, user_id, username, kind, content, reactions, deleted_at FROM messages WHERE room_id = ? AND id = ? LIMIT 1", roomId, messageId).toArray()[0] || null;
+  }
+  /* ---------------------------------------------------------- passkeys */
+  async passkeysFor(userId) {
+    const result = await this.env.DB.prepare("SELECT credential_id, public_key, counter, transports, device_type, created_at, last_used_at FROM passkey_credentials WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all();
+    return result.results || [];
+  }
+  // rpId is the bare host and origin is exactly what the browser puts in clientData. The Origin
+  // header is used rather than the request host because `wrangler dev` rebuilds request.url from the
+  // configured custom domain - so a dev browser on http://localhost:8787 would otherwise be compared
+  // against https://chatblink.chat and every ceremony would fail. Only the production origin and a
+  // loopback origin are accepted; an rpId can never be an IP, so 127.0.0.1 is not in that list.
+  webauthnContext(request, claimed) {
+    const production = clean(this.env.PUBLIC_ORIGIN).replace(/\/$/, "");
+    const requested = clean(claimed) || clean(request.headers.get("x-cb-origin")) || clean(request.headers.get("Origin"));
+    if (!requested) throw new Error("That passkey request did not say which site it came from.");
+    // A loopback origin is only accepted when the request itself did not arrive over https, which is
+    // false on every production request (the edge forces https). This is what lets the ceremony run
+    // under `wrangler dev`, where the runtime has already rewritten the request URL and the Origin
+    // header to the configured custom domain.
+    const loopback = !isSecure(request) && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(requested);
+    if (!(production && requested === production) && !loopback) throw new Error("That passkey request came from an origin this site does not answer for.");
+    const url = new URL(requested);
+    return { origin: requested, rpId: url.host.replace(/:\d+$/, "") };
+  }
+  // The challenge travels in a signed cookie: no storage row, expires in five minutes, and it cannot
+  // be swapped for a different user or purpose without the HMAC failing.
+  async passkeyCookie(request, purpose) {
+    const challenge = base64Url(crypto.getRandomValues(new Uint8Array(32))), expiresAt = Date.now() + 5 * 60 * 1000;
+    const payload = `${purpose}.${expiresAt}.${challenge}`, signature = await hmacBase64Url(this.env.AUTH_SECRET, `passkey.${payload}`);
+    return { challenge, header: `nearby_passkey=${payload}.${signature}; HttpOnly; SameSite=Lax; Path=/; Max-Age=300${isSecure(request) ? "; Secure" : ""}` };
+  }
+  async readPasskeyCookie(request, purpose) {
+    const raw = parseCookies(request.headers.get("Cookie")).nearby_passkey;
+    if (!raw) throw new Error("Start the passkey step again.");
+    const parts = raw.split(".");
+    if (parts.length !== 4) throw new Error("That passkey step was not readable. Try again.");
+    const [kind, expiresText, challenge, signature] = parts;
+    if (kind !== purpose) throw new Error("That passkey step was for something else. Try again.");
+    if (!(Number(expiresText) > Date.now())) throw new Error("That passkey step expired. Try again.");
+    const expected = await hmacBase64Url(this.env.AUTH_SECRET, `passkey.${kind}.${expiresText}.${challenge}`);
+    if (!constantTimeEqual(signature, expected)) throw new Error("That passkey step was tampered with. Try again.");
+    return challenge;
+  }
+  passkeyCookieClear(request) {
+    return `nearby_passkey=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${isSecure(request) ? "; Secure" : ""}`;
+  }
+  // Two cookies have to be two headers: joining them with "; " makes the browser read the second one
+  // as an attribute of the first, and the session silently never lands.
+  jsonCookies(status, payload, cookies) {
+    const headers = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+    for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+    return new Response(JSON.stringify(payload), { status, headers });
   }
   // A quote is resolved once, when the reply is sent: an unknown, foreign or removed parent simply
   // makes the message a normal one instead of failing the send.
@@ -738,6 +791,127 @@ export class ChatHub {
       const user = await this.sessionUser(request);
       if (user) { user.tokenVersion = (Number(user.tokenVersion) || 0) + 1; await saveUser(this.env, user); }
       return json(200, { ok: true }, { "Set-Cookie": sessionCookie("", 0, isSecure(request)) });
+    }
+
+    // ---- passkeys: the everyday door. A profile key still creates and recovers the account.
+    if (path === "/api/auth/passkey/options" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      if (this.rateLimited(ipOf(request), "passkey-options", 20)) return json(429, { error: "Too many attempts. Try again later." });
+      const body = await readJson(request).catch(() => ({}));
+      const mode = clean(body.mode) === "register" ? "register" : "login";
+      const user = await this.sessionUser(request);
+      let context;
+      try { context = this.webauthnContext(request, body.origin); } catch (error) { return json(400, { error: error.message }); }
+      const { rpId } = context;
+      if (mode === "register") {
+        if (!user) return json(401, { error: "Sign in first." });
+        const existing = await this.passkeysFor(user.id);
+        if (existing.length >= 8) return json(400, { error: "You already have 8 passkeys. Remove one first." });
+        const cookie = await this.passkeyCookie(request, "register");
+        return json(200, {
+          mode,
+          options: {
+            challenge: cookie.challenge,
+            rp: { id: rpId, name: "Chatblink" },
+            user: { id: base64Url(new TextEncoder().encode(user.id)), name: user.username, displayName: (user.profile && user.profile.displayName) || user.username },
+            pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+            authenticatorSelection: { userVerification: "required", residentKey: "preferred", requireResidentKey: false },
+            excludeCredentials: existing.map(row => ({ type: "public-key", id: row.credential_id, ...(row.transports ? { transports: (() => { try { return JSON.parse(row.transports); } catch { return undefined; } })() } : {}) })),
+            attestation: "none",
+            timeout: 120000
+          }
+        }, { "Set-Cookie": cookie.header });
+      }
+      const cookie = await this.passkeyCookie(request, "login");
+      // An empty allowCredentials list asks the device itself which passkey belongs to this site, so
+      // signing in never needs a username first.
+      return json(200, { mode, options: { challenge: cookie.challenge, rpId, allowCredentials: [], userVerification: "required", timeout: 120000 } }, { "Set-Cookie": cookie.header });
+    }
+
+    if (path === "/api/auth/passkey/register" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      if (this.rateLimited(ipOf(request), "passkey-register", 10)) return json(429, { error: "Too many attempts. Try again later." });
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      try {
+        const body = await readJson(request), credential = body.credential || {}, response = credential.response || {};
+        if (!response.clientDataJSON || !response.attestationObject) throw new Error("That passkey response was incomplete.");
+        const { origin, rpId } = this.webauthnContext(request, body.origin);
+        const expected = { origin, rpId, rpIdHash: await rpIdHashFor(rpId), challenge: await this.readPasskeyCookie(request, "register") };
+        const verified = await verifyRegistration({ id: clean(credential.id), clientDataJSON: clean(response.clientDataJSON), attestationObject: clean(response.attestationObject) }, expected);
+        const owner = await this.env.DB.prepare("SELECT user_id FROM passkey_credentials WHERE credential_id = ? LIMIT 1").bind(verified.credentialId).first();
+        if (owner && owner.user_id !== user.id) return json(409, { error: "This device is already registered to another account." });
+        const transports = Array.isArray(response.transports) ? JSON.stringify(response.transports.filter(item => typeof item === "string").slice(0, 6)) : null;
+        await this.env.DB.prepare("INSERT INTO passkey_credentials (credential_id, user_id, public_key, counter, transports, device_type, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(credential_id) DO UPDATE SET public_key = excluded.public_key, counter = excluded.counter").bind(verified.credentialId, user.id, verified.publicKey, verified.counter, transports, clean(credential.authenticatorAttachment).slice(0, 20) || "platform", new Date().toISOString()).run();
+        return json(201, { id: verified.credentialId }, { "Set-Cookie": this.passkeyCookieClear(request) });
+      } catch (error) { return json(400, { error: error.message }); }
+    }
+
+    if (path === "/api/auth/passkey/verify" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      if (this.rateLimited(ipOf(request), "passkey-verify", 20)) return json(429, { error: "Too many attempts. Try again later." });
+      try {
+        const body = await readJson(request), credentialId = clean(body.credentialId), response = body.response || {};
+        if (!credentialId || !response.clientDataJSON || !response.authenticatorData || !response.signature) throw new Error("That passkey response was incomplete.");
+        const row = await this.env.DB.prepare("SELECT * FROM passkey_credentials WHERE credential_id = ? LIMIT 1").bind(credentialId).first();
+        if (!row) throw new Error("This device is not registered. Sign in with your profile key.");
+        const user = this.userById(row.user_id);
+        if (!user) throw new Error("This device is not registered. Sign in with your profile key.");
+        const { origin, rpId } = this.webauthnContext(request, body.origin);
+        const verified = await verifyAssertion(
+          { clientDataJSON: clean(response.clientDataJSON), authenticatorData: clean(response.authenticatorData), signature: clean(response.signature) },
+          { origin, rpId, rpIdHash: await rpIdHashFor(rpId), challenge: await this.readPasskeyCookie(request, "login") },
+          { publicKey: row.public_key, counter: Number(row.counter) || 0 }
+        );
+        await this.env.DB.prepare("UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE credential_id = ?").bind(verified.counter, new Date().toISOString(), credentialId).run();
+        const token = await this.token(user);
+        return this.jsonCookies(200, { user: publicUser(user), token }, [sessionCookie(token, Math.floor(30 * 24 * 60 * 60), isSecure(request)), this.passkeyCookieClear(request)]);
+      } catch (error) { return json(400, { error: error.message }); }
+    }
+
+    if (path === "/api/account/safety" && request.method === "GET") {
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      const passkeys = await this.passkeysFor(user.id);
+      return json(200, {
+        account: { id: user.id, username: user.username, displayName: (user.profile && user.profile.displayName) || user.username, age: user.age, role: user.role || "user", createdAt: user.createdAt || null },
+        passkeys: passkeys.map(row => ({ id: row.credential_id, createdAt: row.created_at, lastUsedAt: row.last_used_at, deviceType: row.device_type || "platform", transports: (() => { try { return JSON.parse(row.transports || "[]"); } catch { return []; } })() }))
+      });
+    }
+
+    if (path === "/api/account/passkeys/remove" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      const body = await readJson(request).catch(() => ({}));
+      const credentialId = clean(body.credentialId);
+      if (!credentialId) return json(400, { error: "Which passkey?" });
+      const removed = await this.env.DB.prepare("DELETE FROM passkey_credentials WHERE credential_id = ? AND user_id = ?").bind(credentialId, user.id).run();
+      const remaining = await this.passkeysFor(user.id);
+      return json(200, { removed: Number(removed.meta && removed.meta.changes) || 0, count: remaining.length });
+    }
+
+    // ---- the room-list notice board: one editable row, read by everybody, written by the admin.
+    if (path === "/api/notice" && request.method === "GET") {
+      const row = await this.env.DB.prepare("SELECT message, visible, updated_at FROM site_notice WHERE id = 'current' LIMIT 1").first();
+      const visible = Boolean(row && row.visible);
+      return json(200, { notice: { visible, message: visible && row ? row.message : "", updatedAt: row ? row.updated_at : null } });
+    }
+
+    if (path === "/api/notice" && request.method === "POST") {
+      if (!sameOrigin(request)) return json(403, { error: "Request origin was rejected." });
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Sign in first." });
+      if ((user.role || "user") !== "admin") return json(403, { error: "Only the admin can edit the notice board." });
+      try {
+        const body = await readJson(request), message = clean(body.message).slice(0, 600), visible = body.visible === true;
+        if (visible && !message) throw new Error("Write the notice before showing it.");
+        const updatedAt = new Date().toISOString();
+        await this.env.DB.prepare("INSERT INTO site_notice (id, message, visible, updated_at, updated_by) VALUES ('current', ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET message = excluded.message, visible = excluded.visible, updated_at = excluded.updated_at, updated_by = excluded.updated_by").bind(message, visible ? 1 : 0, updatedAt, user.username).run();
+        const notice = { visible, message: visible ? message : "", updatedAt };
+        this.broadcastAll({ type: "notice-changed", notice });
+        return json(200, { notice });
+      } catch (error) { return json(400, { error: error.message }); }
     }
 
     if (path === "/api/profile" && request.method === "POST") {

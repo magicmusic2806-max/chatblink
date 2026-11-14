@@ -19,7 +19,7 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 - **Backend (legacy):** `server-multi-room.js` — the original single long-running Node process (plain `http` + `ws`). Still runnable locally with `npm start` for reference/parity checks, and still what Render serves until the cutover completes.
 - **Frontend:** one SPA in `public/` — `rooms.html` (shell + all views), `multi-room.js` (all client logic), `multi-room.css` (mobile-first styles), `profile-key.css` (setup/key screens). Vanilla JS, History-API routing (`/rooms`, `/room/<id>`, `/dms`, `/explore`, `/profile/<username>`), views are `<section>`s toggled via the `hidden` attribute.
 - **Storage layers (important):**
-  - **D1** (`schema.sql`): accounts (`users`), rooms (`rooms`), Web Push devices and room-alert subscriptions. Survives restarts and deploys, unlike the old JSON files.
+  - **D1** (`schema.sql`): accounts (`users`), passkeys (`passkey_credentials`), rooms (`rooms`), Web Push devices, room-alert subscriptions and the room-list notice (`site_notice`). Survives restarts and deploys, unlike the old JSON files.
   - **Durable Object SQLite**: room message history (latest 100/room). **This survives restarts — the old build lost history on every deploy.**
   - **Memory** (reset on restart, inside the Durable Object): sessions, rate-limit counters, presence. DM threads live in each browser's memory only.
   - **R2** (`chatblink-uploads`): uploaded photos and voice notes, served from `/uploads/<name>`.
@@ -28,6 +28,8 @@ Then open `http://localhost:3100` (override with the `PORT` environment variable
 ## Features
 
 - **Entry:** profile key only. Pick a username and an age; the account is handed a `CHATBLINK-…` key exactly once, on the setup screen (copy it, download it, or read it later from the menu). Logging in is that key: no email, no password, no recovery address, so the key is the account. The server stores only its SHA-256 hash.
+- **Signing in:** a passkey (fingerprint, face or the device's screen lock) is the everyday door. Registering a device happens from **Menu → Account safety → Add this device**; the login screen then offers "Sign in with fingerprint" and looks the credential up by itself, so nobody has to remember a username. Profile keys are untouched and still work everywhere, including as the recovery door.
+- **Notice board:** a single announcement at the top of the room list, written and shown/hidden by the admin from an Edit control on the board itself. It is public to read, reaches open tabs live over the socket, and never leaks a hidden draft's text.
 - **Rooms:** built-ins ship in code; user-created rooms (open or request-only) persist to `data/chatrooms.json`. Room cards show the latest three messages as a live preview, while locked-room content remains private. Every room is its own page. Creators can delete their rooms; the admin can delete any.
 - **Media & calls:** every room has preset emojis, sticker phrases, and 12 animated GIFs from `public/gifs/`. Request-only **user-created** rooms additionally unlock image messages (up to 4 at once) and voice notes. A single DM media approval grants photo/voice sending in both directions and remains revocable. Signed-in users can start peer-to-peer voice or video calls from a DM; the server carries signaling only, while encrypted media flows through WebRTC.
 - **Presence & social:** live online counts per room, online green dots on avatars, online-users list with profile view / DM / message-hiding per person (per browser), username colors derived from name length, Explore page (search + profile cards + Load more), profile pages with a photo gallery (up to 8 photos) and details. A bell beside GIF subscribes the account to room-entry alerts; incoming DMs notify every registered device even if Chatblink is open in a background tab.
@@ -52,6 +54,13 @@ Auth = session cookie or `Authorization: Bearer <device token>`. All POSTs requi
 |---|---|
 | `POST /auth/signup`, `POST /auth/login`, `POST /enter` | HTML form endpoints: create a profile-key account, sign in with a key, or consume an entry link (redirect/serve the app) |
 | `POST /api/auth/logout` | Clears session and bumps `tokenVersion` (revokes device tokens) |
+| `POST /api/auth/passkey/options` | `{mode:"login"|"register", origin}` → WebAuthn options plus a signed 5-minute challenge cookie |
+| `POST /api/auth/passkey/register` | Session required: stores the credential's public key (SPKI) for the signed-in account |
+| `POST /api/auth/passkey/verify` | Signed out: verifies the assertion and issues a session |
+| `GET /api/account/safety` | Session required: account details plus this account's passkeys |
+| `POST /api/account/passkeys/remove` | Session required: `{credentialId}` |
+| `GET /api/notice` | Public: the room-list notice (message only while it is visible) |
+| `POST /api/notice` | Admin only: `{message, visible}`, broadcast as `notice-changed` |
 | `GET /api/auth/me` | Current user |
 | `GET /api/users` | All users + `online` flag (DM page) |
 | `GET /api/explore?limit&q&cursor` | D1-backed profile directory, newest first |
@@ -73,7 +82,7 @@ Uploaded files are served from `/uploads/<name>` (uuid + validated extension) wi
 
 ## WebSocket protocol
 
-Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that every client holds whenever they don't have a room socket — signed in or guest — so room-list changes, live room online counts, user presence and request/DM/ban/call events arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `message-reactions {messageId, reactions}`, `message-deleted {messageId, by}`, `presence {online, users}`, `room-online {roomId, online}`, `rooms-changed`, `users-changed` (signed-in clients only), `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`, and the call signals `call-offer`, `call-answer`, `call-ice`, `call-end`, `call-reject`, `call-busy`, `call-unavailable`, `call-taken`.
+Connect: `ws(s)://<host>?room=<roomId>` (auth via cookie or `&token=`). `room=__notify` opens a notification-only channel (no presence/history) that every client holds whenever they don't have a room socket — signed in or guest — so room-list changes, live room online counts, user presence and request/DM/ban/call events arrive from anywhere in the app. Server messages: `history {messages, online, users}`, `message`, `message-reactions {messageId, reactions}`, `message-deleted {messageId, by}`, `notice-changed {notice}`, `presence {online, users}`, `room-online {roomId, online}`, `rooms-changed`, `users-changed` (signed-in clients only), `dm {from, to, kind, content, at}`, `dm-permission {from, status}`, `room-updated {roomId}`, `room-ban {roomId, banned}`, `room-deleted {roomId}`, and the call signals `call-offer`, `call-answer`, `call-ice`, `call-end`, `call-reject`, `call-busy`, `call-unavailable`, `call-taken`.
 Client messages: `{type:"message", kind:"text|emoji|sticker|gif|image|voice", content, replyTo?}`, `{type:"react", messageId, emoji}`, `{type:"delete-message", messageId}`, `{type:"dm", to, kind, content}`, the room-call signals below, and authenticated WebRTC signaling messages carrying `to`, `callId`, SDP or ICE candidates as appropriate.
 Room (group) call, request-only rooms only, audio never leaves the peers: `{type:"group-call-join"}` → `group-call-joined {callId, hostId, startedAt, participants, self}` to the joiner and `group-call-state` to the room; then `{type:"group-call-offer"|"group-call-answer", callId, to, sdp}` and `{type:"group-call-ice", callId, to, candidate}` relayed between participants, `{type:"group-call-leave"}` → `group-call-left {callId, userId}` plus a fresh `group-call-state`, and `{type:"group-call-end"}` from the account that started the call → `group-call-ended {callId, by}` plus `group-call-state {active:false}` for everybody (ignored from anyone else). The joiner always offers to the members already in the call, so two joins at once cannot glare. Up to 6 participants (full mesh); the relay keeps one call per room, drops a member when their last socket in the room closes, ends the call when the last participant leaves, and hands the host label to the earliest remaining member if the starter leaves without ending it.
 Message shape: `{id, userId, username, role, photo, kind, content, createdAt, reply, reactions, deleted}` — `reply` is `{id, username, snippet}` snapshotted when the reply was sent (so a trimmed or later-deleted parent still reads), `reactions` is `{emoji: [userId, …]}`, and a deleted message keeps its slot with `deleted: true`, empty `content` and no reactions. Deletion is a soft delete; anyone who can post in the room may delete their own message, and the room creator, a mod or the admin may delete any message in that room.
@@ -121,6 +130,8 @@ npm run test:worker        # or test:retention, test:actions, test:canonical, te
 
 `tests/room-actions-e2e.js` (`npm run test:room-actions`) drives the new message UI in Chromium: a row that reveals its action buttons only when tapped (on its own line under the bubble, tappable size, and also on grouped lines whose meta row is hidden) and hides them again, replying into the composer bar, the quote rendering and jumping back to its parent, the reaction picker and chip, the delete confirmation and the deleted placeholder, and that a request-only room card has no preview element at all. `tests/voice-note-e2e.js` (`npm run test:voice`) feeds Chromium's fake microphone a generated 440 Hz WAV, records through the real button and measures the uploaded note — its length has to match how long the button was held and no stretch over 300 ms may be silent, which is what a note with dropouts fails.
 
+`tests/passkey-e2e.js` (`npm run test:passkey`) drives the whole passkey door in Chromium with a virtual authenticator over CDP — sign up, add this device, sign out, sign in with the fingerprint, remove the passkey, fail soft, and get back in with the key. It must run against a `localhost` origin: a WebAuthn rpId cannot be an IP address. `tests/notice-board.js` (`npm run test:notice`) covers the notice board: public read, anonymous and member writes refused, the admin publishing it, the live `notice-changed` push, hiding it, and refusing to show an empty notice. Its admin half needs the one-shot `dynamic` account, so it reports SKIP when that already exists.
+
 `tests/group-call.js` (`npm run test:group-call`) drives the room-call relay with three accounts — two participants and one member who never joined — covering join/leave/state, offer/answer/ICE routing, the refusals (oversized candidates, wrong SDP types, a stale call id, a non-participant), cleanup when sockets close, and that only the starter can end the call for the room. `tests/group-call-e2e.js` (`npm run test:group-call:e2e`) opens two Chromium contexts with fake microphones in one private room and requires a connected peer-to-peer mesh with a live remote audio track on both sides, then checks mute, the leave/teardown path, and the host-only End call control hanging up for both sides.
 
 ```powershell
@@ -166,6 +177,7 @@ worker/lib/catalog.js       built-in rooms, emoji/sticker/GIF catalog, media val
 wrangler.jsonc              Cloudflare bindings (DO, D1, R2, assets, vars)
 schema.sql                  D1 tables (applied by the Worker itself, see worker/lib/schema.js)
 worker/lib/schema.js        the same DDL the Worker applies at Durable Object start
+worker/lib/webauthn.js      CBOR/COSE parsing and ES256 assertion checks for passkeys
 migration/seed.sql          generated data seed for D1
 tools/migrate.js            pull data off an old host / emit seed.sql / R2 copy commands
 tools/extract-catalog.js    regenerates worker/lib/catalog.js from the client + server sources
@@ -175,6 +187,8 @@ tests/room-actions-e2e.js   browser suite for the reply, reaction and delete UI
 tests/voice-note-e2e.js     browser suite that records a known tone and measures it
 tests/group-call.js         room-call signaling: join, relay, refusals, cleanup
 tests/group-call-e2e.js     two-browser room-call mesh with real WebRTC audio
+tests/passkey-e2e.js        passkey registration and fingerprint sign-in (virtual authenticator)
+tests/notice-board.js       notice board reads, admin writes and the live event
 tests/auth-e2e.js           Playwright end-to-end suite for the legacy Node server
 DEPLOY.md                   step-by-step deployment and data migration
 server-multi-room.js        LEGACY Node backend (Render only, being retired)

@@ -242,6 +242,10 @@ Web Push needs a VAPID key pair, which is deliberately not in the repo. The publ
 - CI deploys preserve existing secrets, so a redeploy cannot clear the VAPID key.
 - POST /api/push/test sends to the calling account own devices, which is the quickest way to check a phone or laptop.
 
+## Passkeys and the notice board
+
+Passkeys need no secret and no extra service: the account menu registers the device (WebAuthn, ES256 only) and the Worker verifies the signature with `crypto.subtle`, storing the public key in D1 (`passkey_credentials`). Two things are configuration-sensitive - the relying-party id is the host the browser is on, so the ceremony only works on `https://chatblink.chat` in production and on `http://localhost:PORT` in dev (`127.0.0.1` cannot be an rpId), and the origin the client claims is checked against `PUBLIC_ORIGIN` or a loopback origin on a non-https request. The room-list notice lives in `site_notice` and is edited by the admin account only.
+
 ## Accounts are profile-key only
 
 There is no email signup, password or reset flow: an account is created with a username and an age and is returned a `CHATBLINK-…` profile key once, which is the only credential. Nothing in the Worker talks to a mail provider, so no `RESEND_API_KEY`, `EMAIL_FROM` or `EMAIL_TEST_MODE` is needed. Keep the key safe - losing it loses the account. The old `email_credentials`, `pending_email_signups`, `pending_email_links` and `auth_tokens` tables are no longer part of the schema and can be dropped from a database that still has them.

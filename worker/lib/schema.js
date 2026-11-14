@@ -3,10 +3,11 @@
 // production drifted once - tables a read path touched were never created because `db:remote` was a
 // manual step - and a missing table must not be able to break an unrelated page again.
 //
-// The account system is profile-key only. The email/password tables that earlier versions created
-// (email_credentials, pending_email_signups, pending_email_links, auth_tokens) are no longer part of
-// the schema; where they already exist they are simply unused and can be dropped by hand.
-export const D1_SCHEMA_VERSION = 2;
+// The account system is profile-key only: a key creates and recovers an account, and a WebAuthn
+// passkey (fingerprint / device unlock) is the everyday door on a device that has one. The email and
+// password tables that earlier versions created are no longer part of the schema; where they already
+// exist they are simply unused and can be dropped by hand.
+export const D1_SCHEMA_VERSION = 3;
 
 export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -55,5 +56,26 @@ export const D1_SCHEMA = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (user_id, room_id)
   )`,
-  "CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id)"
+  "CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id)",
+  // One row per passkey. The public key is stored already converted from COSE to SPKI so a login is one
+  // importKey plus one verify; the counter feeds clone detection.
+  `CREATE TABLE IF NOT EXISTS passkey_credentials (
+    credential_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports TEXT,
+    device_type TEXT,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+  )`,
+  "CREATE INDEX IF NOT EXISTS passkey_credentials_user ON passkey_credentials (user_id)",
+  // The room-list notice board: a single row the admin edits, plus the flag that shows or hides it.
+  `CREATE TABLE IF NOT EXISTS site_notice (
+    id TEXT PRIMARY KEY,
+    message TEXT NOT NULL,
+    visible INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+  )`
 ];
