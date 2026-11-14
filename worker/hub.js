@@ -27,10 +27,50 @@ const GROUP_CALL_MAX = 6;
 // Games live in the room they were started in (see GAME_KINDS). Connect Four is the first one; every
 // game is turn-based and validated in the Durable Object, because a client-side board is a board
 // people win with the console open.
-const GAME_KINDS = { "connect-four": { name: "Connect Four", seats: 2, solo: false } };
+const GAME_KINDS = {
+  "connect-four": { name: "Connect Four", seats: 2, solo: false, board: "columns", columns: 7, rows: 6 },
+  "tic-tac-toe": { name: "Tic-tac-toe", seats: 2, solo: false, board: "grid", size: 3 },
+  "othello": { name: "Reversi", seats: 2, solo: false, board: "grid", size: 8 }
+};
 const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-sync"];
 const GAME_EVENT_LIMIT = 60;
+const GAMES_PER_ROOM = 4;
 const CONNECT_FOUR_COLUMNS = 7, CONNECT_FOUR_ROWS = 6;
+const TIC_TAC_TOE_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+const OTHELLO_DIRECTIONS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+// A board is one flat array for every game: columns (Connect Four) or a square grid (tic-tac-toe, Reversi).
+// 0 is empty, 1 and 2 are the seats.
+const boardCells = kind => kind.board === "columns" ? kind.columns * kind.rows : kind.size * kind.size;
+const initialBoard = kind => {
+  const board = new Array(boardCells(kind)).fill(0);
+  if (kind === GAME_KINDS.othello) {
+    // Standard opening: black (seat 1) on d4/e5, white (seat 2) on d5/e4 of an 8x8 grid.
+    board[3 * 8 + 3] = 2; board[3 * 8 + 4] = 1; board[4 * 8 + 3] = 1; board[4 * 8 + 4] = 2;
+  }
+  return board;
+};
+// Which discs a Reversi move would flip, in every direction at once. Empty list means the move is illegal.
+const othelloFlips = (board, player, index, size) => {
+  if (board[index]) return [];
+  const row = Math.floor(index / size), column = index % size, flips = [];
+  for (const [dr, dc] of OTHELLO_DIRECTIONS) {
+    let r = row + dr, c = column + dc, run = [];
+    while (r >= 0 && r < size && c >= 0 && c < size) {
+      const other = board[r * size + c];
+      if (other === player) break;
+      if (other === 0) { run = []; break; }
+      run.push(r * size + c); r += dr; c += dc;
+    }
+    // The walk only stopped on our own disc if it ended inside the board with our colour.
+    if (r >= 0 && r < size && c >= 0 && c < size && board[r * size + c] === player) flips.push(...run);
+  }
+  return flips;
+};
+const othelloLegal = (board, player, size) => {
+  const moves = [];
+  for (let index = 0; index < board.length; index++) if (!board[index] && othelloFlips(board, player, index, size).length) moves.push(index);
+  return moves;
+};
 // The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
 // so a message can never accumulate arbitrary payload), and the client picker can be one short row.
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
@@ -100,7 +140,7 @@ export class ChatHub {
       // in-memory fields while the sockets stay open). Spectators are dropped on load because they are
       // per-connection, not part of the game.
       const stored = await state.storage.get("roomGames").catch(() => null);
-      this.roomGames = new Map(Object.entries(stored || {}).map(([roomId, game]) => [roomId, { ...game, guests: [] }]));
+      this.roomGames = this.loadGames(stored);
       await this.hydrate();
     });
   }
@@ -416,35 +456,54 @@ export class ChatHub {
     return true;
   }
   /* ----------------------------------------------------------------- games */
-  // Games belong to the room they were started in and live in memory only: a Durable Object restart
-  // ends a game, which is simpler and more honest than persisting a board nobody can resume.
+  // Games belong to the room they were started in, and a room may run several at once, so this is a map
+  // of maps. The whole thing is mirrored into the object's storage because WebSocket hibernation clears
+  // in-memory fields while sockets stay open: a board people were staring at must survive the quiet.
+  gamesIn(roomId) { return [...(this.roomGames.get(roomId) || new Map()).values()]; }
+  gameIn(roomId, gameId) { return (this.roomGames.get(roomId) || new Map()).get(gameId) || null; }
+  // Only a game still being played or waited on blocks someone from starting another; a finished board is
+  // history, and its players must be free to start again.
+  playerGame(roomId, userId) { return this.gamesIn(roomId).find(game => game.status !== "ended" && game.players.some(player => player.id === userId)) || null; }
   gameView(game) {
-    const kind = GAME_KINDS[game.kind] || { name: game.kind, seats: 2, solo: false };
+    const kind = GAME_KINDS[game.kind] || GAME_KINDS["connect-four"];
     return {
       id: game.id, kind: game.kind, name: kind.name, roomId: game.roomId, hostId: game.hostId,
       policy: game.policy, status: game.status, seats: kind.seats, solo: Boolean(kind.solo),
+      layout: { type: kind.board, columns: kind.columns || null, rows: kind.rows || null, size: kind.size || null },
       players: game.players.map(player => ({ id: player.id, username: player.username, score: player.score || 0 })),
       spectators: game.guests.length,
       pending: game.pending.map(person => ({ id: person.id, username: person.username })),
       turn: game.turn || null, board: game.board.slice(), winnerId: game.winnerId || null,
-      reason: game.reason || null, createdAt: game.createdAt, startedAt: game.startedAt || null, endedAt: game.endedAt || null
+      reason: game.reason || null, passed: Boolean(game.passed),
+      createdAt: game.createdAt, startedAt: game.startedAt || null, endedAt: game.endedAt || null
     };
   }
-  broadcastGame(roomId, persist = true) {
-    // Spectator changes are per-connection, so they are not worth a storage write; board and seat
-    // changes are, because the object can hibernate between two moves of a slow game.
+  broadcastGames(roomId, persist = true) {
+    // Spectator changes are per-connection and not worth a storage write; seats, boards and status are.
     if (persist) this.saveGames();
-    const game = this.roomGames.get(roomId) || null;
-    this.broadcast(roomId, { type: "game-state", game: game ? this.gameView(game) : null });
-    // The room list's games card is an aggregate, so every client is told that the set changed rather
-    // than polling per room.
+    this.broadcast(roomId, { type: "game-state", roomId, games: this.gamesIn(roomId).map(game => this.gameView(game)) });
+    // The room list's games entry is an aggregate, so every client is told the set changed.
     this.broadcastAll({ type: "games-changed" });
   }
-  // One key for every game: writes are per move, not per message, so this is cheap, and it means a
-  // restart or hibernation resumes the board instead of ending the game.
   saveGames() {
-    const snapshot = Object.fromEntries(this.roomGames);
+    const snapshot = {};
+    for (const [roomId, games] of this.roomGames) snapshot[roomId] = Object.fromEntries(games);
     this.background(this.state.storage.put("roomGames", snapshot));
+  }
+  loadGames(stored) {
+    const rooms = new Map();
+    for (const [roomId, value] of Object.entries(stored || {})) {
+      if (!value || typeof value !== "object") continue;
+      // v79 stored one game per room as {roomId: game}; accept both shapes so a deploy never drops a board.
+      const games = value.id ? { [value.id]: value } : value;
+      const map = new Map();
+      for (const [gameId, game] of Object.entries(games)) {
+        if (!game || !GAME_KINDS[game.kind]) continue;
+        map.set(gameId, { ...game, guests: [] });
+      }
+      if (map.size) rooms.set(roomId, map);
+    }
+    return rooms;
   }
   gameError(socket, message) { this.send(socket, { type: "game-error", message }); }
   // Games get their own window so a click-heavy board never eats the chat message budget.
@@ -455,47 +514,101 @@ export class ChatHub {
     this.gameWindows.set(connectionId, record);
     return record.count > GAME_EVENT_LIMIT;
   }
-  // The host runs the game; moderators and the admin can cover for a host who has gone quiet.
+  // The host runs a game; moderators and the admin can cover for a host who has gone quiet.
   canRunGame(room, game, user) { return user.id === game.hostId || this.canModerate(room, user); }
   addGamePlayer(game, user) {
     game.pending = game.pending.filter(person => person.id !== user.id);
     if (!game.players.some(player => player.id === user.id)) game.players.push({ id: user.id, username: user.username, score: 0 });
     const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
-    if (game.status === "lobby" && game.players.length >= seats) { game.status = "playing"; game.startedAt = Date.now(); game.turn = game.players[0].id; }
+    if (game.status === "lobby" && game.players.length >= seats) {
+      game.status = "playing"; game.startedAt = Date.now(); game.turn = game.players[0].id; game.passed = false;
+    }
   }
   endGame(game, winnerId = null, reason = null) {
     game.status = "ended"; game.turn = null; game.winnerId = winnerId; game.reason = reason; game.endedAt = Date.now();
     if (winnerId) { const winner = game.players.find(player => player.id === winnerId); if (winner) winner.score = (winner.score || 0) + 1; }
   }
+  // Connect Four, tic-tac-toe and Reversi share the seat/approval/spectator flow and differ only in how a
+  // move is validated and how a move ends the game.
+  gameMove(socket, game, user, room, event) {
+    if (game.status !== "playing") return this.gameError(socket, "That game is not running.");
+    const seat = game.players.findIndex(player => player.id === user.id);
+    if (seat < 0) return this.gameError(socket, "Only the players can move.");
+    if (game.turn !== user.id) return this.gameError(socket, "It is not your turn.");
+    const kind = GAME_KINDS[game.kind], disc = seat + 1;
+    const opponent = game.players.find(player => player.id !== user.id);
+
+    if (kind.board === "columns") {
+      const column = Number(event.column);
+      if (!Number.isInteger(column) || column < 0 || column >= kind.columns) return this.gameError(socket, "That column is not on the board.");
+      let row = -1;
+      for (let level = 0; level < kind.rows; level++) if (!game.board[column * kind.rows + level]) { row = level; break; }
+      if (row < 0) return this.gameError(socket, "That column is full.");
+      game.board[column * kind.rows + row] = disc;
+      if (connectFourWinner(game.board, column, row, disc)) return (this.endGame(game, user.id, "four"), this.broadcastGames(room.id));
+      if (game.board.every(cell => cell !== 0)) return (this.endGame(game, null, "draw"), this.broadcastGames(room.id));
+      game.turn = opponent ? opponent.id : null;
+      return this.broadcastGames(room.id);
+    }
+
+    const index = Number(event.index);
+    if (!Number.isInteger(index) || index < 0 || index >= game.board.length) return this.gameError(socket, "That square is not on the board.");
+    if (game.board[index]) return this.gameError(socket, "That square is taken.");
+
+    if (game.kind === "tic-tac-toe") {
+      game.board[index] = disc;
+      const won = TIC_TAC_TOE_LINES.some(line => line.every(cell => game.board[cell] === disc));
+      if (won) return (this.endGame(game, user.id, "line"), this.broadcastGames(room.id));
+      if (game.board.every(cell => cell !== 0)) return (this.endGame(game, null, "draw"), this.broadcastGames(room.id));
+      game.turn = opponent ? opponent.id : null;
+      return this.broadcastGames(room.id);
+    }
+
+    if (game.kind === "othello") {
+      const flips = othelloFlips(game.board, disc, index, kind.size);
+      if (!flips.length) return this.gameError(socket, "You cannot play there - it flips nothing.");
+      game.board[index] = disc;
+      for (const cell of flips) game.board[cell] = disc;
+      const otherDisc = disc === 1 ? 2 : 1;
+      const theirs = othelloLegal(game.board, otherDisc, kind.size), mine = othelloLegal(game.board, disc, kind.size);
+      if (theirs.length) { game.turn = opponent ? opponent.id : null; game.passed = false; return this.broadcastGames(room.id); }
+      // The opponent cannot move: this player goes again, and only stops when nobody can.
+      if (mine.length) { game.passed = true; return this.broadcastGames(room.id); }
+      const black = game.board.filter(cell => cell === 1).length, white = game.board.filter(cell => cell === 2).length;
+      const winner = black === white ? null : game.players[black > white ? 0 : 1];
+      return (this.endGame(game, winner ? winner.id : null, black === white ? "draw" : "discs"), this.broadcastGames(room.id));
+    }
+  }
   gameEvent(socket, event, user, now) {
     const meta = attachment(socket), room = this.findRoom(meta.roomId);
     if (!room || (Array.isArray(room.bans) && room.bans.includes(user.id))) return;
     if (this.gameLimited(meta.connectionId || user.id, now)) return;
-    const game = this.roomGames.get(room.id) || null;
-    const gameId = clean(event.gameId).slice(0, 64);
+    const gameId = clean(event.gameId).slice(0, 64), game = gameId ? this.gameIn(room.id, gameId) : null;
 
     // Opening the dock asks for the truth rather than trusting what it last heard: the object may have
     // restarted, and "nobody is playing here" is the one wrong answer that looks like a bug.
-    if (event.type === "game-sync") {
-      return this.send(socket, { type: "game-state", game: game ? this.gameView(game) : null });
-    }
+    if (event.type === "game-sync") return this.send(socket, { type: "game-state", roomId: room.id, games: this.gamesIn(room.id).map(item => this.gameView(item)) });
 
     if (event.type === "game-create") {
       const kind = GAME_KINDS[clean(event.kind).slice(0, 32)];
       if (!kind) return this.gameError(socket, "That game is not available.");
-      if (game && game.status !== "ended") return this.gameError(socket, "This room already has a game running.");
+      const running = this.gamesIn(room.id);
+      if (running.length >= GAMES_PER_ROOM) return this.gameError(socket, `This room already has ${GAMES_PER_ROOM} games.`);
+      // One seat per person per room keeps the dock readable and stops anyone playing two boards at once.
+      if (this.playerGame(room.id, user.id)) return this.gameError(socket, "Finish the game you are playing in this room first.");
+      if (!this.roomGames.has(room.id)) this.roomGames.set(room.id, new Map());
       const fresh = {
         id: crypto.randomUUID(), kind: clean(event.kind), roomId: room.id, hostId: user.id,
         policy: clean(event.policy) === "open" ? "open" : "request", status: "lobby",
         players: [{ id: user.id, username: user.username, score: 0 }], guests: [], pending: [],
-        turn: null, board: emptyBoard(), winnerId: null, reason: null,
+        turn: null, board: initialBoard(kind), winnerId: null, reason: null, passed: false,
         createdAt: Date.now(), startedAt: null, endedAt: null
       };
       if (kind.solo) { fresh.status = "playing"; fresh.startedAt = fresh.createdAt; fresh.turn = user.id; }
-      this.roomGames.set(room.id, fresh);
-      return this.broadcastGame(room.id);
+      this.roomGames.get(room.id).set(fresh.id, fresh);
+      return this.broadcastGames(room.id);
     }
-    if (!game || (gameId && game.id !== gameId)) return;
+    if (!game) return;
     const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
     const isPlayer = game.players.some(player => player.id === user.id);
 
@@ -503,11 +616,13 @@ export class ChatHub {
       if (game.status !== "lobby") return this.gameError(socket, "That game already started.");
       if (isPlayer) return;
       if (game.players.length >= seats) return this.gameError(socket, "That game is full - you can watch it.");
-      if (game.policy === "open") { this.addGamePlayer(game, user); return this.broadcastGame(room.id); }
+      const playing = this.playerGame(room.id, user.id);
+      if (playing && playing.id !== game.id) return this.gameError(socket, "Finish the game you are playing in this room first.");
+      if (game.policy === "open") { this.addGamePlayer(game, user); return this.broadcastGames(room.id); }
       if (game.pending.some(person => person.id === user.id)) return;
       game.pending.push({ id: user.id, username: user.username });
       this.notifyUser(game.hostId, { type: "game-request", roomId: room.id, by: { id: user.id, username: user.username }, game: this.gameView(game) });
-      return this.broadcastGame(room.id);
+      return this.broadcastGames(room.id);
     }
     if (event.type === "game-approve" || event.type === "game-deny") {
       if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can do that.");
@@ -522,11 +637,11 @@ export class ChatHub {
       } else {
         this.notifyUser(targetId, { type: "game-denied", roomId: room.id, gameId: game.id });
       }
-      return this.broadcastGame(room.id);
+      return this.broadcastGames(room.id);
     }
     if (event.type === "game-watch") {
       if (!game.guests.some(person => person.id === user.id)) game.guests.push({ id: user.id, username: user.username, score: 0 });
-      return this.broadcastGame(room.id, false);
+      return this.broadcastGames(room.id, false);
     }
     if (event.type === "game-leave") {
       game.pending = game.pending.filter(person => person.id !== user.id);
@@ -536,34 +651,24 @@ export class ChatHub {
         // Walking out of a running two-player game is a forfeit; walking out of a lobby game the host
         // started closes it, because there is nothing left to join.
         if (game.status === "playing") this.endGame(game, game.players[0] ? game.players[0].id : null, "left");
-        else if (user.id === game.hostId || !game.players.length) this.roomGames.delete(room.id);
+        else if (user.id === game.hostId || !game.players.length) this.dropGame(room.id, game.id);
       }
-      return this.broadcastGame(room.id);
+      return this.broadcastGames(room.id);
     }
-    if (event.type === "game-move") {
-      if (game.kind !== "connect-four" || game.status !== "playing") return this.gameError(socket, "That game is not running.");
-      const seat = game.players.findIndex(player => player.id === user.id);
-      if (seat < 0) return this.gameError(socket, "Only the players can move.");
-      if (game.turn !== user.id) return this.gameError(socket, "It is not your turn.");
-      const column = Number(event.column);
-      if (!Number.isInteger(column) || column < 0 || column >= CONNECT_FOUR_COLUMNS) return this.gameError(socket, "That column is not on the board.");
-      let row = -1;
-      for (let level = 0; level < CONNECT_FOUR_ROWS; level++) if (!game.board[column * CONNECT_FOUR_ROWS + level]) { row = level; break; }
-      if (row < 0) return this.gameError(socket, "That column is full.");
-      game.board[column * CONNECT_FOUR_ROWS + row] = seat + 1;
-      if (connectFourWinner(game.board, column, row, seat + 1)) return (this.endGame(game, user.id, "four"), this.broadcastGame(room.id));
-      if (game.board.every(cell => cell !== 0)) return (this.endGame(game, null, "draw"), this.broadcastGame(room.id));
-      const other = game.players.find(player => player.id !== user.id);
-      game.turn = other ? other.id : null;
-      return this.broadcastGame(room.id);
-    }
+    if (event.type === "game-move") return this.gameMove(socket, game, user, room, event);
     if (event.type === "game-end") {
       if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can do that.");
-      // Ending an already-ended game clears the board out of the room, which is how the host closes it.
-      if (game.status === "ended") this.roomGames.delete(room.id);
+      // Ending an already-ended game clears it out of the room, which is how the host closes it.
+      if (game.status === "ended") this.dropGame(room.id, game.id);
       else this.endGame(game, null, "ended");
-      return this.broadcastGame(room.id);
+      return this.broadcastGames(room.id);
     }
+  }
+  dropGame(roomId, gameId) {
+    const games = this.roomGames.get(roomId);
+    if (!games) return;
+    games.delete(gameId);
+    if (!games.size) this.roomGames.delete(roomId);
   }
 
   addMessage(roomId, message) {
@@ -598,8 +703,8 @@ export class ChatHub {
       server.send(JSON.stringify({ type: "history", messages: this.history(roomId), online: this.roomOnlineCount(roomId), users: this.presenceUsers(roomId) }));
       const call = this.roomCalls.get(roomId);
       if (call) server.send(JSON.stringify(this.groupCallState(call)));
-      const game = this.roomGames.get(roomId);
-      if (game) server.send(JSON.stringify({ type: "game-state", game: this.gameView(game) }));
+      const games = this.gamesIn(roomId);
+      if (games.length) server.send(JSON.stringify({ type: "game-state", roomId, games: games.map(game => this.gameView(game)) }));
       this.broadcastPresence(roomId);
     }
     this.broadcastRoomOnline(roomId);
@@ -717,10 +822,12 @@ export class ChatHub {
       if (!stillHere && meta.userId) this.leaveRoomCall(meta.roomId, meta.userId);
       // A spectator who closes the tab stops being a spectator; a player stays in the seat so they can
       // reload and carry on.
-      const game = this.roomGames.get(meta.roomId);
-      if (game && meta.userId && !stillHere) {
-        game.guests = game.guests.filter(person => person.id !== meta.userId);
-        this.broadcast(meta.roomId, { type: "game-state", game: this.gameView(game) });
+      if (meta.userId && !stillHere) {
+        const games = this.gamesIn(meta.roomId);
+        if (games.length) {
+          for (const game of games) game.guests = game.guests.filter(person => person.id !== meta.userId);
+          this.broadcastGames(meta.roomId, false);
+        }
       }
       this.broadcastPresence(meta.roomId);
       this.broadcastRoomOnline(meta.roomId);
@@ -1014,12 +1121,14 @@ export class ChatHub {
       const user = await this.sessionUser(request);
       if (!user) return json(401, { error: "Sign in first." });
       const games = [];
-      for (const game of this.roomGames.values()) {
-        const room = this.findRoom(game.roomId);
+      for (const [roomId, bucket] of this.roomGames) {
+        const room = this.findRoom(roomId);
         if (!room || !this.canEnter(room, user)) continue;
-        const kind = GAME_KINDS[game.kind] || { name: game.kind, seats: 2 };
-        const host = this.userById(game.hostId);
-        games.push({ id: game.id, kind: game.kind, name: kind.name, roomId: room.id, roomName: room.name, roomIcon: room.icon, hostId: game.hostId, hostUsername: host ? host.username : "Host", policy: game.policy, status: game.status, seats: kind.seats, players: game.players.length, spectators: game.guests.length, createdAt: game.createdAt });
+        for (const game of bucket.values()) {
+          const kind = GAME_KINDS[game.kind] || { name: game.kind, seats: 2 };
+          const host = this.userById(game.hostId);
+          games.push({ id: game.id, kind: game.kind, name: kind.name, roomId: room.id, roomName: room.name, roomIcon: room.icon, hostId: game.hostId, hostUsername: host ? host.username : "Host", policy: game.policy, status: game.status, seats: kind.seats, players: game.players.length, spectators: game.guests.length, createdAt: game.createdAt });
+        }
       }
       games.sort((left, right) => right.createdAt - left.createdAt);
       return json(200, { games });

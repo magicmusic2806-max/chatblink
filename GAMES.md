@@ -162,47 +162,54 @@ per second) and are never stored per point.
 
 ## Build plan
 
-1. **Dock + Connect Four.** ✅ Shipped in `v=78`. The dock, the event set, open/request/spectate, host
-   approve/deny, reconnect resync, the games card, and the game-list aggregation all exist now.
-2. **Draw & Guess** on the same dock: word list (curated, safe, from the Unlicense list), round clock,
-   masked word, guessing in the room chat, separate guest scoring and the end scoreboard.
-3. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
-4. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games card,
+1. **Dock + Connect Four.** ✅ `v=78`.
+2. **Several games per room, the count on the room's Games button, and a Games entry in the room
+   list.** ✅ `v=80` — a room holds up to four games at once, the button shows how many are running,
+   and the room list begins with a Games card whose badge is the live total.
+3. **Tic-tac-toe and Reversi.** ✅ `v=80` — both grid games, validated in the object like Connect Four.
+4. **Draw & Guess.** Next, and the one users asked for by name. Design below.
+5. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
+6. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
    watchable but not joinable.
-5. **Poker / trivia** only if demand appears.
+7. **Poker / trivia** only if demand appears.
 
-## As built (v=78, Connect Four)
+## As built (`v=80`, three games)
 
 Everything below is what the code actually does, not the plan it came from:
 
 - **State** lives on the DO and is persisted under the storage key `roomGames`, so a game survives
-  hibernation and a restart (verified by killing the dev server between a create and a move). One game
-  per room at a time; a finished game stays on the board until the host starts another or closes it.
+  hibernation and a restart (verified by killing the dev server between a create and a move). It is a
+  map of rooms to maps of games: **a room may run up to `GAMES_PER_ROOM` (4) games at once**, and one
+  person may hold a seat in only one unfinished game per room, so nobody plays two boards at once.
+  A finished game stays on the board until the host clears it.
+- **Games:** Connect Four (7x6 columns), Tic-tac-toe (3x3), Reversi (8x8, standard opening, with the
+  pass rule when the opponent has no legal move). `GAME_KINDS` carries the layout; the client renders
+  either a column board or a square grid from `layout`.
 - **Privacy:** a game is listed only to accounts that may enter its room. What a request-only room is
-  playing is not visible from outside it (owner's rule). The dock and the card both stay inside that.
+  playing is not visible from outside it (owner's rule).
 - **The dock asks for the truth** with a `game-sync` event when it opens, so a stale or just-restored
   view can never say "nobody is playing here" while a game exists.
-- **Seats** come from `GAME_KINDS` (`connect-four: 2`). The host takes the first seat when creating.
+- **Seats** come from `GAME_KINDS` (2 for all three). The host takes the first seat when creating.
   `policy: "open"` fills the seat on `game-join`; `policy: "request"` puts the person in `pending` and
-  notifies the host, who approves or denies from the dock.
+  notifies the host, who approves or denies from the dock. Moderators and the admin can cover.
 - **Refusals carry a sentence** in a `game-error` event: not your turn, only players may move, that
-  column is not on the board / is full, the game already started, only the host can do that.
-- **The board is one flat array** of 42 cells (`index = column * 6 + row`, row 0 at the bottom; 0 empty,
-  1 and 2 the seats). Win detection is a four-direction run check on the disc just placed.
+  column/square is off the board or occupied, a Reversi move that flips nothing, the game already
+  started, only the host can do that, you are already playing here.
+- **Boards** are one flat array each (`index = column * rows + row` for Connect Four, row-major for the
+  grids). A move is validated against the kind's rules in the object; the client only reads state.
 - **Leaving** a running game forfeits it (the other player wins, `reason: "left"`); leaving a lobby game
   the host created closes it. A closing socket removes a spectator but keeps a player seated so a
   reload can carry on.
 - **Budgets:** game events use `gameLimited()` (60 per 10 s per connection), never the chat window. A
   suite check sends 25 game events and then a message to prove the message still lands.
-- **HTTP:** `GET /api/games` lists every game in a room the caller may enter, for the room list's card.
-- **UI:** a **🎲 Games** button in the room's tool row opens the dock; the room list gets a **Games in
-  rooms** card with the first three live games and a "See all" list; both modes are one modal
-  (`#gamesModal`). Games are invisible until one of those is opened, as specified — and the card is
-  always present for a signed-in person, showing "no game running" rather than disappearing, because a
-  list that vanishes is indistinguishable from a broken list.
-- **Defaults taken** from the open questions: one game per room; host, moderators and the admin may
-  approve/end (a silent host must not strand a room); the card shows room, game and seats, no board
-  preview.
+- **HTTP:** `GET /api/games` lists every game in a room the caller may enter.
+- **UI:** the room's **🎲 Games** button carries a count of the games running in that room. Opening it
+  shows that room's games (tap one for its board and actions) or the create form when it has none. The
+  **room list begins with a Games card** — same shape as a room card, a badge with the total — which
+  opens the all-games view with Watch / Join / Request. Games stay invisible until one of those is
+  opened, as specified.
+- **Defaults taken** from the open questions: host, moderators and the admin may approve/end; the card
+  shows the count, game name, room and seats, no board preview.
 
 ## Remaining for Draw & Guess
 

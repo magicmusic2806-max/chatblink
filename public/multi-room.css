@@ -783,20 +783,16 @@ html[data-theme=dark] .safety-row b{color:#e4e9f2}
 html[data-theme=dark] .safety-copy{color:#94a1b6}
 
 /* --- games ---------------------------------------------------------------- */
-.games-card{background:#f6f8fc;border:1px solid #e5eaf3;border-radius:14px;padding:12px 14px;margin:0 0 14px}
-.games-card-head{display:flex;align-items:center;gap:10px;margin:0 0 8px}
-.games-card-head b{font-size:13.5px;color:#26303f}
-.games-card-head small{color:#7b8497;font-size:12px;flex:1}
-.games-card-head button{border:1px solid #dfe4ee;background:#fff;color:#4b5b7a;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700}
-.games-card-list{display:grid;gap:6px}
-.games-card-empty{color:#7b8497;font-size:12.5px;margin:0}
-.games-card-row{text-align:left;border:1px solid #e5eaf3;background:#fff;color:#3a465c;border-radius:10px;padding:9px 11px;font-size:12.5px;font-weight:600}
-.games-card-row:hover{border-color:#b9c6de}
+/* The count on the room's Games button: how many games are running in this room right now. */
+.games-count{display:inline-grid;place-items:center;min-width:17px;height:17px;margin-left:6px;padding:0 5px;border-radius:9px;background:#5b6cff;color:#fff;font-size:11px;font-weight:800;vertical-align:middle}
+/* The Games entry in the room list: a card like any room, first in the grid. */
+.room-card.games-room-card{background:linear-gradient(135deg,#eef2ff,#f7f4ff);border-color:#cfd8ee}
+.room-card.games-room-card .rc-badge{background:#5b6cff;color:#fff;border-color:transparent}
 .games-modal{max-width:440px;width:100%}
 .game-copy{color:#6d788c;font-size:12.5px;line-height:1.5;margin:0 0 10px}
 .game-status{color:#4a5568;font-size:13px;font-weight:700;margin:10px 0 8px}
-.game-kinds{display:flex;gap:8px;margin:0 0 10px}
-.game-kind{flex:1;border:1px solid #dfe4ee;background:#fff;border-radius:10px;padding:10px;font-size:13px;font-weight:700;color:#5a6579}
+.game-kinds{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.game-kind{flex:1 1 30%;border:1px solid #dfe4ee;background:#fff;border-radius:10px;padding:10px 8px;font-size:12.5px;font-weight:700;color:#5a6579}
 .game-kind.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
 .game-policy{display:grid;gap:6px;margin:0 0 12px}
 .game-policy label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#5a6579;font-weight:600}
@@ -814,25 +810,32 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .cf-cell.p2{background:#f9c74f}
 .cf-cell:disabled{cursor:default}
 .cf-cell:not(:disabled):hover{background:#c3d2ea}
+.grid-board{display:grid;gap:4px;background:#1d3b73;border-radius:12px;padding:6px;margin:0 0 10px}
+.grid-board.size-3{grid-template-columns:repeat(3,1fr)}
+.grid-board.size-8{grid-template-columns:repeat(8,1fr)}
+.grid-cell{aspect-ratio:1;border:0;border-radius:8px;background:#dde5f3;color:#1d3b73;font-size:22px;font-weight:800;display:grid;place-items:center;padding:0;min-width:0}
+.grid-board.othello .grid-cell{border-radius:50%}
+.grid-board.othello .grid-cell{font-size:0}
+.grid-cell.p1{background:#ef476f;color:#fff}
+.grid-cell.p2{background:#f9c74f;color:#5a4300}
+.grid-cell:disabled{cursor:default;opacity:1}
+.grid-cell:not(:disabled):hover{background:#c3d2ea}
 .game-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .game-actions button{flex:1 1 auto;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}
 .game-pending{border-top:1px solid #e7eaf1;padding-top:10px;margin-top:4px}
 .game-pending-row{display:flex;align-items:center;gap:8px;margin:0 0 6px}
 .game-pending-row b{flex:1;font-size:12.5px;color:#26303f}
 .small{padding:7px 10px !important;font-size:12px !important;flex:0 0 auto !important}
-.game-end-link{border:0;background:none;color:#a3423c;font-size:12px;font-weight:700;text-decoration:underline;padding:0}
-.game-list{display:grid;gap:8px}
-.game-list-row{display:flex;align-items:center;gap:10px;border:1px solid #e5eaf3;border-radius:12px;padding:10px;background:#fff}
+.game-back{border:0;background:none;color:#5267df;font-size:12.5px;font-weight:700;padding:0;margin:0 0 10px}
+.game-chip{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#7b8497}
+.game-chip.live{color:#1c7a43}
+.game-list{display:grid;gap:8px;margin:0 0 10px}
+.game-list-row{display:flex;align-items:center;gap:10px;border:1px solid #e5eaf3;border-radius:12px;padding:10px;background:#fff;text-align:left;color:inherit}
 .game-list-info{display:grid;gap:2px;flex:1;min-width:0}
 .game-list-info b{font-size:13px;color:#26303f}
 .game-list-info small{font-size:11.5px;color:#7b8497}
 .game-list-actions{display:flex;gap:6px;flex-wrap:wrap}
-html[data-theme=dark] .games-card{background:#141926;border-color:#2a3245}
-html[data-theme=dark] .games-card-head b{color:#e4e9f2}
-html[data-theme=dark] .games-card-head small{color:#8f9cb2}
-html[data-theme=dark] .games-card-head button{background:#0f1624;border-color:#293243;color:#c3cee0}
-html[data-theme=dark] .games-card-row{background:#101725;border-color:#293243;color:#c3cee0}
-html[data-theme=dark] .games-card-empty{color:#8f9cb2}
+html[data-theme=dark] .room-card.games-room-card{background:linear-gradient(135deg,#151c30,#1a1630);border-color:#2f3a5c}
 html[data-theme=dark] .game-copy{color:#94a1b6}
 html[data-theme=dark] .game-status{color:#c3cee0}
 html[data-theme=dark] .game-kind{background:#101725;border-color:#293243;color:#a6b2c6}
@@ -841,18 +844,21 @@ html[data-theme=dark] .game-policy label{color:#a6b2c6}
 html[data-theme=dark] .game-seat{background:#101725;border-color:#293243}
 html[data-theme=dark] .game-seat b{color:#e4e9f2}
 html[data-theme=dark] .game-seat small{color:#8f9cb2}
-html[data-theme=dark] .cf-board{background:#0d1b33}
-html[data-theme=dark] .cf-cell{background:#22304a}
+html[data-theme=dark] .cf-board,html[data-theme=dark] .grid-board{background:#0d1b33}
+html[data-theme=dark] .cf-cell,html[data-theme=dark] .grid-cell{background:#22304a;color:#c3cee0}
 /* The dark cell rule is more specific than a bare .cf-cell.p1, so the discs need their own dark rules or
    they turn invisible in the default theme. */
-html[data-theme=dark] .cf-cell.p1{background:#ef476f}
-html[data-theme=dark] .cf-cell.p2{background:#f9c74f}
-html[data-theme=dark] .cf-cell:not(:disabled):hover{background:#2f405e}
+html[data-theme=dark] .cf-cell.p1,html[data-theme=dark] .grid-cell.p1{background:#ef476f;color:#fff}
+html[data-theme=dark] .cf-cell.p2,html[data-theme=dark] .grid-cell.p2{background:#f9c74f;color:#5a4300}
+html[data-theme=dark] .cf-cell:not(:disabled):hover,html[data-theme=dark] .grid-cell:not(:disabled):hover{background:#2f405e}
 html[data-theme=dark] .game-pending{border-color:#222a3a}
 html[data-theme=dark] .game-pending-row b{color:#e4e9f2}
 html[data-theme=dark] .game-list-row{background:#101725;border-color:#293243}
 html[data-theme=dark] .game-list-info b{color:#e4e9f2}
 html[data-theme=dark] .game-list-info small{color:#8f9cb2}
+html[data-theme=dark] .game-back{color:#8fa2ff}
+html[data-theme=dark] .game-chip{color:#8f9cb2}
+html[data-theme=dark] .game-chip.live{color:#7dd8a6}
 
 /* --- notice board --------------------------------------------------------- */
 .notice-board{display:flex;align-items:flex-start;gap:10px;margin:0 0 14px;padding:12px 14px;border-radius:14px;border:1px solid #dbe6f6;background:linear-gradient(135deg,#eef4ff,#f7f4ff);color:#26303f}

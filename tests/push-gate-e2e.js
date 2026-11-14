@@ -44,7 +44,8 @@ const cookieOf = response => { const pair = response.headers.get("set-cookie").s
     await allow.click();
     await gate.waitFor({ state: "hidden", timeout: 15000 });
     const flags = await page.evaluate(() => ({ enabled: localStorage.getItem("chatblink.pushEnabled"), prompted: localStorage.getItem("chatblink.pushPrompted") })), retryMessage = await note.textContent();
-    await page.locator(".room-card:not(.create)").first().click();
+    // A real room, not the Games entry that now sits first in the grid.
+    await page.locator(".room-card[data-room-id]:not(.create)").first().click();
     const roomSubscribe = page.locator("#roomSubscribe");
     await roomSubscribe.waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#roomSubscribe")?.textContent.includes("Subscribe"));

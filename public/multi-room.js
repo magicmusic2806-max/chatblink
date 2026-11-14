@@ -40,7 +40,7 @@ $("#downloadKey").onclick=()=>{const key=$("#profileKeyValue").textContent,blob=
 $("#enterRoomsNow").onclick=()=>$("#profileForm").requestSubmit();
 $("#profileForm").addEventListener("submit",async event=>{event.preventDefault();const form=event.currentTarget,data=new FormData(form);error("#profileError","");busy(form,true);$("#enterRoomsNow").disabled=true;try{const result=await request("/api/profile",{method:"POST",body:JSON.stringify({displayName:data.get("displayName"),avatar:data.get("avatar"),bio:data.get("bio"),gender:data.get("gender"),interests:data.get("interests")})});forgetProfileKey();$("#setupView").hidden=true;await enterApp(result.user)}catch(problem){error("#profileError",problem.message)}finally{busy(form,false);$("#enterRoomsNow").disabled=false}});
 async function enterApp(user){currentUser=user;$("#authView").hidden=true;$("#setupView").hidden=true;$("#appView").hidden=false;await loadRooms();ensureNotifySocket();route("initial")}
-async function leaveApp(){endCall();leaveRoomCall(true);roomCallState=null;gameState=null;liveGames=[];$("#gamesModal").hidden=true;stopRequestPoll();stopViewPolls();closeNotifySocket();clearTimeout(reconnectTimer);if(socket){socket.onclose=null;socket.close()}currentUser=null;currentRoom=null;$("#setupView").hidden=true;$("#authView").hidden=false;switchAuth("login");enterGuestMode()}
+async function leaveApp(){endCall();leaveRoomCall(true);roomCallState=null;roomGames=[];liveGames=[];$("#gamesModal").hidden=true;stopRequestPoll();stopViewPolls();closeNotifySocket();clearTimeout(reconnectTimer);if(socket){socket.onclose=null;socket.close()}currentUser=null;currentRoom=null;$("#setupView").hidden=true;$("#authView").hidden=false;switchAuth("login");enterGuestMode()}
 async function enterGuestMode(){try{const result=await request("/api/rooms");rooms=result.rooms;ensureNotifySocket();route("initial")}catch{}}
 async function loadRooms(){rooms=(await request("/api/rooms")).rooms}
 function stopRequestPoll(){if(requestPoll){clearInterval(requestPoll);requestPoll=null}}
@@ -60,10 +60,10 @@ function renderRoomSubscription(loading=false){const button=$("#roomSubscribe");
 async function loadRoomSubscription(room){const loadId=++subscriptionLoadId;roomSubscribed=false;renderRoomSubscription(true);if(!currentUser||!room.canEnter)return renderRoomSubscription(false);try{const result=await request(`/api/rooms/${encodeURIComponent(room.id)}/subscription`);if(loadId!==subscriptionLoadId||currentRoom?.id!==room.id)return;roomSubscribed=Boolean(result.subscribed)}catch{}finally{if(loadId===subscriptionLoadId&&currentRoom?.id===room.id)renderRoomSubscription(false)}}
 async function toggleRoomSubscription(){if(!currentUser||!currentRoom?.canEnter)return;const room=currentRoom,next=!roomSubscribed;renderRoomSubscription(true);try{if(next){if(!window.ChatblinkPush?.ensure)throw new Error("Notifications are still loading. Try again in a moment.");await window.ChatblinkPush.ensure()}const result=await request(`/api/rooms/${encodeURIComponent(room.id)}/subscription`,{method:"POST",body:JSON.stringify({subscribed:next})});if(currentRoom?.id!==room.id)return;roomSubscribed=Boolean(result.subscribed);toast(roomSubscribed?`Subscribed to ${room.name}`:`Room alerts turned off for ${room.name}`)}catch(problem){toast(problem.message||"Could not update this room subscription")}finally{if(currentRoom?.id===room.id)renderRoomSubscription(false)}}
 $("#roomSubscribe").onclick=toggleRoomSubscription;
-function selectRoom(room,mode="push"){if(!room)return;if(voice)stopVoiceNote(true);setReplyTarget(null);leaveRoomCall(true);roomCallState=null;gameState=null;currentRoom=room;liveMessages=[];loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
+function selectRoom(room,mode="push"){if(!room)return;if(voice)stopVoiceNote(true);setReplyTarget(null);leaveRoomCall(true);roomCallState=null;roomGames=[];activeGameId=null;creatingGame=false;renderGameBadge();currentRoom=room;liveMessages=[];loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed});renderRoomCall()}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
-function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){gameState=event.game||null;if(!$("#gamesModal").hidden&&gamesMode==="room")renderGames()}if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamesModal").hidden)renderGames()}if(event.type==="game-approved")toast("You are in");if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
+function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamesModal").hidden&&gamesMode==="room")renderGames()}}if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamesModal").hidden)renderGames()}if(event.type==="game-approved")toast("You are in");if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
 function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message||room.access==="request")return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
 async function refreshRoomsList(){try{await loadRooms();if(!$("#roomsView").hidden)renderRoomsGrid();if(currentRoom){const room=rooms.find(item=>item.id===currentRoom.id);if(room){currentRoom=room;$("#requestCount").textContent=room.pendingCount||0}}}catch{}}
 async function refreshUsers(){if(!currentUser)return;await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot();if(!$("#onlineModal").hidden)renderOnlineList();refreshMessageAvatars()}
@@ -346,7 +346,7 @@ $("#exploreSearch").oninput=event=>{exploreQuery=event.target.value.trim();clear
 $("#exploreMore").onclick=()=>renderExplore(false);
 $("#profileBack").onclick=()=>showExplorePage("push");
 function roomPreviewText(message){const kind=message?.kind||"text";if(kind==="image")return "📷 Photo";if(kind==="voice")return "🎙 Voice note";if(kind==="gif")return "GIF";return String(message?.content||"").replace(/\s+/g," ").trim()}
-function renderRoomsGrid(){const grid=$("#roomsGrid");grid.innerHTML="";rooms.forEach(room=>{const card=document.createElement("div");card.className=`room-card ${currentRoom?.id===room.id?"active":""}`;card.dataset.roomId=room.id;card.style.setProperty("--room-accent",room.accent);card.style.setProperty("--soft",room.soft);card.innerHTML='<div class="rc-head"><span class="rc-icon"></span><span class="rc-title"><strong></strong><small></small></span><span class="rc-side"><span class="rc-online"><i></i><span class="rc-online-count"></span></span><span class="rc-badge"></span></span></div><div class="rc-preview"></div>';card.querySelector(".rc-icon").textContent=room.icon;card.querySelector("strong").textContent=room.name;card.querySelector(".rc-title small").textContent=room.access==="request"?"Private room":"Open room";const badge=card.querySelector(".rc-badge"),pendingCount=Number(room.pendingCount)||0;if(room.isOwner&&pendingCount>0){badge.textContent=pendingCount===1?"1 request":pendingCount+" requests";badge.classList.add("pending")}else if(room.access==="request")badge.textContent="Request";const onlineCount=Number(room.online)||0;card.querySelector(".rc-online-count").textContent=onlineCount;if(onlineCount>0)card.querySelector(".rc-online").classList.add("on");if(canDeleteRoom(room)){const remove=document.createElement("button");remove.type="button";remove.className="rc-delete";remove.textContent="Delete";remove.onclick=event=>{event.stopPropagation();askDeleteRoom(room)};card.querySelector(".rc-side").appendChild(remove)}const preview=card.querySelector(".rc-preview"),messages=Array.isArray(room.preview)?room.preview.slice(-3):[];if(room.access==="request"){preview.remove();card.classList.add("no-preview")}else if(!room.canEnter){preview.classList.add("empty");preview.textContent="🔒 Join to see recent messages"}else if(!messages.length){preview.classList.add("empty");preview.textContent="No messages yet — start the conversation"}else messages.forEach(message=>{const line=document.createElement("div");line.className="rc-preview-line";const name=document.createElement("b"),copy=document.createElement("span");name.textContent=(message.username||"Member")+":";copy.textContent=roomPreviewText(message);line.title=name.textContent+" "+copy.textContent;line.append(name,copy);preview.appendChild(line)});card.onclick=()=>selectRoom(room,"push");grid.appendChild(card)});const create=document.createElement("button");create.className="room-card create";create.innerHTML="<strong>＋ Create your own room</strong><small>Open or request-only</small>";create.onclick=openCreate;grid.appendChild(create)}
+function renderRoomsGrid(){const grid=$("#roomsGrid");grid.innerHTML="";grid.appendChild(gamesRoomCard());rooms.forEach(room=>{const card=document.createElement("div");card.className=`room-card ${currentRoom?.id===room.id?"active":""}`;card.dataset.roomId=room.id;card.style.setProperty("--room-accent",room.accent);card.style.setProperty("--soft",room.soft);card.innerHTML='<div class="rc-head"><span class="rc-icon"></span><span class="rc-title"><strong></strong><small></small></span><span class="rc-side"><span class="rc-online"><i></i><span class="rc-online-count"></span></span><span class="rc-badge"></span></span></div><div class="rc-preview"></div>';card.querySelector(".rc-icon").textContent=room.icon;card.querySelector("strong").textContent=room.name;card.querySelector(".rc-title small").textContent=room.access==="request"?"Private room":"Open room";const badge=card.querySelector(".rc-badge"),pendingCount=Number(room.pendingCount)||0;if(room.isOwner&&pendingCount>0){badge.textContent=pendingCount===1?"1 request":pendingCount+" requests";badge.classList.add("pending")}else if(room.access==="request")badge.textContent="Request";const onlineCount=Number(room.online)||0;card.querySelector(".rc-online-count").textContent=onlineCount;if(onlineCount>0)card.querySelector(".rc-online").classList.add("on");if(canDeleteRoom(room)){const remove=document.createElement("button");remove.type="button";remove.className="rc-delete";remove.textContent="Delete";remove.onclick=event=>{event.stopPropagation();askDeleteRoom(room)};card.querySelector(".rc-side").appendChild(remove)}const preview=card.querySelector(".rc-preview"),messages=Array.isArray(room.preview)?room.preview.slice(-3):[];if(room.access==="request"){preview.remove();card.classList.add("no-preview")}else if(!room.canEnter){preview.classList.add("empty");preview.textContent="🔒 Join to see recent messages"}else if(!messages.length){preview.classList.add("empty");preview.textContent="No messages yet — start the conversation"}else messages.forEach(message=>{const line=document.createElement("div");line.className="rc-preview-line";const name=document.createElement("b"),copy=document.createElement("span");name.textContent=(message.username||"Member")+":";copy.textContent=roomPreviewText(message);line.title=name.textContent+" "+copy.textContent;line.append(name,copy);preview.appendChild(line)});card.onclick=()=>selectRoom(room,"push");grid.appendChild(card)});const create=document.createElement("button");create.className="room-card create";create.innerHTML="<strong>＋ Create your own room</strong><small>Open or request-only</small>";create.onclick=openCreate;grid.appendChild(create)}
 function canDeleteRoom(room){return Boolean(currentUser&&(room.isOwner||currentUser.role==="admin"))&&!room.builtIn}
 let confirmAction=null;
 function openConfirm(title,text,action){$("#confirmTitle").textContent=title;$("#confirmText").textContent=text;confirmAction=action;$("#confirmModal").hidden=false}
@@ -705,13 +705,28 @@ let safetyState=null,siteNotice=null,noticeEditing=false;
 
 /* ------------------------------------------------------------------ games */
 
-// One game per room, held by the Durable Object and mirrored here. Nothing is computed locally: the
-// board only changes when the server says it did.
-let gameState=null,liveGames=[],gamesMode="room",gamesRefreshTimer=null,pendingGameAction=null;
+// A room can host up to MAX_GAMES_PER_ROOM games at once. This mirrors the server's list for the current
+// room (roomGames) and, for the room list, the flat list of everything running (liveGames).
+let roomGames=[],activeGameId=null,creatingGame=false,gamesMode="room",liveGames=[],gamesRefreshTimer=null,pendingGameAction=null;
+const MAX_GAMES_PER_ROOM=4;
 function sendGame(type,extra){if(!socket||socket.readyState!==WebSocket.OPEN)return toast("Reconnecting - try again in a moment");socket.send(JSON.stringify({type,...(extra||{})}))}
-const gameIsMine=(id)=>Boolean(currentUser&&id===currentUser.id);
-function openGames(mode){if(!currentUser)return toast("Sign in to play");gamesMode=mode;$("#gamesModal").hidden=false;renderGames();if(mode==="all")loadLiveGames();else{sendGame("game-sync");if(gameState&&!gameState.solo)sendGame("game-watch",{gameId:gameState.id})}}
-function closeGames(){$("#gamesModal").hidden=true}
+const gameIsMine=id=>Boolean(currentUser&&id===currentUser.id);
+const activeGame=()=>roomGames.find(game=>game.id===activeGameId)||null;
+const playingHere=()=>roomGames.find(game=>game.players.some(player=>gameIsMine(player.id)))||null;
+function renderGameBadge(){
+  const badge=$("#gamesCount");
+  if(!badge)return;
+  badge.textContent=String(roomGames.length);
+  badge.hidden=!roomGames.length;
+}
+function openGames(mode){
+  if(!currentUser)return toast("Sign in to play");
+  gamesMode=mode;activeGameId=null;creatingGame=false;
+  $("#gamesModal").hidden=false;
+  renderGames();
+  if(mode==="all")loadLiveGames();else sendGame("game-sync");
+}
+function closeGames(){$("#gamesModal").hidden=true;activeGameId=null;creatingGame=false}
 function renderGames(){
   const body=$("#gamesBody"),title=$("#gamesTitle");
   if(!body)return;
@@ -719,8 +734,49 @@ function renderGames(){
   if(gamesMode==="all"){title.textContent="Games being played";renderLiveGames(body);return}
   title.textContent=currentRoom?`Games - ${currentRoom.name}`:"Games";
   if(!currentRoom){body.textContent="Open a room first.";return}
-  if(!gameState)return renderGameCreate(body);
-  renderGameCard(body,gameState);
+  const game=activeGame();
+  if(game){renderGameDetail(body,game);return}
+  if(creatingGame||!roomGames.length){renderGameCreate(body);return}
+  renderGameList(body);
+}
+function gameStatusText(game){
+  if(game.status==="lobby")return "waiting for a player";
+  if(game.status==="playing")return gameIsMine(game.turn)?"your turn":`${(game.players.find(player=>player.id===game.turn)||{}).username||"?"} is playing`;
+  const winner=game.players.find(player=>player.id===game.winnerId);
+  return winner?`${winner.username} won`:"finished";
+}
+function renderGameList(body){
+  const list=document.createElement("div");list.className="game-list";
+  roomGames.forEach(game=>{
+    const row=document.createElement("button");row.type="button";row.className="game-list-row";
+    const info=document.createElement("span");info.className="game-list-info";
+    const name=document.createElement("b");
+    name.textContent=`${game.name} · ${game.players.length}/${game.seats}`;
+    const meta=document.createElement("small");
+    meta.textContent=`${gameStatusText(game)} · ${game.policy==="open"?"open seat":"by request"}${game.spectators?` · ${game.spectators} watching`:""}`;
+    info.append(name,meta);
+    const go=document.createElement("span");go.className="game-list-actions";
+    const chip=document.createElement("span");chip.className=`game-chip${gameIsMine(game.turn)&&game.status==="playing"?" live":""}`;
+    chip.textContent=game.status==="playing"&&gameIsMine(game.turn)?"your move":game.status==="ended"?"over":"open";
+    go.appendChild(chip);
+    row.append(info,go);
+    row.onclick=()=>openGame(game.id);
+    list.appendChild(row);
+  });
+  body.appendChild(list);
+  if(roomGames.length>=MAX_GAMES_PER_ROOM)return;
+  const mine=playingHere();
+  const start=document.createElement("button");start.type="button";start.className="primary";start.textContent="Start another game";
+  start.disabled=Boolean(mine);
+  start.onclick=()=>{creatingGame=true;renderGames()};
+  body.appendChild(start);
+  if(mine){const note=document.createElement("p");note.className="game-copy";note.textContent=`You are already playing ${mine.name} here. Finish it before starting another.`;body.appendChild(note)}
+}
+function openGame(id){
+  activeGameId=id;
+  const game=activeGame();
+  if(game&&game.status!=="ended"&&!game.players.some(player=>gameIsMine(player.id)))sendGame("game-watch",{gameId:id});
+  renderGames();
 }
 function gamePlayerSlot(game,index){
   const player=game.players[index],slot=document.createElement("div");
@@ -734,42 +790,58 @@ function gamePlayerSlot(game,index){
 }
 function renderGameCreate(body){
   const card=document.createElement("div");card.className="game-create";
-  const copy=document.createElement("p");copy.className="game-copy";copy.textContent="Nobody is playing here yet. Start a game and people can join or watch.";
-  const kinds=[["connect-four","Connect Four"]];
+  const copy=document.createElement("p");copy.className="game-copy";
+  copy.textContent=roomGames.length?"Pick another game for this room.":"Nobody is playing here yet. Start a game and people can join or watch.";
+  const kinds=[["connect-four","Connect Four"],["tic-tac-toe","Tic-tac-toe"],["othello","Reversi"]];
   const pick=document.createElement("div");pick.className="game-kinds";
-  kinds.forEach(([value,label],index)=>{const button=document.createElement("button");button.type="button";button.className=`game-kind${index===0?" active":""}`;button.dataset.kind=value;button.textContent=label;button.onclick=()=>{pick.querySelectorAll(".game-kind").forEach(item=>item.classList.toggle("active",item===button))};pick.appendChild(button)});
+  kinds.forEach(([value,label],index)=>{
+    const button=document.createElement("button");button.type="button";button.className=`game-kind${index===0?" active":""}`;button.dataset.kind=value;button.textContent=label;
+    button.onclick=()=>pick.querySelectorAll(".game-kind").forEach(item=>item.classList.toggle("active",item===button));
+    pick.appendChild(button);
+  });
   const policy=document.createElement("div");policy.className="game-policy";
   policy.innerHTML='<label><input type="radio" name="gamePolicy" value="request" checked><span>Ask me before someone joins</span></label><label><input type="radio" name="gamePolicy" value="open"><span>Anyone can take the free seat</span></label>';
   const start=document.createElement("button");start.type="button";start.className="primary";start.textContent="Start a game";
-  start.onclick=()=>{const chosen=policy.querySelector("input:checked"),kind=pick.querySelector(".game-kind.active");sendGame("game-create",{kind:kind?kind.dataset.kind:"connect-four",policy:chosen?chosen.value:"request"})};
+  // Flagged so the state packet that follows opens the new game instead of dropping back to the list.
+  start.onclick=()=>{const chosen=policy.querySelector("input:checked"),kind=pick.querySelector(".game-kind.active");creatingGame=true;sendGame("game-create",{kind:kind?kind.dataset.kind:"connect-four",policy:chosen?chosen.value:"request"})};
   card.append(copy,pick,policy,start);
   body.appendChild(card);
-  if(gameState&&gameState.status==="ended")return;
+  if(roomGames.length){
+    const back=document.createElement("button");back.type="button";back.className="secondary";back.textContent="Back to the games here";
+    back.onclick=()=>{creatingGame=false;renderGames()};
+    body.appendChild(back);
+  }
 }
-function renderGameCard(body,game){
+function renderGameDetail(body,game){
+  const back=document.createElement("button");back.type="button";back.className="game-back";back.textContent=roomGames.length>1?"← All games in this room":"← Back";
+  back.onclick=()=>{activeGameId=null;renderGames()};
+  body.appendChild(back);
+
   const status=document.createElement("p");status.className="game-status";
-  status.textContent=game.status==="lobby"?"Waiting for a second player":game.status==="playing"?`${game.name} in progress`:"Game over";
+  status.textContent=`${game.name} - ${gameStatusText(game)}`;
   body.appendChild(status);
 
   const seats=document.createElement("div");seats.className="game-seats";
   for(let index=0;index<game.seats;index++)seats.appendChild(gamePlayerSlot(game,index));
   body.appendChild(seats);
 
-  if(game.status==="playing"||game.status==="ended")renderConnectFour(body,game);
+  if(game.status!=="lobby")renderBoard(body,game);
 
   const state=document.createElement("p");state.className="game-status";
   if(game.status==="ended"){
     const winner=game.players.find(player=>player.id===game.winnerId);
     state.textContent=winner?`${winner.username} wins${game.reason==="left"?" - the other player left":""}`:game.reason==="left"?"The game ended because a player left":"It is a draw";
     body.appendChild(state);
-  }else if(game.status==="playing"&&!game.solo){
+  }else if(game.status==="playing"){
     const turnPlayer=game.players.find(player=>player.id===game.turn);
-    state.textContent=gameIsMine(game.turn)?"Your turn":turnPlayer?`Waiting for ${turnPlayer.username}`:"Waiting";
+    state.textContent=game.passed
+      ?`${turnPlayer?turnPlayer.username:"They"} had no legal move and plays again`
+      :gameIsMine(game.turn)?"Your turn":turnPlayer?`Waiting for ${turnPlayer.username}`:"Waiting";
     body.appendChild(state);
   }
 
   const actions=document.createElement("div");actions.className="game-actions";
-  const mine=game.players.some(player=>gameIsMine(player.id)),watching=Number(game.spectators)||0;
+  const mine=game.players.some(player=>gameIsMine(player.id));
   if(game.status==="lobby"&&!mine&&game.players.length<game.seats){
     const join=document.createElement("button");join.type="button";join.className="primary";
     join.textContent=game.policy==="open"?"Join game":"Request to join";
@@ -777,7 +849,7 @@ function renderGameCard(body,game){
     actions.appendChild(join);
   }
   if(!mine&&game.status!=="ended"){
-    const watch=document.createElement("button");watch.type="button";watch.className="secondary";watch.textContent=`Watch (${watching})`;
+    const watch=document.createElement("button");watch.type="button";watch.className="secondary";watch.textContent=`Watch (${game.spectators})`;
     watch.onclick=()=>sendGame("game-watch",{gameId:game.id});
     actions.appendChild(watch);
   }
@@ -786,15 +858,16 @@ function renderGameCard(body,game){
     leave.onclick=()=>sendGame("game-leave",{gameId:game.id});
     actions.appendChild(leave);
   }
-  if(game.status==="ended"){
-    if(gameIsMine(game.hostId)){
-      const again=document.createElement("button");again.type="button";again.className="primary";again.textContent="Start a new game";
-      again.onclick=()=>{gameState=null;renderGames()};
-      actions.appendChild(again);
+  if(gameIsMine(game.hostId)){
+    if(game.status==="ended"){
+      const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Clear from room";
+      close.onclick=()=>sendGame("game-end",{gameId:game.id});
+      actions.appendChild(close);
+    }else{
+      const end=document.createElement("button");end.type="button";end.className="secondary";end.textContent="End game";
+      end.onclick=()=>sendGame("game-end",{gameId:game.id});
+      actions.appendChild(end);
     }
-    const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Close game";
-    close.onclick=()=>sendGame("game-end",{gameId:game.id});
-    if(gameIsMine(game.hostId))actions.appendChild(close);
   }
   if(actions.childElementCount)body.appendChild(actions);
 
@@ -817,29 +890,38 @@ function renderGameCard(body,game){
     });
     body.appendChild(pending);
   }
-  if(gameIsMine(game.hostId)&&game.status!=="ended"){
-    const end=document.createElement("button");end.type="button";end.className="game-end-link";end.textContent="End this game";
-    end.onclick=()=>sendGame("game-end",{gameId:game.id});
-    body.appendChild(end);
-  }
 }
-// 7 columns x 6 rows, drawn bottom-up so a drop looks like gravity. The server owns the board; a click
-// is only a request and the button is disabled unless it is this player's turn.
-function renderConnectFour(body,game){
-  if(game.kind!=="connect-four")return;
-  const board=document.createElement("div");board.className="cf-board";
+// Two layouts, both server-owned: columns for Connect Four (dropped bottom-up like gravity) and a square
+// grid for tic-tac-toe and Reversi. Cells are clickable only while it is this player's turn.
+function renderBoard(body,game){
   const yourTurn=game.status==="playing"&&gameIsMine(game.turn);
-  for(let row=5;row>=0;row--){
-    for(let column=0;column<7;column++){
-      const disc=game.board[column*6+row]||0;
-      const cell=document.createElement("button");
-      cell.type="button";cell.className=`cf-cell${disc===1?" p1":disc===2?" p2":""}`;
-      cell.setAttribute("aria-label",`Column ${column+1}`);
-      cell.disabled=!yourTurn;
-      cell.onclick=()=>sendGame("game-move",{gameId:game.id,column});
-      board.appendChild(cell);
+  const layout=game.layout||{type:"columns",columns:7,rows:6};
+  if(layout.type==="columns"){
+    const board=document.createElement("div");board.className="cf-board";
+    for(let row=layout.rows-1;row>=0;row--){
+      for(let column=0;column<layout.columns;column++){
+        const disc=game.board[column*layout.rows+row]||0;
+        const cell=document.createElement("button");
+        cell.type="button";cell.className=`cf-cell${disc===1?" p1":disc===2?" p2":""}`;
+        cell.setAttribute("aria-label",`Column ${column+1}`);
+        cell.disabled=!yourTurn;
+        cell.onclick=()=>sendGame("game-move",{gameId:game.id,column});
+        board.appendChild(cell);
+      }
     }
+    body.appendChild(board);
+    return;
   }
+  const size=layout.size||3;
+  const board=document.createElement("div");board.className=`grid-board size-${size} ${game.kind}`;
+  game.board.forEach((disc,index)=>{
+    const cell=document.createElement("button");
+    cell.type="button";cell.className=`grid-cell${disc===1?" p1":disc===2?" p2":""}`;
+    cell.disabled=!yourTurn||disc!==0;
+    if(game.kind==="tic-tac-toe")cell.textContent=disc===1?"✕":disc===2?"◯":"";
+    cell.onclick=()=>sendGame("game-move",{gameId:game.id,index});
+    board.appendChild(cell);
+  });
   body.appendChild(board);
 }
 function renderLiveGames(body){
@@ -866,12 +948,12 @@ function renderLiveGames(body){
   });
   body.appendChild(list);
 }
-// From the room list the game is in another room, so the browser has to be in that room's socket before
-// it can join: open the room and send the action as soon as the socket is up.
+// From the room list a game sits in another room, so the browser has to be in that room's socket before it
+// can act: open the room, then send the action as soon as the socket is up.
 function enterGameRoom(game,action){
   const room=rooms.find(item=>item.id===game.roomId);
   if(!room)return toast("That room is no longer available");
-  gamesMode="room";$("#gamesModal").hidden=false;
+  gamesMode="room";activeGameId=game.id;$("#gamesModal").hidden=false;
   if(currentRoom&&currentRoom.id===room.id){
     sendGame(action==="join"?"game-join":action==="request"?"game-request":"game-watch",{gameId:game.id});
     renderGames();
@@ -887,43 +969,33 @@ function flushGameAction(){
   sendGame(action==="join"?"game-join":action==="request"?"game-request":"game-watch",{gameId});
 }
 async function loadLiveGames(){
-  if(!currentUser)return renderGamesCard();
+  if(!currentUser)return;
   try{liveGames=(await request("/api/games")).games||[]}catch{liveGames=[]}
-  renderGamesCard();
+  if(!$("#roomsView").hidden)renderRoomsGrid();
   if(gamesMode==="all"&&$("#gamesModal")&&!$("#gamesModal").hidden)renderGames();
 }
-function renderGamesCard(){
-  const card=$("#gamesCard");
-  if(!card)return;
-  // Signed-in people always see the card, even with nothing running: a list that vanishes is
-  // indistinguishable from a broken list, which is exactly how "my game is not there" gets reported.
-  if(!currentUser){card.hidden=true;card.innerHTML="";return}
-  card.hidden=false;card.innerHTML="";
-  const head=document.createElement("div");head.className="games-card-head";
-  const title=document.createElement("b");title.textContent="🎮 Games in rooms";
-  const count=document.createElement("small");
-  count.textContent=liveGames.length?`${liveGames.length} ${liveGames.length===1?"game":"games"} running`:"no game running";
-  head.append(title,count);
-  if(liveGames.length){
-    const all=document.createElement("button");all.type="button";all.textContent="See all";
-    all.onclick=()=>openGames("all");
-    head.appendChild(all);
-  }
-  card.appendChild(head);
-  if(!liveGames.length){
-    const empty=document.createElement("p");empty.className="games-card-empty";empty.textContent="Start one from inside any room with the 🎲 Games button.";
-    card.appendChild(empty);
-    return;
-  }
-  const list=document.createElement("div");list.className="games-card-list";
-  liveGames.slice(0,3).forEach(game=>{
-    const row=document.createElement("button");row.type="button";row.className="games-card-row";
-    const state=game.status==="lobby"?"waiting":game.status==="playing"?"in progress":"finished";
-    row.textContent=`${game.roomIcon||"🎮"} ${game.name} · ${game.roomName} · ${game.players}/${game.seats} · ${state}`;
-    row.onclick=()=>enterGameRoom(game,game.status==="lobby"&&game.players<game.seats&&game.policy==="open"?"join":"watch");
-    list.appendChild(row);
-  });
-  card.append(head,list);
+// The games entry in the room list. It is a card like any room, so the list is where people find games.
+function gamesRoomCard(){
+  const card=document.createElement("div");
+  const running=liveGames.length;
+  card.className="room-card games-room-card";
+  const head=document.createElement("div");head.className="rc-head";
+  const icon=document.createElement("span");icon.className="rc-icon";icon.textContent="🎮";
+  const title=document.createElement("span");title.className="rc-title";
+  const strong=document.createElement("strong");strong.textContent="Games";
+  const small=document.createElement("small");small.textContent=running?`${running} ${running===1?"game":"games"} being played`:"No games running";
+  title.append(strong,small);
+  const side=document.createElement("span");side.className="rc-side";
+  const badge=document.createElement("span");badge.className="rc-badge";badge.textContent=String(running);
+  side.appendChild(badge);
+  head.append(icon,title,side);
+  const copy=document.createElement("div");copy.className="rc-preview";
+  const line=document.createElement("div");line.className="rc-preview-line";
+  const text=document.createElement("span");text.textContent=running?"Connect Four, tic-tac-toe and Reversi - watch or join":"Open a room, then tap Games to start one";
+  line.appendChild(text);copy.appendChild(line);
+  card.append(head,copy);
+  card.onclick=()=>openGames("all");
+  return card;
 }
 
 /* ------------------------------------------------------ account safety */
