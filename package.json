@@ -26,7 +26,6 @@
     "db:local": "wrangler d1 execute chatblink --local --file=schema.sql",
     "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql",
     "test:schema": "node --no-warnings tests/schema-parity.js",
-    "test:passkey": "node tests/passkey-e2e.js",
     "test:notice": "node tests/notice-board.js"
   },
   "dependencies": {

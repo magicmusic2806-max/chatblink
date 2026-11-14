@@ -27,7 +27,7 @@ const request=async(url,options={})=>{const controller=new AbortController(),tim
 const initials=name=>String(name||"?").slice(0,2).toUpperCase();
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300)}
 function error(id,message){const el=$(id);el.textContent=message;el.hidden=!message}
-function switchAuth(mode){const selected=mode==="signup"||mode==="key-signup"?"signup":"key";document.querySelectorAll("[data-auth-pane]").forEach(pane=>pane.classList.toggle("active",pane.dataset.authPane===selected));if(selected==="key")refreshPasskeyAvailability()}
+function switchAuth(mode){const selected=mode==="signup"||mode==="key-signup"?"signup":"key";document.querySelectorAll("[data-auth-pane]").forEach(pane=>pane.classList.toggle("active",pane.dataset.authPane===selected))}
 function authErrorTarget(mode){return ({signup:"#signupError","key-signup":"#signupError",login:"#keyLoginError",key:"#keyLoginError"})[mode]||"#keyLoginError"}
 document.querySelectorAll("[data-switch]").forEach(b=>b.onclick=()=>switchAuth(b.dataset.switch));
 function busy(form,value){const button=form.querySelector("button[type=submit]");if(!button)return;if(!button.dataset.copy)button.dataset.copy=button.innerHTML;button.disabled=value;button.innerHTML=value?"Please wait…":button.dataset.copy}
@@ -701,163 +701,7 @@ $("#groupCallMute").onclick=toggleRoomCallMute;
 document.querySelector("[data-compose=image]").onclick=()=>$("#imageInput").click();
 $("#imageInput").onchange=async event=>{const files=[...event.target.files].slice(0,4);event.target.value="";if(!files.length)return;if(socket?.readyState!==WebSocket.OPEN)return toast("Reconnecting — try again in a moment");toast(files.length>1?`Sending ${files.length} images…`:"Sending image…");for(const file of files){try{const url=await uploadFile("image",file);send("image",url)}catch(problem){toast(problem.message);break}}};
 document.querySelector("[data-compose=voice]").onclick=()=>startVoiceNote({button:document.querySelector("[data-compose=voice]"),idle:"\uD83C\uDF99 Voice"},async(blob,durationMs,extension)=>{const url=await uploadFile("voice",new File([blob],`voice.${extension}`,{type:blob.type}));send("voice",url)});
-/* ------------------------------------------------------------ passkeys */
-
-const PASSKEYS_KEY="chatblink.passkeys";
-let passkeyAvailableCache=null,platformAuthenticatorCache=null,safetyState=null,siteNotice=null,noticeEditing=false;
-function base64UrlToBytes(value){const text=String(value||"").replace(/-/g,"+").replace(/_/g,"/"),binary=atob(text+"=".repeat((4-text.length%4)%4)),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return bytes}
-function bytesToBase64Url(value){let binary="";for(const byte of new Uint8Array(value))binary+=String.fromCharCode(byte);return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
-function webauthnAvailable(){if(passkeyAvailableCache===null)passkeyAvailableCache=Boolean(window.PublicKeyCredential&&navigator.credentials&&navigator.credentials.get&&navigator.credentials.create);return passkeyAvailableCache}
-async function platformAuthenticatorAvailable(){
-  // Only a positive answer is cached: the platform authenticator can appear later (a virtual one in
-  // tests, Windows Hello being set up mid-session), and a cached "no" would hide the door forever.
-  if(platformAuthenticatorCache===true)return true;
-  try{platformAuthenticatorCache=Boolean(window.PublicKeyCredential&&PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable&&await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())}catch{platformAuthenticatorCache=false}
-  return platformAuthenticatorCache;
-}
-async function refreshPasskeyAvailability(){
-  if(!await platformAuthenticatorAvailable())return;
-  $("#passkeyLogin").hidden=false;
-  $("#passkeyDivider").hidden=false;
-}
-function devicePasskeys(){try{const list=JSON.parse(localStorage.getItem(PASSKEYS_KEY)||"[]");return Array.isArray(list)?list:[]}catch{return []}}
-function rememberDevicePasskey(id){const list=devicePasskeys().filter(item=>item!==id);list.push(id);try{localStorage.setItem(PASSKEYS_KEY,JSON.stringify(list.slice(-20)))}catch{}}
-// A credential created without resident keys is invisible to a usernameless get(), so this browser names
-// the ids it remembers for this site. An empty list keeps the discoverable path, which is what a passkey
-// synced onto this phone from another device needs.
-function rememberedCredentialIds(){return devicePasskeys().map(id=>({type:"public-key",id:base64UrlToBytes(id)}))}
-let pendingRegisterOptions=null,pendingRegisterAt=0,registerOptionsFlight=null;
-// Chrome (and Android's credential manager) need a live user activation for create()/get(). Awaiting
-// the options request inside the click handler can burn it, so the challenge is fetched ahead of time
-// while the panel is open and the click goes straight to the device prompt.
-async function primeRegisterOptions(){
-  // Only one request may be in flight: two of them would overwrite the challenge cookie, and whichever
-  // arrived last would leave the click holding an options object the server no longer honours.
-  if(registerOptionsFlight)return registerOptionsFlight;
-  if(freshRegisterOptions())return pendingRegisterOptions;
-  const flight=passkeyOptions("register").then(options=>{pendingRegisterOptions=options;pendingRegisterAt=Date.now();return options},()=>null).finally(()=>{if(registerOptionsFlight===flight)registerOptionsFlight=null});
-  registerOptionsFlight=flight;
-  return flight;
-}
-async function takeRegisterOptions(){
-  const options=await primeRegisterOptions();
-  pendingRegisterOptions=null;pendingRegisterAt=0;
-  return options||passkeyOptions("register");
-}
-function freshRegisterOptions(){
-  return pendingRegisterOptions&&Date.now()-pendingRegisterAt<120000?pendingRegisterOptions:null;
-}
-function minimalRegisterOptions(options){
-  // Everything the platform does not strictly need is dropped, starting with resident keys: a platform
-  // provider that cannot store a discoverable credential answers NotReadableError even when residentKey
-  // is only "preferred" (proved on an Android phone by public/passkey-check.html). The passkey is still
-  // worth creating, because sign-in names the credential id this browser remembers.
-  return {
-    challenge:options.challenge,
-    rp:options.rp,
-    user:options.user,
-    pubKeyCredParams:options.pubKeyCredParams,
-    authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required"},
-    attestation:"none"
-  };
-}
-function minimalLoginOptions(options){
-  return {challenge:options.challenge,rpId:options.rpId,allowCredentials:options.allowCredentials||[],authenticatorAttachment:"platform",userVerification:"required"};
-}
-// The refusal advice has to name the lock screen this device actually has: telling an Android phone to
-// set up Windows Hello reads as a browser bug and hides the real check. Unknown platforms get the
-// generic sentence.
-function passkeyRefusalAdvice(){
-  const ua=String((navigator&&navigator.userAgent)||"");
-  if(/Android/i.test(ua))return "Set a screen lock (PIN, pattern, fingerprint or face) on this phone and make sure Google Password Manager is turned on in Chrome's settings, then try again.";
-  if(/iPhone|iPad|iPod/i.test(ua))return "Make sure Face ID, Touch ID or a device passcode is set up in Settings, then try again.";
-  if(/Macintosh/i.test(ua))return "Make sure Touch ID or your login password is set up on this Mac, then try again.";
-  if(/Windows/i.test(ua))return "Make sure Windows Hello (PIN, face or fingerprint) is set up in Windows Settings, then try again.";
-  return "Make sure this device has a screen lock set up, then try again.";
-}
-function passkeyErrorMessage(problem){
-  const name=(problem&&problem.name)||"",message=String((problem&&problem.message)||"");
-  if(name==="NotAllowedError")return "The device did not confirm a passkey. Try again and approve the prompt.";
-  if(name==="AbortError")return "The passkey prompt was closed.";
-  if(name==="SecurityError")return "The browser refused a passkey on this address. Use https://chatblink.chat.";
-  if(name==="InvalidStateError")return "This device already has a passkey for your account.";
-  if(name==="ConstraintError"||/not supported/i.test(message))return "This device cannot create a passkey.";
-  // The user agent goes in the log because a refusal report is useless without knowing which passkey
-  // provider answered.
-  console.warn("passkey error:",name,message,navigator.userAgent);
-  return `The device's credential manager refused (${name||"error"}). ${passkeyRefusalAdvice()}`;
-}
-
-async function passkeyOptions(mode){
-  const result=await request("/api/auth/passkey/options",{method:"POST",body:JSON.stringify({mode,origin:location.origin})});
-  const options=result.options||{};
-  options.challenge=base64UrlToBytes(options.challenge);
-  if(options.user)options.user.id=base64UrlToBytes(options.user.id);
-  (options.excludeCredentials||[]).forEach(item=>{item.id=base64UrlToBytes(item.id)});
-  (options.allowCredentials||[]).forEach(item=>{item.id=base64UrlToBytes(item.id)});
-  return options;
-}
-async function signInWithPasskey(){
-  if(!webauthnAvailable())return toast("This browser cannot use a passkey.");
-  const button=$("#passkeyLogin"),copy=button&&button.textContent;
-  if(button){button.disabled=true;button.textContent="Waiting for your device…"}
-  try{
-    const options=await passkeyOptions("login");
-    // One get() has to serve two kinds of credential: a discoverable passkey (allowCredentials empty, the
-    // device picks) and a device-bound one created when the platform refused resident keys, which is only
-    // found when its id is named. Both lists are already this browser's business, so no server round trip.
-    const known=rememberedCredentialIds();
-    if(known.length)options.allowCredentials=known;
-    let assertion;
-    try{assertion=await navigator.credentials.get({publicKey:options})}
-    catch(problem){
-      if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
-      console.warn("passkey get failed, retrying with reduced options:",problem&&problem.name,problem&&problem.message);
-      assertion=await navigator.credentials.get({publicKey:minimalLoginOptions(options)});
-    }
-    const result=await request("/api/auth/passkey/verify",{method:"POST",body:JSON.stringify({origin:location.origin,credentialId:assertion.id,response:{clientDataJSON:bytesToBase64Url(assertion.response.clientDataJSON),authenticatorData:bytesToBase64Url(assertion.response.authenticatorData),signature:bytesToBase64Url(assertion.response.signature)}})});
-    rememberToken(result.token);
-    await enterApp(result.user);
-  }catch(problem){
-    if(problem&&problem.name==="NotAllowedError")toast("No passkey was used.");
-    else if(problem&&problem.message&&/profile key|not registered|challenge|origin|site/i.test(problem.message))toast(problem.message);
-    else toast(passkeyErrorMessage(problem));
-  }finally{if(button){button.disabled=false;button.textContent=copy}}
-}
-async function addPasskey(){
-  if(!currentUser)return toast("Join the chatrooms first");
-  if(!webauthnAvailable())return toast("This browser cannot use a passkey.");
-  const button=$("#safetyAddPasskey");
-  if(button){button.disabled=true;button.textContent="Waiting for your device…"}
-  try{
-    const options=await takeRegisterOptions();
-    let credential,synced=true;
-    // The discoverable attempt goes first every time, even on a device that refused it before: a passkey
-    // its provider cannot sync is a local door only, so nothing here may stop a device from getting a
-    // synced one the moment its provider starts working (Google Password Manager enabled, iCloud on,
-    // Windows account with Hello). The refusal costs a few milliseconds and never reaches a prompt.
-    try{credential=await navigator.credentials.create({publicKey:options})}
-    catch(problem){
-      if(problem&&(problem.name==="NotAllowedError"||problem.name==="AbortError"))throw problem;
-      console.warn("passkey create failed, retrying without resident keys:",problem&&problem.name,problem&&problem.message);
-      credential=await navigator.credentials.create({publicKey:minimalRegisterOptions(options)});
-      synced=false;
-    }
-    const saved=await request("/api/auth/passkey/register",{method:"POST",body:JSON.stringify({origin:location.origin,credential:{id:credential.id,authenticatorAttachment:credential.authenticatorAttachment,response:{clientDataJSON:bytesToBase64Url(credential.response.clientDataJSON),attestationObject:bytesToBase64Url(credential.response.attestationObject),transports:credential.response.getTransports?credential.response.getTransports():[]}}})});
-    rememberDevicePasskey(saved.id||credential.id);
-    // Say which kind of passkey this is. A device whose provider refuses discoverable credentials gets a
-    // credential this browser alone can use, and the person should hear that now rather than when they
-    // reach for a fingerprint on another device and find nothing there.
-    toast(synced
-      ?"This device can now sign you in with your fingerprint"
-      :"This browser can sign you in with your fingerprint. That passkey stays on this device - your device's passkey manager refused to store a synced one");
-    await loadSafety();
-  }catch(problem){
-    if(problem&&problem.name==="NotAllowedError")toast("The passkey was not created - approve the prompt on this device.");
-    else if(problem&&problem.message&&/already registered for this|profile key|Sign in first|origin|site/i.test(problem.message))toast(problem.message);
-    else toast(passkeyErrorMessage(problem));
-  }finally{if(button){button.disabled=false;button.textContent="Add this device"}}
-}
+let safetyState=null,siteNotice=null,noticeEditing=false;
 
 /* ------------------------------------------------------ account safety */
 
@@ -874,58 +718,22 @@ function renderSafety(){
   const body=$("#safetyBody");
   if(!body)return;
   body.innerHTML="";
-  const account=(safetyState&&safetyState.account)||{},passkeys=(safetyState&&safetyState.passkeys)||[];
+  const account=(safetyState&&safetyState.account)||{};
   const details=document.createElement("div");details.className="safety-card";
   const rows=[["Username","@"+account.username]];
   if(account.displayName&&account.displayName!==account.username)rows.push(["Display name",account.displayName]);
   if(account.age)rows.push(["Age",String(account.age)]);
   if(account.role&&account.role!=="user")rows.push(["Role",account.role==="admin"?"Admin":"Moderator"]);
   if(account.createdAt){const when=new Date(account.createdAt);if(!Number.isNaN(when.getTime()))rows.push(["Member since",when.toLocaleDateString()])}
-  rows.push(["Devices with a passkey",String(passkeys.length)]);
   renderSafetyRows(details,rows);
   body.appendChild(details);
 
-  const device=document.createElement("div");device.className="safety-card";
-  const deviceText=document.createElement("p");deviceText.className="safety-copy";deviceText.textContent="Checking this device…";
-  device.appendChild(deviceText);
-  platformAuthenticatorAvailable().then(available=>{
-    if(!deviceText.isConnected)return;
-    deviceText.textContent=available
-      ?"This device can use its fingerprint, face or screen lock to sign you in."
-      :"This device has no fingerprint, face or screen lock set up, so there is nothing to add here. Your profile key signs you in on this device.";
-    if(available&&add.parentElement!==device)device.appendChild(add);
-    if(!available)add.remove();
-  });
-  const add=document.createElement("button");add.type="button";add.className="primary safety-add";add.id="safetyAddPasskey";add.textContent="Add this device";
-  add.disabled=!webauthnAvailable();add.onclick=addPasskey;
-  device.appendChild(add);
-  body.appendChild(device);
-
-  const list=document.createElement("div");list.className="safety-card";
-  const title=document.createElement("p");title.className="safety-title";title.textContent="Your passkeys";list.appendChild(title);
-  if(!passkeys.length){
-    const empty=document.createElement("p");empty.className="safety-copy";empty.textContent="No passkey yet. Add this device to sign in with your fingerprint instead of typing your key.";list.appendChild(empty);
-  }
-  const mine=devicePasskeys();
-  passkeys.forEach(passkey=>{
-    const row=document.createElement("div");row.className="safety-passkey";
-    const info=document.createElement("span");
-    const label=document.createElement("b");label.textContent=mine.includes(passkey.id)?"This device":"Passkey";
-    const meta=document.createElement("small");
-    const created=passkey.createdAt?new Date(passkey.createdAt):null;
-    meta.textContent=[created&&!Number.isNaN(created.getTime())?"Added "+created.toLocaleDateString():null,passkey.lastUsedAt?"last used "+new Date(passkey.lastUsedAt).toLocaleDateString():"not used yet"].filter(Boolean).join(" · ");
-    info.append(label,meta);
-    const remove=document.createElement("button");remove.type="button";remove.className="safety-remove";remove.textContent="Remove";
-    remove.onclick=()=>askRemovePasskey(passkey);
-    row.append(info,remove);list.appendChild(row);
-  });
-  body.appendChild(list);
-
-  const key=document.createElement("p");key.className="safety-copy";key.textContent="Your profile key still works everywhere, including on a device without a passkey. Keep it somewhere safe - it is the only way back in if you lose every passkey.";
+  // One door, one warning: the profile key is the account. There is nothing else to add or remove here,
+  // which is why this panel is account facts plus that sentence and no buttons.
+  const key=document.createElement("p");key.className="safety-copy";key.textContent="Your profile key is the only way into this account. Anyone who has it can sign in, and without it there is no way back - keep it somewhere safe.";
   body.appendChild(key);
 }
 async function loadSafety(){
-  primeRegisterOptions();
   try{safetyState=await request("/api/account/safety");renderSafety()}
   catch(problem){const body=$("#safetyBody");if(body)body.textContent=problem.message}
 }
@@ -933,18 +741,7 @@ function openSafety(){
   if(!currentUser)return toast("Join the chatrooms first");
   $("#safetyModal").hidden=false;
   const body=$("#safetyBody");if(body)body.innerHTML='<p class="dm-inbox-empty">Loading…</p>';
-  platformAuthenticatorCache=null;
   loadSafety();
-}
-function askRemovePasskey(passkey){
-  openConfirm("Remove this passkey?","That device will no longer sign you in with its fingerprint. Your profile key still works.",()=>removePasskey(passkey));
-}
-async function removePasskey(passkey){
-  try{
-    await request("/api/account/passkeys/remove",{method:"POST",body:JSON.stringify({credentialId:passkey.id})});
-    toast("Passkey removed");
-    await loadSafety();
-  }catch(problem){toast(problem.message)}
 }
 
 /* --------------------------------------------------------- notice board */
@@ -1002,11 +799,7 @@ async function loadNotice(){
   renderNotice();
 }
 
-$("#passkeyLogin").onclick=signInWithPasskey;
 $("#safetyClose").onclick=()=>{$("#safetyModal").hidden=true};
 $("#menuDrop").querySelector('[data-menu="safety"]').onclick=()=>{$("#menuDrop").hidden=true;openSafety()};
-// The fingerprint door is only offered where this device actually has a platform authenticator; a
-// browser that would fall back to "use a phone instead" gets the profile key form and nothing else.
-refreshPasskeyAvailability();
 
 async function init(){const hashParams=new URLSearchParams(location.hash.slice(1)),hashToken=hashParams.get("auth"),hashKey=hashParams.get("profileKey"),params=new URLSearchParams(location.search),bootstrapToken=window.__NEARBY_TOKEN__;if(bootstrapToken||hashToken)rememberToken(bootstrapToken||hashToken);if(hashKey)rememberProfileKey(hashKey);if(window.__NEARBY_NEW_KEY__)rememberProfileKey(window.__NEARBY_NEW_KEY__);if(hashToken||hashKey)history.replaceState({},"",location.pathname);if(location.pathname!=="/"&&location.pathname!=="/rooms"&&location.pathname!=="/dms"&&!location.pathname.startsWith("/room/")&&!location.pathname.startsWith("/profile/"))history.replaceState({},"","/");const requested=params.get("mode"),mode=["signup","login","key","key-signup"].includes(requested)?requested:"signup",message=params.get("error"),notice=params.get("notice");try{const user=window.__NEARBY_USER__||(await request("/api/auth/me")).user;if(window.__NEARBY_NEW_KEY__){showProfileSetup(user,window.__NEARBY_NEW_KEY__);return}if(user.profileComplete)await enterApp(user);else showProfileSetup(user,pendingProfileKey)}catch{forgetToken();enterGuestMode();switchAuth(mode);if(message)error(authErrorTarget(mode),message);if(notice){const banner=$("#authNotice");banner.textContent=notice;banner.hidden=false}}}init();

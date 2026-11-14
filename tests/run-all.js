@@ -41,10 +41,9 @@ const servers = [
     { name: "group-call", file: "tests/group-call.js" },
     { name: "group-call-e2e", file: "tests/group-call-e2e.js" }
   ] },
-  // Passkeys need Chromium's virtual authenticator and a localhost origin (an rpId cannot be an IP), so
-  // this group has its own server too.
+  // The notice board is the only suite here, and it needs an admin account, so it keeps a server of its
+  // own rather than sharing room-creation budgets with the browser suites above.
   { port: 8809, vars: [], env: {}, suites: [
-    { name: "passkey", file: "tests/passkey-e2e.js" },
     { name: "notice", file: "tests/notice-board.js" }
   ] }
 ];

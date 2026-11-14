@@ -4,7 +4,7 @@ import { IMAGE_TYPES, AUDIO_TYPES, matchesMediaType, UPLOAD_CONTENT_TYPES } from
 
 export { ChatHub } from "./hub.js";
 
-const CLIENT_VERSION = "76";
+const CLIENT_VERSION = "77";
 const UPLOAD_NAME = /^[a-f0-9-]{36}\.(jpg|png|gif|webp|webm|mp4|m4a|ogg)$/;
 const PAGE_ROUTES = [/^\/$/, /^\/index\.html$/, /^\/rooms$/, /^\/dms$/, /^\/explore$/, /^\/room\/[^/]+$/, /^\/profile\/[^/]+$/];
 const notFound = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -21,10 +21,6 @@ function canonicalOrigin(env) {
 function forward(env, request) {
   const headers = new Headers(request.headers);
   headers.set("x-cb-ip", request.headers.get("cf-connecting-ip") || "");
-  // The runtime normalises `Origin` to the URL of the Request it is given, which `wrangler dev` has
-  // already rewritten to the configured custom domain. WebAuthn has to compare against the origin the
-  // browser is actually on, so the real value travels under its own header.
-  headers.set("x-cb-origin", request.headers.get("Origin") || "");
   headers.delete("content-length");
   const streamable = request.method !== "GET" && request.method !== "HEAD";
   return hubFor(env).fetch(new Request(request.url, { method: request.method, headers, body: streamable ? request.body : undefined }));

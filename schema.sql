@@ -55,19 +55,9 @@ CREATE TABLE IF NOT EXISTS room_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS room_subscriptions_room ON room_subscriptions (room_id);
 
--- Passkeys (WebAuthn): one row per registered device. The public key is stored already converted from
--- COSE to SPKI so a login is one importKey plus one verify; counter feeds clone detection.
-CREATE TABLE IF NOT EXISTS passkey_credentials (
-  credential_id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  public_key TEXT NOT NULL,
-  counter INTEGER NOT NULL DEFAULT 0,
-  transports TEXT,
-  device_type TEXT,
-  created_at TEXT NOT NULL,
-  last_used_at TEXT
-);
-CREATE INDEX IF NOT EXISTS passkey_credentials_user ON passkey_credentials (user_id);
+-- Passkeys were removed: the account door is the profile key alone. Dropping the table here keeps the
+-- schema and production D1 honest instead of leaving dead credential rows behind (D1 schema version 4).
+DROP TABLE IF EXISTS passkey_credentials;
 
 -- The room-list notice board: a single row the admin edits, plus the flag that shows or hides it.
 CREATE TABLE IF NOT EXISTS site_notice (
