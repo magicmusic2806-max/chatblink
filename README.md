@@ -185,6 +185,7 @@ tests/group-call-e2e.js     two-browser room-call mesh with real WebRTC audio
 tests/notice-board.js       notice board reads, admin writes and the live event
 tests/auth-e2e.js           Playwright end-to-end suite for the legacy Node server
 DEPLOY.md                   step-by-step deployment and data migration
+GAMES.md                    games roadmap: Draw & Guess first, plus licences
 server-multi-room.js        LEGACY Node backend (Render only, being retired)
 public/rooms.html           app shell and all views
 public/multi-room.js        all client logic

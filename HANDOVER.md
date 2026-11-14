@@ -121,3 +121,6 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
+- **Games:** users asked for Draw & Guess and nothing is built yet. `GAMES.md` holds the roadmap —
+  Draw & Guess first, then Connect Four as the plumbing proof, with verified licences and the
+  decisions still needed from the owner.
