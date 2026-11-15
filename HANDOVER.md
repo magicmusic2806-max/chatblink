@@ -155,7 +155,8 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   downloaded GIF or sprite: a loader that waits on the same network the room is waiting on defeats itself,
   and any third-party animation would need a verified licence first (`GAMES.md` holds the rule and the
   licence checks). If a real-footage or sprite cat is ever wanted, it has to clear that licence bar and be
-  vendored locally.
+  vendored locally. It is tinted with the room's accent (`var(--accent)`, lightened a little in dark mode)
+  and walks a two-segment, four-beat gait with an asymmetric stance/swing and a deliberately long stride.
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
