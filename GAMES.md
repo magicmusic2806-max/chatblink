@@ -167,13 +167,17 @@ per second) and are never stored per point.
    list.** ✅ `v=80` — a room holds up to four games at once, the button shows how many are running,
    and the room list begins with a Games card whose badge is the live total.
 3. **Tic-tac-toe and Reversi.** ✅ `v=80` — both grid games, validated in the object like Connect Four.
-4. **Draw & Guess.** Next, and the one users asked for by name. Design below.
-5. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
-6. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
+4. **Fix pass after the first people played.** ✅ `v=82` — the cap counts running games only, finished
+   boards are pruned, the host role moves to whoever is left, either player can rematch, a host can
+   restart a live board, and the object hands the dock the legal moves. Covered by `tests/games.js`
+   (sockets) and `tests/games-ui.js` (two browsers through the dock).
+5. **Draw & Guess.** Next, and the one users asked for by name. Design below.
+6. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
+7. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
    watchable but not joinable.
-7. **Poker / trivia** only if demand appears.
+8. **Poker / trivia** only if demand appears.
 
-## As built (`v=80`, three games)
+## As built (`v=82`, three games)
 
 Everything below is what the code actually does, not the plan it came from:
 
@@ -181,7 +185,12 @@ Everything below is what the code actually does, not the plan it came from:
   hibernation and a restart (verified by killing the dev server between a create and a move). It is a
   map of rooms to maps of games: **a room may run up to `GAMES_PER_ROOM` (4) games at once**, and one
   person may hold a seat in only one unfinished game per room, so nobody plays two boards at once.
-  A finished game stays on the board until the host clears it.
+  A finished board keeps its result in the room until someone clears it, and at most `ENDED_GAMES_KEPT`
+  (2) of them are kept — older ones drop automatically.
+- **A slot belongs to an unfinished game.** The cap counts games still in the lobby or being played,
+  never finished boards: four dead boards at the cap used to close a room to new games for good, which
+  is exactly what stranded a player whose host had walked off. The dock's "Start another game" follows
+  the same rule, so it never disappears because of a result sitting in the list.
 - **Games:** Connect Four (7x6 columns), Tic-tac-toe (3x3), Reversi (8x8, standard opening, with the
   pass rule when the opponent has no legal move). `GAME_KINDS` carries the layout; the client renders
   either a column board or a square grid from `layout`.
@@ -203,13 +212,24 @@ Everything below is what the code actually does, not the plan it came from:
   `--var` overridable) does the object settle it — a running game goes to whoever stayed, a lobby game
   whose host is gone disappears. The alarm does that on its own, and any game event sweeps first, so a
   returning player never loses a seat to a reload.
-- **Rematch and clearing:** the host can restart a finished board with the same seats (`game-restart`,
-  fresh board, first seat to move), and a finished board can be cleared by the host *or by any player in
-  it* — an absent host must not be able to pin a dead board to the room. Ending a running game stays
-  with the host (or a moderator/admin).
+- **Restart, rematch and clearing:** any player at a finished board may ask for a rematch
+  (`game-restart`: fresh board, same seats, the opening seat alternates so nobody is permanently the
+  second player), and any of them may clear it from the room. Restarting a board that is *still in
+  play* discards the moves, so it stays with the host (or a moderator/admin) and the dock asks twice.
+  A rematch only seats the people still in the room: the seat of a player who walked out is dropped and
+  the board reopens in the lobby rather than restarting against a ghost who never moves.
+- **The host role moves.** Whoever is left runs the board: when the host leaves a game or their seat
+  expires while away, `rehostGame()` hands the host role to the remaining player and tells them so
+  (`game-host`), so a finished game can still be rematched, approved and cleared. A seated player can
+  also run a board whose host is not in the room at all, which rescues state stored before that rule.
+- **Legal moves come from the object.** Every `game-view` carries `moves` for the side to move (playable
+  columns for Connect Four, empty squares for tic-tac-toe, flipping squares for Reversi). The dock marks
+  and enables only those, so a phone — which has no hover state — is not guessing, and an impossible
+  move is not something the UI offers only for the server to refuse.
 - **Budgets:** game events use `gameLimited()` (60 per 10 s per connection), never the chat window. A
   suite check sends 25 game events and then a message to prove the message still lands.
-- **HTTP:** `GET /api/games` lists every game in a room the caller may enter.
+- **HTTP:** `GET /api/games` lists every game *still running* in a room the caller may enter — a finished
+  board is a result inside its room, not something to discover and watch from outside.
 - **UI:** the room's **🎲 Games** button carries a count of the games running in that room. Opening it
   shows that room's games (tap one for its board and actions) or the create form when it has none. The
   **room list begins with a Games card** — same shape as a room card, a badge with the total — which

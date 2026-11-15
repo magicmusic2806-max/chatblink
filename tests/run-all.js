@@ -46,6 +46,11 @@ const servers = [
   { port: 8791, vars: ["AWAY_GRACE_MS:1500"], env: { AWAY_GRACE_MS: "1500" }, suites: [
     { name: "games", file: "tests/games.js" }
   ] },
+  // The games dock drives two browsers through the paths a stranded player used to be stuck in, and its own
+  // accounts and room would otherwise share the signup and room-create budgets with the suite above.
+  { port: 8811, vars: [], env: {}, suites: [
+    { name: "games-ui", file: "tests/games-ui.js" }
+  ] },
   // The notice board is the only suite here, and it needs an admin account, so it keeps a server of its
   // own rather than sharing room-creation budgets with the browser suites above.
   { port: 8809, vars: [], env: {}, suites: [

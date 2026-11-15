@@ -161,7 +161,9 @@ async function main() {
 
   ownerSocket.inbox.length = 0; peerSocket.inbox.length = 0;
   send(ownerSocket, { type: "game-approve", gameId: tic.id, userId: peer.user.id });
-  ok("approval seats the requester and starts the game", gameById(await waitGame(peerSocket, tic.id, game => game.status === "playing"), tic.id).players.length === 2);
+  const ticOpen = gameById(await waitGame(peerSocket, tic.id, game => game.status === "playing"), tic.id);
+  ok("approval seats the requester and starts the game", ticOpen.players.length === 2);
+  ok("the object lists every free square for the side to move", ticOpen.moves.length === 9 && ticOpen.moves[0] === 0, JSON.stringify(ticOpen.moves));
 
   // One seat per person: the host may not open a third game while this one is being played.
   ownerSocket.inbox.length = 0;
@@ -187,7 +189,11 @@ async function main() {
   send(ownerSocket, { type: "game-restart", gameId: tic.id });
   const restarted = gameById(await waitGame(ownerSocket, tic.id, game => game.status === "playing"), tic.id);
   ok("the host can rematch a finished game", restarted.board.every(cell => cell === 0) && restarted.winnerId === null && restarted.players.length === 2, JSON.stringify(restarted.board));
-  ok("the rematch starts with the first seat to move", restarted.turn === owner.user.id);
+  ok("the rematch alternates the opening seat", restarted.turn === peer.user.id, restarted.turn);
+
+  peerSocket.inbox.length = 0;
+  send(peerSocket, { type: "game-restart", gameId: tic.id });
+  ok("only the host restarts a board that is still in play", /host/i.test((await waitFor(peerSocket, packet => packet.type === "game-error")).message));
 
   peerSocket.inbox.length = 0;
   send(peerSocket, { type: "game-end", gameId: tic.id });
@@ -196,6 +202,17 @@ async function main() {
   ownerSocket.inbox.length = 0;
   send(ownerSocket, { type: "game-end", gameId: tic.id });
   ok("the host can end a running game", gameById(await waitGame(ownerSocket, tic.id, game => game.status === "ended"), tic.id).winnerId === null);
+
+  // The player who is not the host asks for the rematch: being the host must not be the price of playing again.
+  peerSocket.inbox.length = 0;
+  send(peerSocket, { type: "game-restart", gameId: tic.id });
+  const replay = gameById(await waitGame(peerSocket, tic.id, game => game.status === "playing"), tic.id);
+  ok("the other player can rematch a finished game", replay.board.every(cell => cell === 0) && replay.players.length === 2 && replay.winnerId === null);
+  ok("and the opening seat goes back to the first player", replay.turn === owner.user.id, replay.turn);
+
+  ownerSocket.inbox.length = 0;
+  send(ownerSocket, { type: "game-end", gameId: tic.id });
+  await waitGame(ownerSocket, tic.id, game => game.status === "ended");
 
   // The other player clears the finished board: an absent host must not be the only one who can tidy up.
   peerSocket.inbox.length = 0;
@@ -211,7 +228,8 @@ async function main() {
   ok("Reversi opens with the four-disc centre", othello.board.length === 64 && [27, 28, 35, 36].every(cell => othello.board[cell] !== 0), JSON.stringify(othello.board.filter(cell => cell !== 0).length));
   peerSocket.inbox.length = 0;
   send(peerSocket, { type: "game-join", gameId: othello.id });
-  await waitGame(peerSocket, othello.id, game => game.status === "playing");
+  const othelloOpen = gameById(await waitGame(peerSocket, othello.id, game => game.status === "playing"), othello.id);
+  ok("the object lists the four legal Reversi openings", JSON.stringify(othelloOpen.moves) === JSON.stringify([19, 26, 37, 44]), JSON.stringify(othelloOpen.moves));
 
   ownerSocket.inbox.length = 0;
   send(ownerSocket, { type: "game-move", gameId: othello.id, index: 0 });
@@ -222,16 +240,19 @@ async function main() {
   const afterFlip = gameById(flipped, othello.id);
   ok("a legal Reversi move flips the bracketed disc", Boolean(afterFlip) && afterFlip.board[19] === 1 && afterFlip.board[27] === 1, JSON.stringify({ games: flipped.games.map(game => `${game.kind}:${game.status}`), board19: afterFlip?.board[19], board27: afterFlip?.board[27] }));
   ok("the turn passes to the other player", afterFlip?.turn === peer.user.id);
+  ok("the legal moves follow the turn", afterFlip.moves.length > 0 && afterFlip.moves.every(cell => afterFlip.board[cell] === 0), JSON.stringify(afterFlip.moves));
 
   /* ---------------------------------------------------------- room list feed */
   ownerSocket.inbox.length = 0;
   send(ownerSocket, { type: "game-sync" });
   const synced = await waitFor(ownerSocket, packet => packet.type === "game-state");
   const list = await (await get("/api/games", peer.cookie)).json();
-  const roomGames = (list.games || []).filter(game => game.roomId === room.id);
-  ok("the games feed lists every game in the room", roomGames.length >= 2 && roomGames.length === synced.games.length, `${roomGames.length}/${synced.games.length}`);
+  const feedGames = (list.games || []).filter(game => game.roomId === room.id);
+  const openInRoom = (synced.games || []).filter(game => game.status !== "ended");
+  ok("the games feed lists every game still open in the room", feedGames.length === openInRoom.length && feedGames.every(game => game.status !== "ended"), `${feedGames.length}/${openInRoom.length}`);
+  ok("a finished board is left out of the feed", feedGames.length < (synced.games || []).length, `${feedGames.length}/${(synced.games || []).length}`);
   ok("the games feed is closed to signed-out visitors", (await get("/api/games")).status === 401);
-  ok("the dock can ask for every game in the room", (synced.games || []).length === roomGames.length, JSON.stringify((synced.games || []).map(game => game.kind)));
+  ok("the dock can ask for every game in the room, finished ones included", (synced.games || []).length === feedGames.length + 1, JSON.stringify((synced.games || []).map(game => `${game.kind}:${game.status}`)));
 
   const privateRoom = (await (await post("/api/rooms", { name: `Hidden ${stamp}`, vibe: "Private game.", access: "request", theme: "berry" }, owner.cookie)).json()).room;
   const privateSocket = socket(privateRoom.id, owner.cookie);
@@ -247,23 +268,43 @@ async function main() {
   ok("but the room's own members see it", (ownerList.games || []).some(item => item.id === hidden.games[0].id));
 
   /* ------------------------------------------------------------- the cap */
-  // Fill the room to GAMES_PER_ROOM with games opened by accounts that are not playing there, then the
-  // next create must be refused. The cap is checked before the one-seat rule, so anyone hits it.
-  let running = roomGames.length;
-  for (const ws of [spareSocket, fourthSocket]) {
-    if (running >= 4) break;
+  // A slot belongs to a game still being played. Finish the Reversi board, then have all four accounts open a
+  // lobby: four running games, and the next create must be refused. The cap is checked before the one-seat
+  // rule, so the refusal is about the room rather than the player.
+  ownerSocket.inbox.length = 0;
+  send(ownerSocket, { type: "game-end", gameId: othello.id });
+  const othelloEnded = gameById(await waitGame(ownerSocket, othello.id, game => game.status === "ended"), othello.id);
+  ok("a finished board offers no moves", othelloEnded.moves.length === 0, JSON.stringify(othelloEnded.moves));
+
+  for (const ws of [ownerSocket, peerSocket, spareSocket, fourthSocket]) {
     send(ws, { type: "game-create", kind: "tic-tac-toe", policy: "open" });
     await sleep(400);
-    running++;
   }
   ownerSocket.inbox.length = 0;
   send(ownerSocket, { type: "game-create", kind: "connect-four", policy: "open" });
   const capped = await waitFor(ownerSocket, packet => packet.type === "game-error");
-  ok("a room is capped at four games", /4 games/i.test(capped.message), capped.message);
+  ok("a room is capped at four games still running", /4 games/i.test(capped.message), capped.message);
+
+  // Now the point of the rule: finish one of those lobbies and its slot comes back, even though the room still
+  // holds finished boards - the exact state that used to leave a player with no way to start anything.
+  spareSocket.inbox.length = 0;
+  send(spareSocket, { type: "game-sync" });
+  const spareGames = (await waitFor(spareSocket, packet => packet.type === "game-state")).games;
+  const spareLobby = spareGames.find(game => game.hostId === spare.user.id && game.status !== "ended");
+  ok("the room holds four lobbies plus the finished boards", spareGames.filter(game => game.status === "lobby").length === 4 && spareGames.some(game => game.status === "ended"), JSON.stringify(spareGames.map(game => `${game.kind}:${game.status}`)));
+  send(spareSocket, { type: "game-end", gameId: spareLobby.id });
+  await waitGame(spareSocket, spareLobby.id, game => game.status === "ended");
+  spareSocket.inbox.length = 0;
+  send(spareSocket, { type: "game-create", kind: "connect-four", policy: "open" });
+  const reopened = await waitFor(spareSocket, packet => packet.type === "game-state" && packet.games.some(game => game.hostId === spare.user.id && game.kind === "connect-four" && game.status === "lobby"), 4000).catch(() => null);
+  ok("a finished board frees its slot, so a full room still takes a new game", Boolean(reopened));
+  const endedKept = (reopened ? reopened.games : []).filter(game => game.status === "ended");
+  ok("only the newest finished boards are kept", endedKept.length <= 2, `${endedKept.length} kept`);
 
   /* ------------------------------------------------------ an abandoned seat */
-  // A host who walks away must not strand the room: after the grace period the player who stayed wins and
-  // is free to start something else. The grace is 1500 ms in this suite (AWAY_GRACE_MS).
+  // A host who walks away must not strand the room: after the grace period the player who stayed wins, takes
+  // the host role, and can both start something else and play the finished board again. The grace is 1500 ms
+  // in this suite (AWAY_GRACE_MS).
   const awayRoom = (await (await post("/api/rooms", { name: `Away ${stamp}`, vibe: "abandon", access: "open", theme: "ocean" }, owner.cookie)).json()).room;
   const leaverSocket = socket(awayRoom.id, owner.cookie), stayerSocket = socket(awayRoom.id, peer.cookie);
   for (const ws of [leaverSocket, stayerSocket]) { await open(ws); await waitFor(ws, packet => packet.type === "history"); }
@@ -272,17 +313,28 @@ async function main() {
   const awayGame = (await waitFor(leaverSocket, packet => packet.type === "game-state" && packet.games.length === 1)).games[0];
   send(stayerSocket, { type: "game-join", gameId: awayGame.id });
   await waitGame(stayerSocket, awayGame.id, game => game.status === "playing");
+  stayerSocket.inbox.length = 0;
   leaverSocket.close();
   await sleep(2200);
+  ok("the player who stayed is told they now run the board", stayerSocket.inbox.some(packet => packet.type === "game-host" && packet.gameId === awayGame.id));
   stayerSocket.inbox.length = 0;
   send(stayerSocket, { type: "game-sync" });
   const afterAway = await waitFor(stayerSocket, packet => packet.type === "game-state");
   const resolved = gameById(afterAway, awayGame.id);
   ok("a host who closes the tab hands the game to the player who stayed", resolved?.status === "ended" && resolved.winnerId === peer.user.id && resolved.reason === "left", JSON.stringify({ status: resolved?.status, reason: resolved?.reason, winner: resolved?.winnerId === peer.user.id }));
+  ok("and the host role moves to the player who stayed", resolved?.hostId === peer.user.id, resolved?.hostId);
   stayerSocket.inbox.length = 0;
   send(stayerSocket, { type: "game-create", kind: "connect-four", policy: "open" });
   const freeAgain = await waitFor(stayerSocket, packet => packet.type === "game-state" && packet.games.some(game => game.kind === "connect-four" && game.status === "lobby"), 4000).catch(() => null);
   ok("and the staying player can start another game straight away", Boolean(freeAgain));
+  // The finished board is still theirs to replay, and the seat of the player who left must not be restarted
+  // as a ghost: the board reopens in the lobby for whoever joins next.
+  stayerSocket.inbox.length = 0;
+  send(stayerSocket, { type: "game-restart", gameId: awayGame.id });
+  const revived = await waitFor(stayerSocket, packet => packet.type === "game-state" && gameById(packet, awayGame.id)?.status === "lobby", 4000).catch(() => null);
+  const revivedGame = revived ? gameById(revived, awayGame.id) : null;
+  ok("the stranded player can replay it, without the absent seat", Boolean(revivedGame) && revivedGame.players.length === 1 && revivedGame.players[0].id === peer.user.id, JSON.stringify(revivedGame?.players));
+  ok("the empty seat is open to a new player", revivedGame?.hostId === peer.user.id && revivedGame?.status === "lobby", JSON.stringify({ host: revivedGame?.hostId === peer.user.id, status: revivedGame?.status }));
   stayerSocket.close();
 
   /* -------------------------------------------------------------- budgets */

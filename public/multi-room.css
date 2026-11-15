@@ -820,6 +820,10 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .grid-cell.p2{background:#f9c74f;color:#5a4300}
 .grid-cell:disabled{cursor:default;opacity:1}
 .grid-cell:not(:disabled):hover{background:#c3d2ea}
+/* Legal moves are marked rather than left to a hover state: a phone has no hover, and Reversi is a guessing
+   game without them. */
+.grid-cell.legal{box-shadow:inset 0 0 0 2px #5b6cff66}
+.cf-cell:not(:disabled){box-shadow:inset 0 0 0 2px #5b6cff66}
 .game-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .game-actions button{flex:1 1 auto;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}
 .game-pending{border-top:1px solid #e7eaf1;padding-top:10px;margin-top:4px}

@@ -34,7 +34,11 @@ const GAME_KINDS = {
 };
 const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-sync"];
 const GAME_EVENT_LIMIT = 60;
+// A slot in a room belongs to a game still being waited on or played. A finished board is history and
+// must never take a slot: four dead boards at the cap used to close a room to new games for good, which
+// stranded every player whose host had walked off.
 const GAMES_PER_ROOM = 4;
+const ENDED_GAMES_KEPT = 2;
 // How long a player may have no socket in the room before their seat is resolved. A reload closes and
 // reopens the socket in about a second, so this is a grace period, not a presence check.
 const AWAY_GRACE_MS = 45000;
@@ -468,6 +472,51 @@ export class ChatHub {
   // Only a game still being played or waited on blocks someone from starting another; a finished board is
   // history, and its players must be free to start again.
   playerGame(roomId, userId) { return this.gamesIn(roomId).find(game => game.status !== "ended" && game.players.some(player => player.id === userId)) || null; }
+  // The games that hold a slot in the room. Everything that caps or counts games uses this, never the raw
+  // list, or a room fills up with boards nobody is playing any more.
+  liveGamesIn(roomId) { return this.gamesIn(roomId).filter(game => game.status !== "ended"); }
+  // Finished boards are kept as a result to look at, not forever: past ENDED_GAMES_KEPT the newest ones
+  // stay and the oldest drop. Called whenever a game is created or ends, before the state is broadcast.
+  pruneGames(roomId) {
+    const ended = this.gamesIn(roomId).filter(game => game.status === "ended").sort((left, right) => (right.endedAt || 0) - (left.endedAt || 0));
+    for (const game of ended.slice(ENDED_GAMES_KEPT)) this.dropGame(roomId, game.id);
+    return ended.length > ENDED_GAMES_KEPT;
+  }
+  // A fresh board's first move goes to the seat that opened the last round, and that seat alternates, so a
+  // rematch never hands the same account the first move every time.
+  startGame(game) {
+    const opener = game.players.length ? (game.opener || 0) % game.players.length : 0;
+    game.status = "playing";
+    game.startedAt = Date.now();
+    game.passed = false;
+    game.turn = game.players[opener] ? game.players[opener].id : null;
+  }
+  // Whoever is left runs the board. Without this the host's seat is the only key to restarting, approving
+  // and ending, and an absent host leaves a finished game that nobody can play again.
+  rehostGame(roomId, game, goneId = null) {
+    const seated = game.players.some(player => player.id === game.hostId);
+    if (goneId ? game.hostId !== goneId : seated) return false;
+    const next = game.players.find(player => player.id !== goneId && player.id !== game.hostId);
+    if (!next) return false;
+    game.hostId = next.id;
+    this.notifyUser(next.id, { type: "game-host", roomId, gameId: game.id, name: (GAME_KINDS[game.kind] || {}).name || "the game" });
+    return true;
+  }
+  // What the side to move may actually play, computed here so a client shows legal moves instead of letting
+  // people click into a refusal - Reversi is guesswork without it. Columns report playable columns.
+  gameMoves(game) {
+    const kind = GAME_KINDS[game.kind];
+    if (!kind || game.status !== "playing") return [];
+    if (kind.board === "columns") {
+      const moves = [];
+      for (let column = 0; column < kind.columns; column++) if (!game.board[column * kind.rows + (kind.rows - 1)]) moves.push(column);
+      return moves;
+    }
+    const seat = game.players.findIndex(player => player.id === game.turn);
+    if (seat < 0) return [];
+    if (game.kind === "othello") return othelloLegal(game.board, seat + 1, kind.size);
+    return game.board.reduce((moves, cell, index) => (cell ? moves : [...moves, index]), []);
+  }
   gameView(game) {
     const kind = GAME_KINDS[game.kind] || GAME_KINDS["connect-four"];
     return {
@@ -478,6 +527,7 @@ export class ChatHub {
       spectators: game.guests.length,
       pending: game.pending.map(person => ({ id: person.id, username: person.username })),
       turn: game.turn || null, board: game.board.slice(), winnerId: game.winnerId || null,
+      moves: this.gameMoves(game),
       reason: game.reason || null, passed: Boolean(game.passed),
       createdAt: game.createdAt, startedAt: game.startedAt || null, endedAt: game.endedAt || null
     };
@@ -518,15 +568,18 @@ export class ChatHub {
     this.gameWindows.set(connectionId, record);
     return record.count > GAME_EVENT_LIMIT;
   }
-  // The host runs a game; moderators and the admin can cover for a host who has gone quiet.
-  canRunGame(room, game, user) { return user.id === game.hostId || this.canModerate(room, user); }
+  // The host runs a game; moderators and the admin can cover for a host who has gone quiet. A seated player
+  // can run a board whose host is not in the room at all - the host role is handed over on the way out, but
+  // this also rescues a board stored before that rule existed.
+  canRunGame(room, game, user) {
+    if (user.id === game.hostId || this.canModerate(room, user)) return true;
+    return game.players.some(player => player.id === user.id) && !this.usersInRoom(room.id).has(game.hostId);
+  }
   addGamePlayer(game, user) {
     game.pending = game.pending.filter(person => person.id !== user.id);
     if (!game.players.some(player => player.id === user.id)) game.players.push({ id: user.id, username: user.username, score: 0 });
     const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
-    if (game.status === "lobby" && game.players.length >= seats) {
-      game.status = "playing"; game.startedAt = Date.now(); game.turn = game.players[0].id; game.passed = false;
-    }
+    if (game.status === "lobby" && game.players.length >= seats) this.startGame(game);
   }
   endGame(game, winnerId = null, reason = null) {
     game.status = "ended"; game.turn = null; game.winnerId = winnerId; game.reason = reason; game.endedAt = Date.now();
@@ -598,8 +651,9 @@ export class ChatHub {
     if (event.type === "game-create") {
       const kind = GAME_KINDS[clean(event.kind).slice(0, 32)];
       if (!kind) return this.gameError(socket, "That game is not available.");
-      const running = this.gamesIn(room.id);
-      if (running.length >= GAMES_PER_ROOM) return this.gameError(socket, `This room already has ${GAMES_PER_ROOM} games.`);
+      // Only games still open hold a slot: finished boards are results and are pruned below, so a room can
+      // never be closed to new games by boards nobody is playing.
+      if (this.liveGamesIn(room.id).length >= GAMES_PER_ROOM) return this.gameError(socket, `This room already has ${GAMES_PER_ROOM} games running.`);
       // One seat per person per room keeps the dock readable and stops anyone playing two boards at once.
       if (this.playerGame(room.id, user.id)) return this.gameError(socket, "Finish the game you are playing in this room first.");
       if (!this.roomGames.has(room.id)) this.roomGames.set(room.id, new Map());
@@ -607,11 +661,12 @@ export class ChatHub {
         id: crypto.randomUUID(), kind: clean(event.kind), roomId: room.id, hostId: user.id,
         policy: clean(event.policy) === "open" ? "open" : "request", status: "lobby",
         players: [{ id: user.id, username: user.username, score: 0 }], guests: [], pending: [],
-        turn: null, board: initialBoard(kind), winnerId: null, reason: null, passed: false,
+        turn: null, board: initialBoard(kind), winnerId: null, reason: null, passed: false, opener: 0,
         createdAt: Date.now(), startedAt: null, endedAt: null
       };
       if (kind.solo) { fresh.status = "playing"; fresh.startedAt = fresh.createdAt; fresh.turn = user.id; }
       this.roomGames.get(room.id).set(fresh.id, fresh);
+      this.pruneGames(room.id);
       return this.broadcastGames(room.id);
     }
     if (!game) return;
@@ -654,24 +709,41 @@ export class ChatHub {
       game.guests = game.guests.filter(person => person.id !== user.id);
       if (isPlayer) {
         game.players = game.players.filter(player => player.id !== user.id);
-        // Walking out of a running two-player game is a forfeit; walking out of a lobby game the host
-        // started closes it, because there is nothing left to join.
-        if (game.status === "playing") this.endGame(game, game.players[0] ? game.players[0].id : null, "left");
-        else if (user.id === game.hostId || !game.players.length) this.dropGame(room.id, game.id);
+        // Walking out of a running two-player game is a forfeit; a lobby game nobody is left in closes.
+        if (!game.players.length) {
+          this.dropGame(room.id, game.id);
+          return this.broadcastGames(room.id);
+        }
+        if (game.status === "playing") this.endGame(game, game.players[0].id, "left");
       }
+      // The leaver may have been the host: the seat that is left takes the controls, so the game can still
+      // be rematched, cleared or ended.
+      if (game.hostId === user.id) this.rehostGame(room.id, game, user.id);
       return this.broadcastGames(room.id);
     }
     if (event.type === "game-move") return this.gameMove(socket, game, user, room, event);
     if (event.type === "game-restart") {
-      if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can restart.");
-      if (game.status !== "ended") return this.gameError(socket, "That game is still running.");
-      // Same seats, same host, fresh board. With a seat empty it drops back to the lobby rather than
-      // starting short-handed.
+      // A rematch is a fresh board with the same seats, so either player may ask for one: being the host is
+      // not the price of playing again. Discarding a board that is still in play stays with the host.
+      if (game.status === "playing" || game.status === "lobby") {
+        if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can restart a board that is still open.");
+      } else if (!isPlayer && !this.canRunGame(room, game, user)) {
+        return this.gameError(socket, "Only a player can ask for a rematch.");
+      }
+      // A rematch is with the people still here: a seat whose player walked out is dropped rather than
+      // leaving a ghost opponent who never moves (and whose game would block the player from a new one).
+      const here = this.usersInRoom(room.id);
+      game.players = game.players.filter(player => player.id === user.id || here.has(player.id));
+      game.pending = game.pending.filter(person => here.has(person.id));
+      // Same seats, fresh board, and the opening seat alternates. With a seat empty it drops back to the
+      // lobby rather than starting short-handed.
       game.board = initialBoard(GAME_KINDS[game.kind] || GAME_KINDS["connect-four"]);
       game.winnerId = null; game.reason = null; game.passed = false; game.endedAt = null; game.startedAt = null;
       game.turn = null;
-      if (game.players.length >= seats) { game.status = "playing"; game.startedAt = Date.now(); game.turn = game.players[0].id; }
+      game.opener = ((game.opener || 0) + 1) % seats;
+      if (game.players.length >= seats) this.startGame(game);
       else game.status = "lobby";
+      this.rehostGame(room.id, game);
       return this.broadcastGames(room.id);
     }
     if (event.type === "game-end") {
@@ -685,6 +757,7 @@ export class ChatHub {
         if (!mayManage) return this.gameError(socket, "Only the host can end a running game.");
         this.endGame(game, null, "ended");
       }
+      this.pruneGames(room.id);
       return this.broadcastGames(room.id);
     }
   }
@@ -734,6 +807,8 @@ export class ChatHub {
       for (const game of [...games.values()]) {
         let changed = false;
         for (const [userId, since] of Object.entries(game.away || {})) {
+          // A seat settled earlier in this loop can have taken the whole game with it (the last player left).
+          if (!this.gameIn(roomId, game.id)) break;
           if (here.has(userId)) { delete game.away[userId]; changed = true; continue; }
           if (now - since < this.awayGraceMs) continue;
           delete game.away[userId];
@@ -743,15 +818,24 @@ export class ChatHub {
           if (!seated) continue;
           if (game.status === "playing") {
             const remaining = game.players.filter(player => player.id !== userId);
-            if (!remaining.length) this.dropGame(roomId, game.id);
-            else this.endGame(game, remaining[0].id, "left");
+            if (!remaining.length) {
+              this.dropGame(roomId, game.id);
+              continue;
+            }
+            this.endGame(game, remaining[0].id, "left");
           } else if (game.status === "lobby") {
             game.players = game.players.filter(player => player.id !== userId);
-            if (userId === game.hostId || !game.players.length) this.dropGame(roomId, game.id);
+            if (!game.players.length) {
+              this.dropGame(roomId, game.id);
+              continue;
+            }
           } else {
             // A finished game keeps its result; the seat is simply no longer held.
             game.players = game.players.filter(player => player.id !== userId);
           }
+          // The host's own seat can be the one that expired: hand the controls to whoever is still here,
+          // otherwise the board is stranded with no one who may rematch or clear it.
+          if (game.hostId === userId) this.rehostGame(roomId, game, userId);
         }
         if (changed) touched.add(roomId);
       }
@@ -1236,6 +1320,8 @@ export class ChatHub {
         const room = this.findRoom(roomId);
         if (!room || !this.canEnter(room, user)) continue;
         for (const game of bucket.values()) {
+          // A finished board is a result in its own room, not something to discover and watch from outside.
+          if (game.status === "ended") continue;
           const kind = GAME_KINDS[game.kind] || { name: game.kind, seats: 2 };
           const host = this.userById(game.hostId);
           games.push({ id: game.id, kind: game.kind, name: kind.name, roomId: room.id, roomName: room.name, roomIcon: room.icon, hostId: game.hostId, hostUsername: host ? host.username : "Host", policy: game.policy, status: game.status, seats: kind.seats, players: game.players.length, spectators: game.guests.length, createdAt: game.createdAt });

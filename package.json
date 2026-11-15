@@ -27,6 +27,7 @@
     "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql",
     "test:schema": "node --no-warnings tests/schema-parity.js",
     "test:games": "node tests/games.js",
+    "test:games-ui": "node tests/games-ui.js",
     "test:notice": "node tests/notice-board.js"
   },
   "dependencies": {
