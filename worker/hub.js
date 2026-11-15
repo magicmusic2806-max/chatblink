@@ -552,7 +552,9 @@ export class ChatHub {
       const games = value.id ? { [value.id]: value } : value;
       const map = new Map();
       for (const [gameId, game] of Object.entries(games)) {
-        if (!game || !GAME_KINDS[game.kind]) continue;
+        // A game with no seats is not a game: it can only be a leftover from a board whose players all left,
+        // and keeping it would pin a dead entry to the room across every restart.
+        if (!game || !GAME_KINDS[game.kind] || !Array.isArray(game.players) || !game.players.length) continue;
         map.set(gameId, { ...game, guests: [] });
       }
       if (map.size) rooms.set(roomId, map);
@@ -723,13 +725,12 @@ export class ChatHub {
     }
     if (event.type === "game-move") return this.gameMove(socket, game, user, room, event);
     if (event.type === "game-restart") {
-      // A rematch is a fresh board with the same seats, so either player may ask for one: being the host is
-      // not the price of playing again. Discarding a board that is still in play stays with the host.
-      if (game.status === "playing" || game.status === "lobby") {
-        if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can restart a board that is still open.");
-      } else if (!isPlayer && !this.canRunGame(room, game, user)) {
-        return this.gameError(socket, "Only a player can ask for a rematch.");
-      }
+      // A rematch only ever follows a result: the board screen says who won (or that it was a tie) and the
+      // same seats start again. A board still in play is ended first, so nobody loses a half-played position
+      // to a stray tap.
+      if (game.status !== "ended") return this.gameError(socket, "That game is still running.");
+      // Either player may ask for the rematch: being the host is not the price of playing again.
+      if (!isPlayer && !this.canRunGame(room, game, user)) return this.gameError(socket, "Only a player can ask for a rematch.");
       // A rematch is with the people still here: a seat whose player walked out is dropped rather than
       // leaving a ghost opponent who never moves (and whose game would block the player from a new one).
       const here = this.usersInRoom(room.id);
@@ -832,6 +833,12 @@ export class ChatHub {
           } else {
             // A finished game keeps its result; the seat is simply no longer held.
             game.players = game.players.filter(player => player.id !== userId);
+          }
+          // Nobody is left at the board: it clears, so a room cannot accumulate results whose players have
+          // all gone (an ended board is furniture only while somebody is still sitting at it).
+          if (!game.players.length) {
+            this.dropGame(roomId, game.id);
+            continue;
           }
           // The host's own seat can be the one that expired: hand the controls to whoever is still here,
           // otherwise the board is stranded with no one who may rematch or clear it.

@@ -168,16 +168,19 @@ per second) and are never stored per point.
    and the room list begins with a Games card whose badge is the live total.
 3. **Tic-tac-toe and Reversi.** ✅ `v=80` — both grid games, validated in the object like Connect Four.
 4. **Fix pass after the first people played.** ✅ `v=82` — the cap counts running games only, finished
-   boards are pruned, the host role moves to whoever is left, either player can rematch, a host can
-   restart a live board, and the object hands the dock the legal moves. Covered by `tests/games.js`
-   (sockets) and `tests/games-ui.js` (two browsers through the dock).
-5. **Draw & Guess.** Next, and the one users asked for by name. Design below.
-6. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
-7. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
+   boards are pruned, the host role moves to whoever is left, either player can rematch, and the object
+   hands the dock the legal moves. Covered by `tests/games.js` (sockets) and `tests/games-ui.js` (two
+   browsers through the dock).
+5. **Restart belongs to a result, and empty boards clear.** ✅ `v=83` — the rematch lives on the board
+   screen under a result line (who won, or it's a tie) and a board still in play cannot be restarted at
+   all; a game whose last player leaves clears itself.
+6. **Draw & Guess.** Next, and the one users asked for by name. Design below.
+7. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
+8. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
    watchable but not joinable.
-8. **Poker / trivia** only if demand appears.
+9. **Poker / trivia** only if demand appears.
 
-## As built (`v=82`, three games)
+## As built (`v=83`, three games)
 
 Everything below is what the code actually does, not the plan it came from:
 
@@ -212,12 +215,16 @@ Everything below is what the code actually does, not the plan it came from:
   `--var` overridable) does the object settle it — a running game goes to whoever stayed, a lobby game
   whose host is gone disappears. The alarm does that on its own, and any game event sweeps first, so a
   returning player never loses a seat to a reload.
-- **Restart, rematch and clearing:** any player at a finished board may ask for a rematch
-  (`game-restart`: fresh board, same seats, the opening seat alternates so nobody is permanently the
-  second player), and any of them may clear it from the room. Restarting a board that is *still in
-  play* discards the moves, so it stays with the host (or a moderator/admin) and the dock asks twice.
-  A rematch only seats the people still in the room: the seat of a player who walked out is dropped and
-  the board reopens in the lobby rather than restarting against a ghost who never moves.
+- **Restart, rematch and clearing:** a rematch only ever follows a result, and it lives on the board
+  screen: the board says who won (or that it was a tie) and the Rematch button sits under that line. Either
+  player may ask for it (`game-restart`: fresh board, same seats, the opening seat alternates so nobody is
+  permanently the second player), and any of them may clear it from the room. A board that is *still in
+  play* has no result to restart from, so it is ended first (`game-end`) — a half-played position is never
+  wiped by a stray tap. A rematch only seats the people still in the room: the seat of a player who walked
+  out is dropped and the board reopens in the lobby rather than restarting against a ghost who never moves.
+- **A board nobody is at clears itself.** When the last seated player leaves (pressing Leave, or closing
+  the tab past the grace) the game is dropped instead of being kept as furniture, and a stored game with
+  no seats is ignored on load — so a room cannot accumulate results whose players have all gone.
 - **The host role moves.** Whoever is left runs the board: when the host leaves a game or their seat
   expires while away, `rehostGame()` hands the host role to the remaining player and tells them so
   (`game-host`), so a finished game can still be rematched, approved and cleared. A seated player can

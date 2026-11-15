@@ -791,6 +791,8 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .games-modal{max-width:440px;width:100%}
 .game-copy{color:#6d788c;font-size:12.5px;line-height:1.5;margin:0 0 10px}
 .game-status{color:#4a5568;font-size:13px;font-weight:700;margin:10px 0 8px}
+/* The result of a finished board, with the offer to play again directly under it. */
+.game-result{margin:10px 0;padding:12px 14px;border-radius:12px;border:1px solid #e5eaf3;background:#fff;color:#26303f;font-size:15px;font-weight:800;text-align:center;overflow-wrap:anywhere}
 .game-kinds{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .game-kind{flex:1 1 30%;border:1px solid #dfe4ee;background:#fff;border-radius:10px;padding:10px 8px;font-size:12.5px;font-weight:700;color:#5a6579}
 .game-kind.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
@@ -842,6 +844,7 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 html[data-theme=dark] .room-card.games-room-card{background:linear-gradient(135deg,#151c30,#1a1630);border-color:#2f3a5c}
 html[data-theme=dark] .game-copy{color:#94a1b6}
 html[data-theme=dark] .game-status{color:#c3cee0}
+html[data-theme=dark] .game-result{background:#101725;border-color:#293243;color:#e4e9f2}
 html[data-theme=dark] .game-kind{background:#101725;border-color:#293243;color:#a6b2c6}
 html[data-theme=dark] .game-kind.active{background:#1b2340;border-color:#5b6cff;color:#dfe6ff}
 html[data-theme=dark] .game-policy label{color:#a6b2c6}

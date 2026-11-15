@@ -191,9 +191,15 @@ async function main() {
   ok("the host can rematch a finished game", restarted.board.every(cell => cell === 0) && restarted.winnerId === null && restarted.players.length === 2, JSON.stringify(restarted.board));
   ok("the rematch alternates the opening seat", restarted.turn === peer.user.id, restarted.turn);
 
+  // A rematch only ever follows a result, for the host as much as for the other player: a board still in play
+  // has no winner to declare, so it is ended first.
   peerSocket.inbox.length = 0;
   send(peerSocket, { type: "game-restart", gameId: tic.id });
-  ok("only the host restarts a board that is still in play", /host/i.test((await waitFor(peerSocket, packet => packet.type === "game-error")).message));
+  ok("a board still in play cannot be restarted", /running/i.test((await waitFor(peerSocket, packet => packet.type === "game-error")).message));
+
+  ownerSocket.inbox.length = 0;
+  send(ownerSocket, { type: "game-restart", gameId: tic.id });
+  ok("not even the host restarts a board still in play", /running/i.test((await waitFor(ownerSocket, packet => packet.type === "game-error")).message));
 
   peerSocket.inbox.length = 0;
   send(peerSocket, { type: "game-end", gameId: tic.id });
@@ -335,7 +341,26 @@ async function main() {
   const revivedGame = revived ? gameById(revived, awayGame.id) : null;
   ok("the stranded player can replay it, without the absent seat", Boolean(revivedGame) && revivedGame.players.length === 1 && revivedGame.players[0].id === peer.user.id, JSON.stringify(revivedGame?.players));
   ok("the empty seat is open to a new player", revivedGame?.hostId === peer.user.id && revivedGame?.status === "lobby", JSON.stringify({ host: revivedGame?.hostId === peer.user.id, status: revivedGame?.status }));
+
+  // A board nobody is sitting at any more clears itself: end the one the stayer created, so the room holds a
+  // finished result whose only player is about to close their tab.
+  const spareBoard = (freeAgain?.games || []).find(game => game.kind === "connect-four" && game.status === "lobby" && game.hostId === peer.user.id);
+  ok("the staying player's new board is theirs to end", Boolean(spareBoard), JSON.stringify((freeAgain?.games || []).map(game => `${game.kind}:${game.status}`)));
+  if (spareBoard) {
+    stayerSocket.inbox.length = 0;
+    send(stayerSocket, { type: "game-end", gameId: spareBoard.id });
+    await waitGame(stayerSocket, spareBoard.id, game => game.status === "ended").catch(() => null);
+  }
   stayerSocket.close();
+  await sleep(2200);
+  const witnessSocket = socket(awayRoom.id, fourth.cookie);
+  await open(witnessSocket);
+  await waitFor(witnessSocket, packet => packet.type === "history");
+  witnessSocket.inbox.length = 0;
+  send(witnessSocket, { type: "game-sync" });
+  const emptied = await waitFor(witnessSocket, packet => packet.type === "game-state");
+  ok("every board its players left clears itself", (emptied.games || []).length === 0, JSON.stringify((emptied.games || []).map(game => `${game.kind}:${game.status}`)));
+  witnessSocket.close();
 
   /* -------------------------------------------------------------- budgets */
   for (let index = 0; index < 25; index++) send(ownerSocket, { type: "game-sync" });

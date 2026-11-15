@@ -749,16 +749,6 @@ function gameStatusText(game){
   const winner=game.players.find(player=>player.id===game.winnerId);
   return winner?`${winner.username} won`:"finished";
 }
-// Restarting a board that is still in play throws the moves away, so the button asks twice: the first tap
-// arms it and the second, within a few seconds, does it.
-function armButton(button,label,action){
-  let armed=false,timer=null;
-  button.onclick=()=>{
-    if(armed){clearTimeout(timer);armed=false;button.textContent=label;action();return}
-    armed=true;button.textContent="Tap again to restart";
-    timer=setTimeout(()=>{armed=false;button.textContent=label},4000);
-  };
-}
 // A game the player is in moving from a result back to a fresh board is worth saying out loud when the dock
 // is shut, because a rematch by the other player otherwise looks like nothing happened.
 function noteGameChanges(games){
@@ -845,7 +835,8 @@ function renderGameDetail(body,game){
   body.appendChild(back);
 
   const status=document.createElement("p");status.className="game-status";
-  status.textContent=`${game.name} - ${gameStatusText(game)}`;
+  // A finished board's own line says who won, so the header only names the game there.
+  status.textContent=game.status==="ended"?game.name:`${game.name} - ${gameStatusText(game)}`;
   body.appendChild(status);
 
   const seats=document.createElement("div");seats.className="game-seats";
@@ -856,15 +847,15 @@ function renderGameDetail(body,game){
 
   const state=document.createElement("p");state.className="game-status";
   if(game.status==="ended"){
+    // The result lives on the board screen, right above the offer to play again: who won, or that it was a
+    // tie. A board still in play has no result yet, so the dock ends it first rather than restarting it.
     const winner=game.players.find(player=>player.id===game.winnerId);
-    // Only a board whose result is a draw is a draw: the host can end a running board, and calling that a
-    // draw tells both players something that did not happen.
-    state.textContent=winner
-      ?`${winner.username} wins${game.reason==="left"?" - the other player left":""}`
-      :game.reason==="left"?"The game ended because a player left"
-      :game.reason==="draw"?"It is a draw"
-      :"The host ended this game before anyone won";
-    body.appendChild(state);
+    const result=document.createElement("p");result.className="game-result";
+    if(winner)result.textContent=`🏆 ${winner.username} wins${game.reason==="left"?" - the other player left":""}`;
+    else if(game.reason==="draw")result.textContent="🤝 It's a tie";
+    else if(game.reason==="left")result.textContent="The other player left - no winner";
+    else result.textContent="Nobody won - the host ended the game";
+    body.appendChild(result);
   }else if(game.status==="playing"){
     const turnPlayer=game.players.find(player=>player.id===game.turn);
     state.textContent=game.passed
@@ -915,9 +906,6 @@ function renderGameDetail(body,game){
       actions.appendChild(fresh);
     }
   }else if(mayRun){
-    const restart=document.createElement("button");restart.type="button";restart.className="secondary";restart.textContent="Restart board";
-    armButton(restart,"Restart board",()=>sendGame("game-restart",{gameId:game.id}));
-    actions.appendChild(restart);
     const end=document.createElement("button");end.type="button";end.className="secondary";end.textContent="End game";
     end.onclick=()=>sendGame("game-end",{gameId:game.id});
     actions.appendChild(end);

@@ -66,7 +66,7 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
     await host.locator(".game-create button.primary").click();
     await waitDock(host, "waiting for a player");
     ok("a new game shows its board and its open seat", (await dockText(host)).includes("Open seat"));
-    ok("the host gets restart and end controls", (await dockText(host)).includes("Restart board") && (await dockText(host)).includes("End game"));
+    ok("a board waiting for a player offers no restart", (await dockText(host)).includes("End game") && !(await dockText(host)).includes("Restart"));
 
     // The other player joins through the same dock, in a second browser.
     await openDock(rival);
@@ -76,7 +76,7 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
     await waitDock(host, "Your turn");
     await waitDock(rival, `Waiting for ${hostName}`);
     ok("the joining player starts the game for both", (await dockText(rival)).includes(`Waiting for ${hostName}`), (await dockText(rival)).slice(0, 160));
-    ok("the player who joined is not given the host's restart control", await rival.locator(".game-actions button", { hasText: "Restart board" }).count() === 0);
+    ok("a board in play offers no restart to either player", await rival.locator(".game-actions button", { hasText: /restart|rematch/i }).count() === 0 && await host.locator(".game-actions button", { hasText: /restart|rematch/i }).count() === 0);
     ok("the player to move sees every legal square marked", await host.locator(".grid-cell.legal").count() === 9);
     ok("the player waiting sees none marked", await rival.locator(".grid-cell.legal").count() === 0);
 
@@ -88,7 +88,8 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
     await rival.locator(".grid-cell").nth(4).click(); await waitDock(host, "Your turn");
     await host.locator(".grid-cell").nth(2).click();
     await waitDock(host, `${hostName} wins`);
-    ok("a finished board says who won", (await dockText(rival)).includes(`${hostName} wins`));
+    const won = await host.locator(".game-result").innerText();
+    ok("a finished board says who won, right above the rematch", won.includes(`${hostName} wins`), won);
     ok("both players get a rematch button", (await dockText(host)).includes("Rematch") && (await dockText(rival)).includes("Rematch"));
 
     // The player who lost asks for the rematch: the host role is not the price of playing again.
@@ -98,7 +99,24 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
     await waitDock(host, `Waiting for ${guestName}`);
     ok("and the opening seat has moved to them", (await dockText(host)).includes(`Waiting for ${guestName}`));
 
-    // The host walks out of the running game: the other player wins it and keeps the controls.
+    // A drawn board: nine squares, no line, and the dock has to say so instead of inventing a winner.
+    await rival.locator(".grid-cell").nth(0).click(); await waitDock(host, "Your turn");
+    await host.locator(".grid-cell").nth(4).click(); await waitDock(rival, "Your turn");
+    await rival.locator(".grid-cell").nth(1).click(); await waitDock(host, "Your turn");
+    await host.locator(".grid-cell").nth(7).click(); await waitDock(rival, "Your turn");
+    await rival.locator(".grid-cell").nth(5).click(); await waitDock(host, "Your turn");
+    await host.locator(".grid-cell").nth(3).click(); await waitDock(rival, "Your turn");
+    await rival.locator(".grid-cell").nth(6).click(); await waitDock(host, "Your turn");
+    await host.locator(".grid-cell").nth(2).click(); await waitDock(rival, "Your turn");
+    await rival.locator(".grid-cell").nth(8).click();
+    await waitDock(rival, "It's a tie");
+    const tied = await rival.locator(".game-result").innerText();
+    ok("a drawn board says it is a tie", tied.includes("It's a tie"), tied);
+    ok("and the tie offers a rematch too", (await dockText(rival)).includes("Rematch"));
+
+    // The host rematches, then walks out of the running game: the other player wins it and keeps the controls.
+    await host.locator(".game-actions button", { hasText: "Rematch" }).click();
+    await waitDock(host, "Your turn");
     await host.locator(".game-actions button", { hasText: "Leave game" }).click();
     await waitDock(rival, `${guestName} wins`);
     ok("leaving a running game hands it to the player who stayed", (await dockText(rival)).includes(`${guestName} wins`));
@@ -107,6 +125,7 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
     await waitDock(rival, "waiting for a player");
     const lobby = await dockText(rival);
     ok("the replay drops the seat of the player who left", lobby.includes("Open seat") && lobby.includes(hostName) === false, lobby.slice(0, 160));
+    ok("the reopened board has no restart of its own", await rival.locator(".game-actions button", { hasText: /restart|rematch/i }).count() === 0);
     await waitDock(host, "Open seat");
     ok("the other player's dock shows the replay waiting for an opponent", (await dockText(host)).includes("Open seat"));
 
