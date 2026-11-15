@@ -131,6 +131,8 @@ const get = (route, headers = {}) => fetch(BASE + route, { headers, redirect: "m
       return {
         ring: Boolean(ring),
         emoji: emoji ? emoji.textContent : null,
+        size: ring ? Math.round(ring.getBoundingClientRect().width) : 0,
+        emojiSize: emoji ? getComputedStyle(emoji).fontSize : null,
         spin: ring ? getComputedStyle(ring).animationName : null,
         border: ring ? getComputedStyle(ring).borderTopColor : null,
         label: ring ? ring.getAttribute("aria-label") : null,
@@ -141,6 +143,7 @@ const get = (route, headers = {}) => fetch(BASE + route, { headers, redirect: "m
     const afterCat = await page.evaluate(() => ({ cat: Boolean(document.querySelector("#roomOpening")), loaded: document.querySelector("#chatPanel").hasAttribute("data-loaded") }));
     ok("a room that is quick never shows the spinner", catEarly === false);
     ok("a room that takes a moment shows a ring spinner", loader.ring && loader.spin === "roomSpin" && loader.label === "Opening room" && loader.loaded === false, JSON.stringify(loader));
+    ok("the spinner is big enough to read at arm's length", loader.size >= 84 && loader.emojiSize === "34px", `${loader.size}px ring, ${loader.emojiSize} symbol`);
     ok("the spinner carries the room's own symbol", loader.emoji === roomB.icon, `${loader.emoji} vs ${roomB.icon}`);
     ok("the spinner wears the room's accent", loader.border === "rgb(22, 163, 74)", loader.border);
     ok("the spinner leaves the moment the room's history lands", afterCat.cat === false && afterCat.loaded === true, JSON.stringify(afterCat));
