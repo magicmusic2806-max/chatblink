@@ -41,15 +41,20 @@ const servers = [
     { name: "group-call", file: "tests/group-call.js" },
     { name: "group-call-e2e", file: "tests/group-call-e2e.js" }
   ] },
-  // Games create their own room and need four accounts, and the away grace is shortened so the suite can
-  // watch an abandoned seat resolve without waiting 45 seconds.
-  { port: 8791, vars: ["AWAY_GRACE_MS:1500"], env: { AWAY_GRACE_MS: "1500" }, suites: [
+  // Games create their own room and need four accounts. The away grace and the life of a finished board are
+  // both shortened so the suite can watch an abandoned seat and a clear happen without waiting minutes.
+  { port: 8791, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000" }, suites: [
     { name: "games", file: "tests/games.js" }
   ] },
   // The games dock drives two browsers through the paths a stranded player used to be stuck in, and its own
   // accounts and room would otherwise share the signup and room-create budgets with the suite above.
   { port: 8811, vars: [], env: {}, suites: [
     { name: "games-ui", file: "tests/games-ui.js" }
+  ] },
+  // Boot and room switching: two rooms, one extra signup, and a browser that holds a token but no cookie. Its
+  // own server for the same budget reasons as the suites above.
+  { port: 8813, vars: [], env: {}, suites: [
+    { name: "boot", file: "tests/boot-e2e.js" }
   ] },
   // The notice board is the only suite here, and it needs an admin account, so it keeps a server of its
   // own rather than sharing room-creation budgets with the browser suites above.

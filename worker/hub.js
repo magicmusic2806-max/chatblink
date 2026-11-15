@@ -38,7 +38,10 @@ const GAME_EVENT_LIMIT = 60;
 // must never take a slot: four dead boards at the cap used to close a room to new games for good, which
 // stranded every player whose host had walked off.
 const GAMES_PER_ROOM = 4;
-const ENDED_GAMES_KEPT = 2;
+// How long a finished board survives so its players can read the result and take the rematch. A room keeps
+// the games being played, not a history of them: after this the board clears itself, and its last player
+// leaving clears it sooner.
+const ENDED_GAME_TTL_MS = 120000;
 // How long a player may have no socket in the room before their seat is resolved. A reload closes and
 // reopens the socket in about a second, so this is a grace period, not a presence check.
 const AWAY_GRACE_MS = 45000;
@@ -137,6 +140,7 @@ export class ChatHub {
     this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
     this.uploadDailyCap = budget(env.UPLOAD_DAILY_CAP, UPLOAD_DAILY_CAP);
     this.awayGraceMs = Math.max(1000, budget(env.AWAY_GRACE_MS, AWAY_GRACE_MS));
+    this.endedGameTtlMs = Math.max(1000, budget(env.ENDED_GAME_TTL_MS, ENDED_GAME_TTL_MS));
     state.blockConcurrencyWhile(async () => {
       state.storage.sql.exec(MESSAGE_TABLE);
       this.migrateMessages();
@@ -475,12 +479,14 @@ export class ChatHub {
   // The games that hold a slot in the room. Everything that caps or counts games uses this, never the raw
   // list, or a room fills up with boards nobody is playing any more.
   liveGamesIn(roomId) { return this.gamesIn(roomId).filter(game => game.status !== "ended"); }
-  // Finished boards are kept as a result to look at, not forever: past ENDED_GAMES_KEPT the newest ones
-  // stay and the oldest drop. Called whenever a game is created or ends, before the state is broadcast.
-  pruneGames(roomId) {
-    const ended = this.gamesIn(roomId).filter(game => game.status === "ended").sort((left, right) => (right.endedAt || 0) - (left.endedAt || 0));
-    for (const game of ended.slice(ENDED_GAMES_KEPT)) this.dropGame(roomId, game.id);
-    return ended.length > ENDED_GAMES_KEPT;
+  // A finished board is history only briefly: the alarm that drops it is set when it ends, and an alarm
+  // already waiting (an away seat about to expire) must not be pushed back by it.
+  scheduleClear(game) {
+    const at = (game.endedAt || Date.now()) + this.endedGameTtlMs;
+    this.background((async () => {
+      const current = await this.state.storage.getAlarm();
+      if (current === null || at < current) await this.state.storage.setAlarm(at);
+    })().catch(() => {}));
   }
   // A fresh board's first move goes to the seat that opened the last round, and that seat alternates, so a
   // rematch never hands the same account the first move every time.
@@ -588,6 +594,7 @@ export class ChatHub {
   endGame(game, winnerId = null, reason = null) {
     game.status = "ended"; game.turn = null; game.winnerId = winnerId; game.reason = reason; game.endedAt = Date.now();
     if (winnerId) { const winner = game.players.find(player => player.id === winnerId); if (winner) winner.score = (winner.score || 0) + 1; }
+    this.scheduleClear(game);
   }
   // Connect Four, tic-tac-toe and Reversi share the seat/approval/spectator flow and differ only in how a
   // move is validated and how a move ends the game.
@@ -670,7 +677,6 @@ export class ChatHub {
       };
       if (kind.solo) { fresh.status = "playing"; fresh.startedAt = fresh.createdAt; fresh.turn = user.id; }
       this.roomGames.get(room.id).set(fresh.id, fresh);
-      this.pruneGames(room.id);
       return this.broadcastGames(room.id);
     }
     if (!game) return;
@@ -761,7 +767,6 @@ export class ChatHub {
         if (!mayManage) return this.gameError(socket, "Only the host can end a running game.");
         this.endGame(game, null, "ended");
       }
-      this.pruneGames(room.id);
       return this.broadcastGames(room.id);
     }
   }
@@ -809,6 +814,13 @@ export class ChatHub {
     for (const [roomId, games] of [...this.roomGames]) {
       const here = this.usersInRoom(roomId);
       for (const game of [...games.values()]) {
+        // No history: a finished board clears itself once its result has had its time. Its last player leaving
+        // clears it sooner, on the socket-close path below.
+        if (game.status === "ended" && now - (game.endedAt || 0) >= this.endedGameTtlMs) {
+          this.dropGame(roomId, game.id);
+          touched.add(roomId);
+          continue;
+        }
         let changed = false;
         for (const [userId, since] of Object.entries(game.away || {})) {
           // A seat settled earlier in this loop can have taken the whole game with it (the last player left).
@@ -857,13 +869,19 @@ export class ChatHub {
       }
       this.broadcastAll({ type: "games-changed" });
     }
-    // Another away seat may still be inside its grace period: wake up when it expires. With nothing away,
-    // the alarm is only cleared when a sweep actually changed something (an alarm call must not turn every
-    // game event into a storage write).
+    // Another away seat, or another result, may still be inside its time: wake up for the earliest of them.
+    // With nothing pending, the alarm is only cleared when a sweep actually changed something (an alarm call
+    // must not turn every game event into a storage write).
     let next = null;
-    for (const games of this.roomGames.values()) for (const game of games.values()) for (const since of Object.values(game.away || {})) {
-      const at = since + this.awayGraceMs;
-      if (at > now && (next === null || at < next)) next = at;
+    for (const games of this.roomGames.values()) for (const game of games.values()) {
+      for (const since of Object.values(game.away || {})) {
+        const at = since + this.awayGraceMs;
+        if (at > now && (next === null || at < next)) next = at;
+      }
+      if (game.status === "ended") {
+        const at = (game.endedAt || 0) + this.endedGameTtlMs;
+        if (at > now && (next === null || at < next)) next = at;
+      }
     }
     if (next !== null) this.background(this.state.storage.setAlarm(next).catch(() => {}));
     else if (touched.size) this.background(this.state.storage.deleteAlarm().catch(() => {}));
@@ -1090,7 +1108,14 @@ export class ChatHub {
       const sent = await pushToUser(this.env, user.id, { title: "Chatblink", body: "Notifications work on this device.", url: "/rooms", tag: "push-test" });
       return json(200, { sent, devices: devices.length });
     }
-    if (path === "/api/auth/me") { const user = await this.sessionUser(request); return user ? json(200, { user: publicUser(user) }) : json(401, { error: "Not signed in" }); }
+    if (path === "/api/auth/me") {
+      const user = await this.sessionUser(request);
+      if (!user) return json(401, { error: "Not signed in" });
+      // A browser that remembers its token but lost the session cookie gets the cookie back here, so the next
+      // page load is rendered already signed in instead of painting the login shell before the client asks.
+      const token = bearerToken(request) || parseCookies(request.headers.get("Cookie") || "").nearby_session || "";
+      return json(200, { user: publicUser(user) }, token ? { "Set-Cookie": sessionCookie(token, Math.floor(30 * 24 * 60 * 60), isSecure(request)) } : {});
+    }
 
     if (path === "/api/users" && request.method === "GET") {
       const user = await this.sessionUser(request);

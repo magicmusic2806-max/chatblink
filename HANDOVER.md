@@ -77,7 +77,7 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 | Profile-key only | Email signup/login/reset, the mail module, the badge, the tables and the dangling scripts are gone | many | `d2ccab6`, `b52084d` |
 | Notice board | One admin-written announcement above the room list with a show/hide toggle, pushed live | `worker/hub.js`, `public/multi-room.js` | `aa01d31` |
 | Passkeys removed | WebAuthn sign-in, its Worker routes, its verification module and its schema table are gone; sign-in is the key | many | `8095c45` then the removal commit |
-| Games | Room games: up to four running per room, a count on the room's Games button, a Games entry in the room list, and three server-validated kinds (Connect Four, Tic-tac-toe, Reversi) with open/by-request seats, host approval, spectators, rematch from either player and a host role that moves to whoever is left | `worker/hub.js`, `public/multi-room.js`, `public/multi-room.css`, `tests/games.js`, `tests/games-ui.js` | `56a61c9`, `004e415`, this round `v=82` |
+| Games | Room games: up to four running per room (no history — a finished board is never listed and clears itself), a count on the room's Games button, a Games entry in the room list, and three server-validated kinds (Connect Four, Tic-tac-toe, Reversi) with open/by-request seats, host approval, spectators, rematch from either player and a host role that moves to whoever is left | `worker/hub.js`, `public/multi-room.js`, `public/multi-room.css`, `tests/games.js`, `tests/games-ui.js` | `56a61c9`, `004e415`, `ce5d298`, this round `v=85` |
 
 ## Verification
 
@@ -85,8 +85,8 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   summary. At `v=77` (passkeys removed): **13 groups green** — canonical, schema, smoke, retention,
   push-gate, theme, quotas, actions, room-actions, voice-note, group-call, group-call-e2e, notice.
   The passkey suite is deleted with the feature, so there is no longer a localhost-only rpId rule to
-  remember. At `v=78`: **14 groups green**, the new one being `tests/games.js`. At `v=84` that suite is
-  **62 checks**: three games, multi-game rooms, the cap counting only games still running, one seat per
+  remember. At `v=78`: **14 groups green**, the new one being `tests/games.js`. At `v=85` that suite is
+  **63 checks**: three games, multi-game rooms, the cap counting only games still running, one seat per
   person, open and by-request seats, approve/deny authority, out-of-turn and spectator refusals, an
   occupied square, an impossible column, a Reversi move that flips nothing, the legal moves the object
   reports for each turn, a full game of each kind to its ending, a rematch from the host and again from
@@ -94,17 +94,23 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   player, clearing a finished board as the non-host player, a full room still taking a new game once a
   finished board frees its slot, finished boards pruned to two, an abandoned host resolving to the player
   who stayed — who wins, is handed the host role (`game-host`), can start another game and can replay the
-  board without the absent seat (run with `AWAY_GRACE_MS=1500`) — and every board whose players have all
-  gone clearing itself. There are also the room-list feed (only running games) and the private-room rule,
+  board without the absent seat (run with `AWAY_GRACE_MS=1500`) — every board whose players have all gone
+  clearing itself, and a finished board clearing itself once `ENDED_GAME_TTL_MS` passes. There are also the room-list feed (only running games) and the private-room rule,
   and that a burst of game events does not spend the chat message window. The alarm path was checked
   separately: a host's socket was killed and, with nothing sent from the other side, the object pushed the
   forfeited result on its own.
 - `tests/games-ui.js` (its own server group) drives the dock in two real browser contexts at 390 px: the
   create form, joining from the second context, no restart on a board waiting or in play, marked legal
-  squares, a full game to its ending with the result line above the rematch, a finished list row that
-  carries its result and nothing else (no "over" label, no seat to fill), a drawn board saying it is a
+  squares, a full game to its ending with the result line above the rematch, a finished board that is not
+  kept in the room's list, the rematch appearing there as a running game, a drawn board saying it is a
   tie, the loser rematching, the host leaving a running game, the replay dropping the absent seat, and no
-  page errors — **21 checks**.
+  page errors — **22 checks**.
+- `tests/boot-e2e.js` (its own server group) covers the two boot flashes: a browser holding a sign-in token
+  but no session cookie installs the inline guard in the head, so the login shell computes to `display:
+  none` before the body is parsed, the app is what appears, and the guard is removed once the boot decides;
+  `/api/auth/me` hands the cookie back when it authenticated from the token; and opening a second room
+  replaces the previous room's rows at once, with the loader up while the next history loads — **11
+  checks**.
 - The profile-key door was also driven at 390 px in Chromium: signup hands over a key, the key signs
   in, `Menu → Account details` shows the account with no passkey row and no buttons, the login pane
   has no fingerprint control, `/api/auth/passkey/options` and `/api/account/passkeys/remove` answer
@@ -145,14 +151,15 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
-- **Games:** three games are live (`v=84`): Connect Four, Tic-tac-toe and Reversi. A room runs up to
+- **Games:** three games are live (`v=85`): Connect Four, Tic-tac-toe and Reversi. A room runs up to
   four at once (a finished board does not hold a slot, and only the newest two results are kept), one
   seat per person per room, and the 🎲 Games button counts the games still running in that room. The
   room list begins with a Games card whose badge is the live total. Games are hidden until that button or
   card is opened, seats are open or by request, the host (or a mod/admin) approves, and every move is
   validated in the Durable Object, which also reports the legal moves so the dock can mark them. A
   finished board says who won (or that it was a tie) with the rematch under that line, and either player
-  can take it; a board still in play is never restarted, it is ended first. A board whose players have all
-  gone clears itself, the host role moves to whoever is left when a host leaves, and a closed tab only
+  can take it; a board still in play is never restarted, it is ended first. A finished board is never
+  listed and clears itself after two minutes, a board whose players have all gone clears itself at once,
+  the host role moves to whoever is left when a host leaves, and a closed tab only
   forfeits after `AWAY_GRACE_MS` via a DO alarm, so an absent host cannot strand a room. `GAMES.md` is the
   spec plus the as-built notes; Draw & Guess is next on the same dock.

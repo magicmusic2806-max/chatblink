@@ -173,16 +173,16 @@ per second) and are never stored per point.
    browsers through the dock).
 5. **Restart belongs to a result, and empty boards clear.** ✅ `v=83` — the rematch lives on the board
    screen under a result line (who won, or it's a tie) and a board still in play cannot be restarted at
-   all; a game whose last player leaves clears itself. `v=84`: a finished board's row in the list carries
-   only its result (no "over" chip, no seat to fill, no phantom watcher) and taking a seat stops counting
-   that account as a spectator.
+   all; a game whose last player leaves clears itself. `v=84`: a seat is never counted as a spectator.
+   `v=85`: no history at all — a finished board is never listed and clears itself after
+   `ENDED_GAME_TTL_MS` (two minutes, `--var` overridable).
 6. **Draw & Guess.** Next, and the one users asked for by name. Design below.
 7. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
 8. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
    watchable but not joinable.
 9. **Poker / trivia** only if demand appears.
 
-## As built (`v=84`, three games)
+## As built (`v=85`, three games)
 
 Everything below is what the code actually does, not the plan it came from:
 
@@ -190,12 +190,13 @@ Everything below is what the code actually does, not the plan it came from:
   hibernation and a restart (verified by killing the dev server between a create and a move). It is a
   map of rooms to maps of games: **a room may run up to `GAMES_PER_ROOM` (4) games at once**, and one
   person may hold a seat in only one unfinished game per room, so nobody plays two boards at once.
-  A finished board keeps its result in the room until someone clears it, and at most `ENDED_GAMES_KEPT`
-  (2) of them are kept — older ones drop automatically.
-- **A slot belongs to an unfinished game.** The cap counts games still in the lobby or being played,
-  never finished boards: four dead boards at the cap used to close a room to new games for good, which
-  is exactly what stranded a player whose host had walked off. The dock's "Start another game" follows
-  the same rule, so it never disappears because of a result sitting in the list.
+- **A slot belongs to an unfinished game, and there is no history.** The cap counts games still in the
+  lobby or being played, never finished boards: four dead boards at the cap used to close a room to new
+  games for good, which is exactly what stranded a player whose host had walked off. A finished board is
+  never listed either — the room's games are the games being played. It stays on the screen of whoever
+  is looking at it (with the result and the rematch) and clears itself after `ENDED_GAME_TTL_MS` (two
+  minutes), or the moment its last player leaves. The dock's "Start another game" follows the same rule,
+  so it never disappears because of a result.
 - **Games:** Connect Four (7x6 columns), Tic-tac-toe (3x3), Reversi (8x8, standard opening, with the
   pass rule when the opponent has no legal move). `GAME_KINDS` carries the layout; the client renders
   either a column board or a square grid from `layout`.
@@ -220,13 +221,15 @@ Everything below is what the code actually does, not the plan it came from:
 - **Restart, rematch and clearing:** a rematch only ever follows a result, and it lives on the board
   screen: the board says who won (or that it was a tie) and the Rematch button sits under that line. Either
   player may ask for it (`game-restart`: fresh board, same seats, the opening seat alternates so nobody is
-  permanently the second player), and any of them may clear it from the room. A board that is *still in
-  play* has no result to restart from, so it is ended first (`game-end`) — a half-played position is never
-  wiped by a stray tap. A rematch only seats the people still in the room: the seat of a player who walked
-  out is dropped and the board reopens in the lobby rather than restarting against a ghost who never moves.
+  permanently the second player), and any of them may clear the board from the room, which it would do by
+  itself shortly anyway. A board that is *still in play* has no result to restart from, so it is ended
+  first (`game-end`) — a half-played position is never wiped by a stray tap. A rematch only seats the
+  people still in the room: the seat of a player who walked out is dropped and the board reopens in the
+  lobby rather than restarting against a ghost who never moves.
 - **A board nobody is at clears itself.** When the last seated player leaves (pressing Leave, or closing
-  the tab past the grace) the game is dropped instead of being kept as furniture, and a stored game with
-  no seats is ignored on load — so a room cannot accumulate results whose players have all gone.
+  the tab past the grace) the game is dropped instead of being kept as furniture, a finished board also
+  clears itself after `ENDED_GAME_TTL_MS`, and a stored game with no seats is ignored on load — so a room
+  cannot accumulate results whose players have all gone.
 - **The host role moves.** Whoever is left runs the board: when the host leaves a game or their seat
   expires while away, `rehostGame()` hands the host role to the remaining player and tells them so
   (`game-host`), so a finished game can still be rematched, approved and cleared. A seated player can
@@ -242,12 +245,12 @@ Everything below is what the code actually does, not the plan it came from:
 - **HTTP:** `GET /api/games` lists every game *still running* in a room the caller may enter — a finished
   board is a result inside its room, not something to discover and watch from outside.
 - **UI:** the room's **🎲 Games** button carries a count of the games running in that room. Opening it
-  shows that room's games (tap one for its board and actions) or the create form when it has none. A row
-  in that list is an invitation: "your move" or a seat to take. A finished board's row carries only its
-  result — no status chip, no seat to fill, no spectator count — and opening it goes to the board, where
-  the result line and the rematch are. The **room list begins with a Games card** — same shape as a room
-  card, a badge with the total — which opens the all-games view with Watch / Join / Request. Games stay
-  invisible until one of those is opened, as specified.
+  shows that room's games (tap one for its board and actions) or the create form when it has none. The
+  list is the games being played and nothing else — a finished board is never a row, and a row's chip is
+  an invitation ("your move", "open"). The result of a finished board lives on its own screen, under the
+  board, with the rematch; leave that screen and the room has no trace of it. The **room list begins with
+  a Games card** — same shape as a room card, a badge with the total — which opens the all-games view with
+  Watch / Join / Request. Games stay invisible until one of those is opened, as specified.
 - **Defaults taken** from the open questions: host, moderators and the admin may approve/end; the card
   shows the count, game name, room and seats, no board preview.
 

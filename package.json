@@ -28,6 +28,7 @@
     "test:schema": "node --no-warnings tests/schema-parity.js",
     "test:games": "node tests/games.js",
     "test:games-ui": "node tests/games-ui.js",
+    "test:boot": "node tests/boot-e2e.js",
     "test:notice": "node tests/notice-board.js"
   },
   "dependencies": {

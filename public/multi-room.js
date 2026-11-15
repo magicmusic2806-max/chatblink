@@ -26,20 +26,23 @@ const forgetProfileKey=()=>{pendingProfileKey=null;try{localStorage.removeItem("
 const request=async(url,options={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Number(options.timeoutMs)||12000);try{const response=await fetch(url,{credentials:"same-origin",...options,signal:controller.signal,headers:{"Content-Type":"application/json",...(authToken?{Authorization:`Bearer ${authToken}`}:{ }),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"Something went wrong.");return data}catch(problem){if(problem.name==="AbortError")throw new Error("The server took too long to respond. Please try again.");throw problem}finally{clearTimeout(timer)}};
 const initials=name=>String(name||"?").slice(0,2).toUpperCase();
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300)}
+// The head script hides the login shell while a remembered token is being checked. Once the boot knows which
+// view belongs on screen the guard has to go - a later sign-out would otherwise be unable to show it again.
+function clearBootGuard(){const guard=$("#bootGuard");if(guard)guard.remove();document.documentElement.removeAttribute("data-booting")}
 function error(id,message){const el=$(id);el.textContent=message;el.hidden=!message}
-function switchAuth(mode){const selected=mode==="signup"||mode==="key-signup"?"signup":"key";document.querySelectorAll("[data-auth-pane]").forEach(pane=>pane.classList.toggle("active",pane.dataset.authPane===selected))}
+function switchAuth(mode){clearBootGuard();const selected=mode==="signup"||mode==="key-signup"?"signup":"key";document.querySelectorAll("[data-auth-pane]").forEach(pane=>pane.classList.toggle("active",pane.dataset.authPane===selected))}
 function authErrorTarget(mode){return ({signup:"#signupError","key-signup":"#signupError",login:"#keyLoginError",key:"#keyLoginError"})[mode]||"#keyLoginError"}
 document.querySelectorAll("[data-switch]").forEach(b=>b.onclick=()=>switchAuth(b.dataset.switch));
 function busy(form,value){const button=form.querySelector("button[type=submit]");if(!button)return;if(!button.dataset.copy)button.dataset.copy=button.innerHTML;button.disabled=value;button.innerHTML=value?"Please wait…":button.dataset.copy}
 // Login and signup intentionally use their normal form actions. A full page load keeps
 // the saved account and the visible authentication state in sync even after stale tabs.
 
-function showProfileSetup(user,key){currentUser=user;$("#authView").hidden=true;$("#appView").hidden=true;$("#setupView").hidden=false;const card=$("#newKeyCard"),profileKey=key||pendingProfileKey;card.hidden=!profileKey;if(profileKey){$("#profileKeyValue").textContent=profileKey;$("#keySaved").checked=false}else $("#keySaved").checked=true;const form=$("#profileForm");form.elements.displayName.value=user.profile?.displayName||user.username;form.elements.bio.value=user.profile?.bio||"";form.elements.gender.value=user.profile?.gender||"";form.elements.interests.value=(user.profile?.interests||[]).join(", ");const avatar=form.querySelector(`[name=avatar][value="${user.profile?.avatar||"✨"}"]`);if(avatar)avatar.checked=true}
+function showProfileSetup(user,key){clearBootGuard();currentUser=user;$("#authView").hidden=true;$("#appView").hidden=true;$("#setupView").hidden=false;const card=$("#newKeyCard"),profileKey=key||pendingProfileKey;card.hidden=!profileKey;if(profileKey){$("#profileKeyValue").textContent=profileKey;$("#keySaved").checked=false}else $("#keySaved").checked=true;const form=$("#profileForm");form.elements.displayName.value=user.profile?.displayName||user.username;form.elements.bio.value=user.profile?.bio||"";form.elements.gender.value=user.profile?.gender||"";form.elements.interests.value=(user.profile?.interests||[]).join(", ");const avatar=form.querySelector(`[name=avatar][value="${user.profile?.avatar||"✨"}"]`);if(avatar)avatar.checked=true}
 $("#copyKey").onclick=async()=>{const key=$("#profileKeyValue").textContent;try{await navigator.clipboard.writeText(key);toast("Profile key copied")}catch{toast("Select the key and copy it manually")}};
 $("#downloadKey").onclick=()=>{const key=$("#profileKeyValue").textContent,blob=new Blob([`Chatblink profile key\n\n${key}\n\nKeep this private. It is a backup way to access your profile.\n`],{type:"text/plain"}),url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download="chatblink-profile-key.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),500);toast("Profile key downloaded")};
 $("#enterRoomsNow").onclick=()=>$("#profileForm").requestSubmit();
 $("#profileForm").addEventListener("submit",async event=>{event.preventDefault();const form=event.currentTarget,data=new FormData(form);error("#profileError","");busy(form,true);$("#enterRoomsNow").disabled=true;try{const result=await request("/api/profile",{method:"POST",body:JSON.stringify({displayName:data.get("displayName"),avatar:data.get("avatar"),bio:data.get("bio"),gender:data.get("gender"),interests:data.get("interests")})});forgetProfileKey();$("#setupView").hidden=true;await enterApp(result.user)}catch(problem){error("#profileError",problem.message)}finally{busy(form,false);$("#enterRoomsNow").disabled=false}});
-async function enterApp(user){currentUser=user;$("#authView").hidden=true;$("#setupView").hidden=true;$("#appView").hidden=false;await loadRooms();ensureNotifySocket();route("initial")}
+async function enterApp(user){clearBootGuard();currentUser=user;$("#authView").hidden=true;$("#setupView").hidden=true;$("#appView").hidden=false;await loadRooms();ensureNotifySocket();route("initial")}
 async function leaveApp(){endCall();leaveRoomCall(true);roomCallState=null;roomGames=[];liveGames=[];$("#gamesModal").hidden=true;stopRequestPoll();stopViewPolls();closeNotifySocket();clearTimeout(reconnectTimer);if(socket){socket.onclose=null;socket.close()}currentUser=null;currentRoom=null;$("#setupView").hidden=true;$("#authView").hidden=false;switchAuth("login");enterGuestMode()}
 async function enterGuestMode(){try{const result=await request("/api/rooms");rooms=result.rooms;ensureNotifySocket();route("initial")}catch{}}
 async function loadRooms(){rooms=(await request("/api/rooms")).rooms}
@@ -60,7 +63,10 @@ function renderRoomSubscription(loading=false){const button=$("#roomSubscribe");
 async function loadRoomSubscription(room){const loadId=++subscriptionLoadId;roomSubscribed=false;renderRoomSubscription(true);if(!currentUser||!room.canEnter)return renderRoomSubscription(false);try{const result=await request(`/api/rooms/${encodeURIComponent(room.id)}/subscription`);if(loadId!==subscriptionLoadId||currentRoom?.id!==room.id)return;roomSubscribed=Boolean(result.subscribed)}catch{}finally{if(loadId===subscriptionLoadId&&currentRoom?.id===room.id)renderRoomSubscription(false)}}
 async function toggleRoomSubscription(){if(!currentUser||!currentRoom?.canEnter)return;const room=currentRoom,next=!roomSubscribed;renderRoomSubscription(true);try{if(next){if(!window.ChatblinkPush?.ensure)throw new Error("Notifications are still loading. Try again in a moment.");await window.ChatblinkPush.ensure()}const result=await request(`/api/rooms/${encodeURIComponent(room.id)}/subscription`,{method:"POST",body:JSON.stringify({subscribed:next})});if(currentRoom?.id!==room.id)return;roomSubscribed=Boolean(result.subscribed);toast(roomSubscribed?`Subscribed to ${room.name}`:`Room alerts turned off for ${room.name}`)}catch(problem){toast(problem.message||"Could not update this room subscription")}finally{if(currentRoom?.id===room.id)renderRoomSubscription(false)}}
 $("#roomSubscribe").onclick=toggleRoomSubscription;
-function selectRoom(room,mode="push"){if(!room)return;if(voice)stopVoiceNote(true);setReplyTarget(null);leaveRoomCall(true);roomCallState=null;roomGames=[];activeGameId=null;creatingGame=false;renderGameBadge();currentRoom=room;liveMessages=[];loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
+function selectRoom(room,mode="push"){if(!room)return;const switching=!currentRoom||currentRoom.id!==room.id;if(voice)stopVoiceNote(true);setReplyTarget(null);leaveRoomCall(true);roomCallState=null;roomGames=[];activeGameId=null;creatingGame=false;renderGameBadge();currentRoom=room;liveMessages=[];
+// The previous room's rows must not sit on screen behind the loader while this room's history is fetched.
+if(switching){$("#messageList").replaceChildren();$("#messageList").scrollTop=0}
+loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;showRoomLoader(room);connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed});renderRoomCall()}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
 function handleSocketEvent(event){if(event.type==="history"){liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);settleRoomLoader()}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamesModal").hidden&&gamesMode==="room")renderGames()}}if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamesModal").hidden)renderGames()}if(event.type==="game-approved")toast("You are in");if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
@@ -740,7 +746,9 @@ function renderGames(){
   if(!currentRoom){body.textContent="Open a room first.";return}
   const game=activeGame();
   if(game){renderGameDetail(body,game);return}
-  if(creatingGame||!roomGames.length){renderGameCreate(body);return}
+  // No history: the room's list is the games being played, so a room whose only board has finished looks
+  // exactly like one nobody has played in - the result was on the board screen, and it clears itself.
+  if(creatingGame||!unfinishedGames().length){renderGameCreate(body);return}
   renderGameList(body);
 }
 function gameStatusText(game){
@@ -762,27 +770,20 @@ function noteGameChanges(games){
 }
 function renderGameList(body){
   const list=document.createElement("div");list.className="game-list";
-  // Games still on the go first: a finished board is a result to glance at, not the first thing offered.
-  [...roomGames].sort((left,right)=>Number(left.status==="ended")-Number(right.status==="ended")).forEach(game=>{
+  unfinishedGames().forEach(game=>{
     const row=document.createElement("button");row.type="button";row.className="game-list-row";
     const info=document.createElement("span");info.className="game-list-info";
     const name=document.createElement("b");
     name.textContent=`${game.name} · ${game.players.length}/${game.seats}`;
     const meta=document.createElement("small");
-    // A finished board has no seat to fill, no turn and nobody left to play: only the result is worth saying,
-    // and the row stays because its board (and the rematch on it) is opened from here.
-    meta.textContent=game.status==="ended"
-      ?gameStatusText(game)
-      :`${gameStatusText(game)} · ${game.policy==="open"?"open seat":"by request"}${game.spectators?` · ${game.spectators} watching`:""}`;
+    meta.textContent=`${gameStatusText(game)} · ${game.policy==="open"?"open seat":"by request"}${game.spectators?` · ${game.spectators} watching`:""}`;
     info.append(name,meta);
     const go=document.createElement("span");go.className="game-list-actions";
-    // The chip is an invitation - your move, or a seat to take - so a board with nothing to do carries none.
-    const chipText=game.status==="playing"&&gameIsMine(game.turn)?"your move":game.status==="lobby"?"open":"";
-    if(chipText){
-      const chip=document.createElement("span");chip.className=`game-chip${chipText==="your move"?" live":""}`;
-      chip.textContent=chipText;
-      go.appendChild(chip);
-    }
+    // The chip is an invitation: your move, or a seat to take.
+    const chipText=game.status==="playing"&&gameIsMine(game.turn)?"your move":"open";
+    const chip=document.createElement("span");chip.className=`game-chip${chipText==="your move"?" live":""}`;
+    chip.textContent=chipText;
+    go.appendChild(chip);
     row.append(info,go);
     row.onclick=()=>openGame(game.id);
     list.appendChild(row);
@@ -839,7 +840,7 @@ function renderGameCreate(body){
   }
 }
 function renderGameDetail(body,game){
-  const back=document.createElement("button");back.type="button";back.className="game-back";back.textContent=roomGames.length>1?"← All games in this room":"← Back";
+  const back=document.createElement("button");back.type="button";back.className="game-back";back.textContent=unfinishedGames().length>1?"← All games in this room":"← Back";
   back.onclick=()=>{activeGameId=null;renderGames()};
   body.appendChild(back);
 

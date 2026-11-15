@@ -309,8 +309,6 @@ async function main() {
   send(spareSocket, { type: "game-create", kind: "connect-four", policy: "open" });
   const reopened = await waitFor(spareSocket, packet => packet.type === "game-state" && packet.games.some(game => game.hostId === spare.user.id && game.kind === "connect-four" && game.status === "lobby"), 4000).catch(() => null);
   ok("a finished board frees its slot, so a full room still takes a new game", Boolean(reopened));
-  const endedKept = (reopened ? reopened.games : []).filter(game => game.status === "ended");
-  ok("only the newest finished boards are kept", endedKept.length <= 2, `${endedKept.length} kept`);
 
   /* ------------------------------------------------------ an abandoned seat */
   // A host who walks away must not strand the room: after the grace period the player who stayed wins, takes
@@ -365,6 +363,23 @@ async function main() {
   send(witnessSocket, { type: "game-sync" });
   const emptied = await waitFor(witnessSocket, packet => packet.type === "game-state");
   ok("every board its players left clears itself", (emptied.games || []).length === 0, JSON.stringify((emptied.games || []).map(game => `${game.kind}:${game.status}`)));
+
+  // No history either: a finished board has a short life on screen and then clears itself, even with a player
+  // still sitting at it. ENDED_GAME_TTL_MS is 6000 in this suite.
+  witnessSocket.inbox.length = 0;
+  send(witnessSocket, { type: "game-create", kind: "tic-tac-toe", policy: "open" });
+  const ttlGame = (await waitFor(witnessSocket, packet => packet.type === "game-state" && packet.games.length === 1)).games[0];
+  send(witnessSocket, { type: "game-end", gameId: ttlGame.id });
+  await waitGame(witnessSocket, ttlGame.id, game => game.status === "ended");
+  witnessSocket.inbox.length = 0;
+  send(witnessSocket, { type: "game-sync" });
+  const beforeTtl = await waitFor(witnessSocket, packet => packet.type === "game-state");
+  ok("a board that just finished is still readable", gameById(beforeTtl, ttlGame.id)?.status === "ended");
+  await sleep(6500);
+  witnessSocket.inbox.length = 0;
+  send(witnessSocket, { type: "game-sync" });
+  const afterTtl = await waitFor(witnessSocket, packet => packet.type === "game-state");
+  ok("and then clears itself, so a room keeps no history", !gameById(afterTtl, ttlGame.id), JSON.stringify((afterTtl.games || []).map(game => `${game.kind}:${game.status}`)));
   witnessSocket.close();
 
   /* -------------------------------------------------------------- budgets */
