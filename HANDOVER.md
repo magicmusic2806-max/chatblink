@@ -2,7 +2,7 @@
 
 Updated 2026-11-14. Live at <https://chatblink.chat>, deployed from `main` by
 `.github/workflows/deploy.yml` (`npm ci` → canonical-host suite → `wrangler deploy`).
-Current client bundle: `multi-room.js?v=80`. D1 schema version: 4
+Current client bundle: `multi-room.js?v=81`. D1 schema version: 4
 (`worker/lib/schema.js`, applied by the Durable Object itself).
 
 ## What the site is now
@@ -85,11 +85,14 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   summary. At `v=77` (passkeys removed): **13 groups green** — canonical, schema, smoke, retention,
   push-gate, theme, quotas, actions, room-actions, voice-note, group-call, group-call-e2e, notice.
   The passkey suite is deleted with the feature, so there is no longer a localhost-only rpId rule to
-  remember. At `v=78`: **14 groups green**, the new one being `tests/games.js`. At `v=80` that suite is
-  **37 checks**: three games, multi-game rooms, the cap, one seat per person, open and by-request seats,
+  remember. At `v=78`: **14 groups green**, the new one being `tests/games.js`. At `v=81` that suite is
+  **43 checks**: three games, multi-game rooms, the cap, one seat per person, open and by-request seats,
   approve/deny authority, out-of-turn and spectator refusals, an occupied square, an impossible column, a
-  Reversi move that flips nothing, a full game of each kind to its ending, the room-list feed and the
-  private-room visibility rule, and that a burst of game events does not spend the chat message window.
+  Reversi move that flips nothing, a full game of each kind to its ending, a rematch, clearing a finished
+  board as the non-host player, an abandoned host resolving to the player who stayed (run with
+  `AWAY_GRACE_MS=1500`), the room-list feed and the private-room rule, and that a burst of game events
+  does not spend the chat message window. The alarm path was checked separately: a host's socket was
+  killed and, with nothing sent from the other side, the object pushed the forfeited result on its own.
 - The profile-key door was also driven at 390 px in Chromium: signup hands over a key, the key signs
   in, `Menu → Account details` shows the account with no passkey row and no buttons, the login pane
   has no fingerprint control, `/api/auth/passkey/options` and `/api/account/passkeys/remove` answer
@@ -130,9 +133,11 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
-- **Games:** three games are live (`v=80`): Connect Four, Tic-tac-toe and Reversi. A room runs up to
+- **Games:** three games are live (`v=81`): Connect Four, Tic-tac-toe and Reversi. A room runs up to
   four at once, one seat per person per room, and the 🎲 Games button counts the games in that room.
   The room list begins with a Games card whose badge is the live total. Games are hidden until that
   button or card is opened, seats are open or by request, the host (or a mod/admin) approves, and every
-  move is validated in the Durable Object. `GAMES.md` is the spec plus the as-built notes; Draw & Guess
+  move is validated in the Durable Object. A finished board can be rematched by the host or cleared by
+  the host or any of its players, and a closed tab only forfeits after `AWAY_GRACE_MS` via a DO alarm,
+  so an absent host cannot strand a room. `GAMES.md` is the spec plus the as-built notes; Draw & Guess
   is next on the same dock.

@@ -32,9 +32,12 @@ const GAME_KINDS = {
   "tic-tac-toe": { name: "Tic-tac-toe", seats: 2, solo: false, board: "grid", size: 3 },
   "othello": { name: "Reversi", seats: 2, solo: false, board: "grid", size: 8 }
 };
-const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-sync"];
+const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-sync"];
 const GAME_EVENT_LIMIT = 60;
 const GAMES_PER_ROOM = 4;
+// How long a player may have no socket in the room before their seat is resolved. A reload closes and
+// reopens the socket in about a second, so this is a grace period, not a presence check.
+const AWAY_GRACE_MS = 45000;
 const CONNECT_FOUR_COLUMNS = 7, CONNECT_FOUR_ROWS = 6;
 const TIC_TAC_TOE_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 const OTHELLO_DIRECTIONS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
@@ -129,6 +132,7 @@ export class ChatHub {
     this.dailyDay = 0;
     this.messageDailyCap = budget(env.MESSAGE_DAILY_CAP, MESSAGE_DAILY_CAP);
     this.uploadDailyCap = budget(env.UPLOAD_DAILY_CAP, UPLOAD_DAILY_CAP);
+    this.awayGraceMs = Math.max(1000, budget(env.AWAY_GRACE_MS, AWAY_GRACE_MS));
     state.blockConcurrencyWhile(async () => {
       state.storage.sql.exec(MESSAGE_TABLE);
       this.migrateMessages();
@@ -583,6 +587,8 @@ export class ChatHub {
     const meta = attachment(socket), room = this.findRoom(meta.roomId);
     if (!room || (Array.isArray(room.bans) && room.bans.includes(user.id))) return;
     if (this.gameLimited(meta.connectionId || user.id, now)) return;
+    // Any interaction first settles seats whose grace ran out, so nobody has to wait for the alarm.
+    this.sweepAway(now);
     const gameId = clean(event.gameId).slice(0, 64), game = gameId ? this.gameIn(room.id, gameId) : null;
 
     // Opening the dock asks for the truth rather than trusting what it last heard: the object may have
@@ -656,11 +662,29 @@ export class ChatHub {
       return this.broadcastGames(room.id);
     }
     if (event.type === "game-move") return this.gameMove(socket, game, user, room, event);
+    if (event.type === "game-restart") {
+      if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can restart.");
+      if (game.status !== "ended") return this.gameError(socket, "That game is still running.");
+      // Same seats, same host, fresh board. With a seat empty it drops back to the lobby rather than
+      // starting short-handed.
+      game.board = initialBoard(GAME_KINDS[game.kind] || GAME_KINDS["connect-four"]);
+      game.winnerId = null; game.reason = null; game.passed = false; game.endedAt = null; game.startedAt = null;
+      game.turn = null;
+      if (game.players.length >= seats) { game.status = "playing"; game.startedAt = Date.now(); game.turn = game.players[0].id; }
+      else game.status = "lobby";
+      return this.broadcastGames(room.id);
+    }
     if (event.type === "game-end") {
-      if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can do that.");
-      // Ending an already-ended game clears it out of the room, which is how the host closes it.
-      if (game.status === "ended") this.dropGame(room.id, game.id);
-      else this.endGame(game, null, "ended");
+      const mayManage = this.canRunGame(room, game, user);
+      // Closing an ended board is open to the host, a moderator/admin and any player: an absent host must
+      // not be the only person who can clear the room. Ending a running game stays with the host.
+      if (game.status === "ended") {
+        if (!mayManage && !isPlayer) return this.gameError(socket, "Only the host or a player can clear that game.");
+        this.dropGame(room.id, game.id);
+      } else {
+        if (!mayManage) return this.gameError(socket, "Only the host can end a running game.");
+        this.endGame(game, null, "ended");
+      }
       return this.broadcastGames(room.id);
     }
   }
@@ -670,6 +694,88 @@ export class ChatHub {
     games.delete(gameId);
     if (!games.size) this.roomGames.delete(roomId);
   }
+  usersInRoom(roomId) {
+    const ids = new Set();
+    for (const socket of this.clientsIn(roomId)) { const id = attachment(socket).userId; if (id) ids.add(id); }
+    return ids;
+  }
+  // A seat is not vacated the moment a socket closes: a reload drops and reopens it in about a second. The
+  // player is marked away instead, and the game only resolves once the grace period has passed - otherwise
+  // one closed tab would hand the room a finished game nobody asked for.
+  markAway(roomId, userId) {
+    const games = this.roomGames.get(roomId);
+    if (!games || !userId) return;
+    const now = Date.now();
+    let marked = false;
+    for (const game of games.values()) {
+      if (!game.players.some(player => player.id === userId)) continue;
+      game.away = { ...(game.away || {}), [userId]: now };
+      marked = true;
+    }
+    if (!marked) return;
+    this.saveGames();
+    this.background(this.state.storage.setAlarm(now + this.awayGraceMs).catch(() => {}));
+  }
+  clearAway(roomId, userId) {
+    const games = this.roomGames.get(roomId);
+    if (!games || !userId) return;
+    let changed = false;
+    for (const game of games.values()) if (game.away && game.away[userId]) { delete game.away[userId]; changed = true; }
+    if (changed) this.saveGames();
+  }
+  // Resolve every player whose grace ran out and who is still not in the room: a running game becomes a
+  // win for whoever is left, a lobby game loses the seat, and a lobby game whose host is gone disappears.
+  // Runs on the alarm and again at the start of any game event, so an interacting player never sees a
+  // game that should have ended already.
+  sweepAway(now = Date.now()) {
+    const touched = new Set();
+    for (const [roomId, games] of [...this.roomGames]) {
+      const here = this.usersInRoom(roomId);
+      for (const game of [...games.values()]) {
+        let changed = false;
+        for (const [userId, since] of Object.entries(game.away || {})) {
+          if (here.has(userId)) { delete game.away[userId]; changed = true; continue; }
+          if (now - since < this.awayGraceMs) continue;
+          delete game.away[userId];
+          changed = true;
+          const seated = game.players.some(player => player.id === userId);
+          game.pending = game.pending.filter(person => person.id !== userId);
+          if (!seated) continue;
+          if (game.status === "playing") {
+            const remaining = game.players.filter(player => player.id !== userId);
+            if (!remaining.length) this.dropGame(roomId, game.id);
+            else this.endGame(game, remaining[0].id, "left");
+          } else if (game.status === "lobby") {
+            game.players = game.players.filter(player => player.id !== userId);
+            if (userId === game.hostId || !game.players.length) this.dropGame(roomId, game.id);
+          } else {
+            // A finished game keeps its result; the seat is simply no longer held.
+            game.players = game.players.filter(player => player.id !== userId);
+          }
+        }
+        if (changed) touched.add(roomId);
+      }
+    }
+    if (touched.size) {
+      this.saveGames();
+      for (const roomId of touched) {
+        this.broadcast(roomId, { type: "game-state", roomId, games: this.gamesIn(roomId).map(game => this.gameView(game)) });
+      }
+      this.broadcastAll({ type: "games-changed" });
+    }
+    // Another away seat may still be inside its grace period: wake up when it expires. With nothing away,
+    // the alarm is only cleared when a sweep actually changed something (an alarm call must not turn every
+    // game event into a storage write).
+    let next = null;
+    for (const games of this.roomGames.values()) for (const game of games.values()) for (const since of Object.values(game.away || {})) {
+      const at = since + this.awayGraceMs;
+      if (at > now && (next === null || at < next)) next = at;
+    }
+    if (next !== null) this.background(this.state.storage.setAlarm(next).catch(() => {}));
+    else if (touched.size) this.background(this.state.storage.deleteAlarm().catch(() => {}));
+    return touched.size > 0;
+  }
+  async alarm() { this.sweepAway(); }
 
   addMessage(roomId, message) {
     const sql = this.state.storage.sql;
@@ -700,6 +806,8 @@ export class ChatHub {
     this.state.acceptWebSocket(server);
     if (room && !room.builtIn && room.access === "open" && user && !room.members.includes(user.id)) { room.members.push(user.id); await saveRoom(this.env, room); }
     if (roomId !== "__notify") {
+      // Coming back within the grace period reclaims the seat, so a reload never forfeits.
+      if (user) this.clearAway(roomId, user.id);
       server.send(JSON.stringify({ type: "history", messages: this.history(roomId), online: this.roomOnlineCount(roomId), users: this.presenceUsers(roomId) }));
       const call = this.roomCalls.get(roomId);
       if (call) server.send(JSON.stringify(this.groupCallState(call)));
@@ -827,6 +935,9 @@ export class ChatHub {
         if (games.length) {
           for (const game of games) game.guests = game.guests.filter(person => person.id !== meta.userId);
           this.broadcastGames(meta.roomId, false);
+          // The seat stays for the grace period: closing a tab must not forfeit a game, and a player who
+          // never comes back must not strand the room either.
+          this.markAway(meta.roomId, meta.userId);
         }
       }
       this.broadcastPresence(meta.roomId);

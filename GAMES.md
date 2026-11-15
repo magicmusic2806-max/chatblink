@@ -197,9 +197,16 @@ Everything below is what the code actually does, not the plan it came from:
   started, only the host can do that, you are already playing here.
 - **Boards** are one flat array each (`index = column * rows + row` for Connect Four, row-major for the
   grids). A move is validated against the kind's rules in the object; the client only reads state.
-- **Leaving** a running game forfeits it (the other player wins, `reason: "left"`); leaving a lobby game
-  the host created closes it. A closing socket removes a spectator but keeps a player seated so a
-  reload can carry on.
+- **Leaving and abandonment:** pressing Leave on a running game forfeits it (the other player wins,
+  `reason: "left"`); leaving a lobby game the host created closes it. Closing the tab is not leaving:
+  the seat is held, the player is marked away, and only after `AWAY_GRACE_MS` (45 s in production,
+  `--var` overridable) does the object settle it — a running game goes to whoever stayed, a lobby game
+  whose host is gone disappears. The alarm does that on its own, and any game event sweeps first, so a
+  returning player never loses a seat to a reload.
+- **Rematch and clearing:** the host can restart a finished board with the same seats (`game-restart`,
+  fresh board, first seat to move), and a finished board can be cleared by the host *or by any player in
+  it* — an absent host must not be able to pin a dead board to the room. Ending a running game stays
+  with the host (or a moderator/admin).
 - **Budgets:** game events use `gameLimited()` (60 per 10 s per connection), never the chat window. A
   suite check sends 25 game events and then a message to prove the message still lands.
 - **HTTP:** `GET /api/games` lists every game in a room the caller may enter.

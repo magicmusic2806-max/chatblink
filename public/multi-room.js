@@ -858,16 +858,23 @@ function renderGameDetail(body,game){
     leave.onclick=()=>sendGame("game-leave",{gameId:game.id});
     actions.appendChild(leave);
   }
-  if(gameIsMine(game.hostId)){
-    if(game.status==="ended"){
-      const close=document.createElement("button");close.type="button";close.className="secondary";close.textContent="Clear from room";
-      close.onclick=()=>sendGame("game-end",{gameId:game.id});
-      actions.appendChild(close);
-    }else{
-      const end=document.createElement("button");end.type="button";end.className="secondary";end.textContent="End game";
-      end.onclick=()=>sendGame("game-end",{gameId:game.id});
-      actions.appendChild(end);
+  if(game.status==="ended"){
+    // A rematch keeps both players and only resets the board; clearing takes the finished board out of the
+    // room, and any player may do that so an absent host cannot pin it there.
+    if(gameIsMine(game.hostId)){
+      const again=document.createElement("button");again.type="button";again.className="primary";again.textContent="Rematch";
+      again.onclick=()=>sendGame("game-restart",{gameId:game.id});
+      actions.appendChild(again);
     }
+    if(gameIsMine(game.hostId)||mine){
+      const clear=document.createElement("button");clear.type="button";clear.className="secondary";clear.textContent="Clear from room";
+      clear.onclick=()=>{activeGameId=null;sendGame("game-end",{gameId:game.id})};
+      actions.appendChild(clear);
+    }
+  }else if(gameIsMine(game.hostId)){
+    const end=document.createElement("button");end.type="button";end.className="secondary";end.textContent="End game";
+    end.onclick=()=>sendGame("game-end",{gameId:game.id});
+    actions.appendChild(end);
   }
   if(actions.childElementCount)body.appendChild(actions);
 
