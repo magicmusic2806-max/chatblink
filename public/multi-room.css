@@ -412,9 +412,9 @@ input,select,textarea{font-size:16px}
    colour with the room's own symbol in the middle - inline, so it cannot be waiting on the same network the
    room is waiting on, and it disappears the moment the history renders. */
 .room-opening{position:relative;display:grid;place-items:center;min-height:100%;padding:24px 0}
-.room-opening-ring{width:88px;height:88px;border-radius:50%;border:4px solid color-mix(in srgb,var(--accent,#5c667c) 20%,transparent);border-top-color:var(--accent,#5c667c);animation:roomSpin .9s linear infinite}
+.room-opening-ring{width:76px;height:76px;border-radius:50%;border:4px solid color-mix(in srgb,var(--accent,#5c667c) 20%,transparent);border-top-color:var(--accent,#5c667c);animation:roomSpin .9s linear infinite}
 html[data-theme=dark] .room-opening-ring{border-color:color-mix(in srgb,var(--accent,#9aa6bb) 26%,transparent);border-top-color:color-mix(in srgb,var(--accent,#9aa6bb) 82%,#fff)}
-.room-opening-emoji{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:34px;line-height:1;color:var(--accent,#5c667c)}
+.room-opening-emoji{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:30px;line-height:1;color:var(--accent,#5c667c)}
 @keyframes roomSpin{to{transform:rotate(1turn)}}
 @media (prefers-reduced-motion:reduce){.room-opening-ring{animation:none}}
 #chatPanel{position:relative}
