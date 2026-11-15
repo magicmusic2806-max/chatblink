@@ -84,7 +84,7 @@ const get = (route, headers = {}) => fetch(BASE + route, { headers, redirect: "m
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${BASE}/room/${roomA.id}`, { waitUntil: "domcontentloaded" });
     await page.locator("#chatPanel:not([hidden])").waitFor();
-    await page.locator("#roomLoader").waitFor({ state: "hidden", timeout: 15000 });
+    await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 15000 });
     const socket = new WebSocket(`${BASE.replace(/^http/, "ws")}/?room=${encodeURIComponent(roomA.id)}`, { headers: { Cookie: cookie, Origin: BASE } });
     await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
     socket.send(JSON.stringify({ type: "message", kind: "text", content: marker }));
@@ -97,13 +97,14 @@ const get = (route, headers = {}) => fetch(BASE + route, { headers, redirect: "m
     const onSwitch = await page.evaluate(() => ({
       roomName: document.querySelector("#roomName").textContent,
       messages: document.querySelector("#messageList").textContent,
-      loaderHidden: document.querySelector("#roomLoader")?.hidden ?? true
+      loaded: document.querySelector("#chatPanel").hasAttribute("data-loaded"),
+      loaderPresent: Boolean(document.querySelector("#roomLoader"))
     }));
     ok("the next room's header is what shows", onSwitch.roomName === `Boot B ${stamp}`, onSwitch.roomName);
     ok("the previous room's messages are gone at once", !onSwitch.messages.includes(`stale-${stamp}`), onSwitch.messages.slice(0, 120));
-    ok("the room-opening animation is up while it loads", onSwitch.loaderHidden === false);
-    await page.locator("#roomName", { hasText: `Boot B ${stamp}` }).waitFor();
-    await page.locator("#roomLoader").waitFor({ state: "hidden", timeout: 15000 });
+    ok("there is no opening animation over the room any more", !onSwitch.loaderPresent && onSwitch.loaded === false);
+    await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 15000 });
+    ok("the room is marked loaded once its history lands", await page.evaluate(() => document.querySelector("#chatPanel").hasAttribute("data-loaded")));
     ok("and the new room arrives with no trace of the old one", !(await page.locator("#messageList").innerText()).includes(`stale-${stamp}`));
     socket.close();
     ok("no page errors", errors.length === 0, errors.join(" | "));

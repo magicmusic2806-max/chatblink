@@ -109,8 +109,8 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   but no session cookie installs the inline guard in the head, so the login shell computes to `display:
   none` before the body is parsed, the app is what appears, and the guard is removed once the boot decides;
   `/api/auth/me` hands the cookie back when it authenticated from the token; and opening a second room
-  replaces the previous room's rows at once, with the loader up while the next history loads — **11
-  checks**.
+  replaces the previous room's rows at once, with no opening animation over the room and `data-loaded`
+  set only when its history lands — **12 checks**.
 - The profile-key door was also driven at 390 px in Chromium: signup hands over a key, the key signs
   in, `Menu → Account details` shows the account with no passkey row and no buttons, the login pane
   has no fingerprint control, `/api/auth/passkey/options` and `/api/account/passkeys/remove` answer

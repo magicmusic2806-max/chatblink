@@ -407,27 +407,10 @@ input,select,textarea{font-size:16px}
 .toast{bottom:24px}
 }
 
-/* Room-opening animation. Covers the room's first paint so the socket round-trip and the message
-   render are never seen as a blank list. The client holds it for at least 2s (ROOM_LOADER_MIN_MS)
-   and at most 8s (ROOM_LOADER_MAX_MS), so a dead socket cannot trap anyone behind it. */
+/* The room's first paint is the room itself: there is no opening animation. The panel is cleared on the way
+   in and #chatPanel carries data-loaded only once the room's history has been rendered, which is the signal a
+   browser suite waits on. */
 #chatPanel{position:relative}
-.room-loader{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:radial-gradient(120% 95% at 50% 22%,var(--soft,#eef2f8) 0%,#fff 76%);opacity:0;transition:opacity .28s ease}
-.room-loader[hidden]{display:none}
-.room-loader-run{opacity:1}
-.room-loader-out{opacity:0;transform:translateY(-10px);transition:opacity .3s ease,transform .3s ease}
-.room-loader-card{display:grid;justify-items:center;gap:10px;text-align:center;padding:24px 26px}
-.room-loader-icon{display:block;font-size:48px;line-height:1;filter:drop-shadow(0 10px 20px rgba(15,23,42,.18))}
-.room-loader-name{font-size:17px;letter-spacing:.2px;color:#313b4f}
-.room-loader-tag{font-size:10px;text-transform:uppercase;letter-spacing:.18em;color:#8a93a7}
-.room-loader-bar{position:relative;width:136px;height:4px;margin-top:4px;border-radius:99px;background:rgba(15,23,42,.08);overflow:hidden}
-.room-loader-bar i{position:absolute;top:0;bottom:0;left:0;width:0;border-radius:99px;background:var(--accent,#4f46e5)}
-.room-loader-run .room-loader-icon{animation:roomLoaderPop .75s cubic-bezier(.22,1.2,.36,1) both}
-.room-loader-run .room-loader-name,.room-loader-run .room-loader-tag{animation:roomLoaderRise .5s ease .1s both}
-.room-loader-run .room-loader-bar i{animation:roomLoaderFill 2s cubic-bezier(.35,.85,.3,1) forwards}
-@keyframes roomLoaderPop{0%{opacity:0;transform:scale(.7) translateY(8px)}60%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:scale(1)}}
-@keyframes roomLoaderRise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
-@keyframes roomLoaderFill{0%{width:0}58%{width:64%}100%{width:100%}}
-@media (prefers-reduced-motion:reduce){.room-loader-run .room-loader-icon,.room-loader-run .room-loader-name,.room-loader-run .room-loader-tag{animation:none}.room-loader-run .room-loader-bar i{animation-duration:2s;animation-timing-function:linear}}
 
 /* Notification permission gate. It appears once, after the profile step, before the app is used -
    and never blocks entry: "Not now" is always there, so the choice is the user's. */
@@ -736,10 +719,6 @@ html[data-theme=dark] .modal code{background:#0c1527;border-color:#5367a8;color:
 html[data-theme=dark] .menu-drop{background:#111a29;border-color:#2a374b;box-shadow:0 22px 60px #000a}
 html[data-theme=dark] .menu-drop button{color:#dce3ef}
 html[data-theme=dark] .menu-drop button:hover{background:#1c2739}
-html[data-theme=dark] .room-loader{background:radial-gradient(120% 95% at 50% 20%,color-mix(in srgb,var(--accent,#8b7cff) 24%,#0d1422) 0%,#080d17 75%)}
-html[data-theme=dark] .room-loader-name{color:#e5eaf4}
-html[data-theme=dark] .room-loader-tag{color:#8996aa}
-html[data-theme=dark] .room-loader-bar{background:#ffffff13}
 html[data-theme=dark] .push-gate{background:#02050acc}
 html[data-theme=dark] .push-gate-card{background:linear-gradient(155deg,#1b1d2b,#12141e);border:1px solid #39384d;box-shadow:0 28px 90px #000c}
 html[data-theme=dark] .push-gate-card h2{color:#eef2f8}

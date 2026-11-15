@@ -23,7 +23,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     await context.addInitScript(() => localStorage.setItem("chatblink.pushPrompted", "1"));
     const page = await context.newPage();
     await page.goto(`${BASE}/room/${room.id}`, { waitUntil: "domcontentloaded" });
-    await page.locator("#chatPanel:not([hidden])").waitFor(); await page.locator("#roomLoader").waitFor({ state: "hidden", timeout: 10000 });
+    await page.locator("#chatPanel:not([hidden])").waitFor(); await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 10000 });
     peerSocket = new WebSocket(`${BASE.replace(/^http/, "ws")}/?room=${room.id}`, { headers: { Cookie: peerCookie, Origin: BASE } });
     await new Promise((resolve, reject) => { peerSocket.once("open", resolve); peerSocket.once("error", reject); });
     for (let index = 1; index <= 4; index++) { await page.locator("#chatInput").fill(`Compact message ${index}`); await page.locator("#chatInput").press("Enter"); }

@@ -31,7 +31,7 @@ async function player(browser, cookie, room, errors) {
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(`${BASE}/room/${room}`, { waitUntil: "domcontentloaded" });
   await page.locator("#chatPanel:not([hidden])").waitFor();
-  await page.locator("#roomLoader").waitFor({ state: "hidden", timeout: 15000 });
+  await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 15000 });
   return page;
 }
 const openDock = async page => {

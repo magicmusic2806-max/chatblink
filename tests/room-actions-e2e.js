@@ -54,7 +54,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
 
     await page.goto(`${BASE}/room/${room.id}`, { waitUntil: "domcontentloaded" });
     await page.locator("#chatPanel:not([hidden])").waitFor();
-    await page.locator("#roomLoader").waitFor({ state: "hidden", timeout: 12000 });
+    await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 12000 });
 
     peerSocket.send(JSON.stringify({ type: "message", kind: "text", content: "Peer message" }));
     const peerMessage = page.locator("#messageList .message:not(.me)", { hasText: "Peer message" });

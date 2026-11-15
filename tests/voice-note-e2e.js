@@ -78,7 +78,7 @@ const measure = (page, url) => page.evaluate(async ({ url, windowMs, silenceRms 
     const page = await context.newPage();
     await page.goto(`${BASE}/room/${room.id}`, { waitUntil: "domcontentloaded" });
     await page.locator("#chatPanel:not([hidden])").waitFor();
-    await page.locator("#roomLoader").waitFor({ state: "hidden", timeout: 12000 });
+    await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 12000 });
 
     const button = page.locator("[data-compose=voice]");
     await button.waitFor();
