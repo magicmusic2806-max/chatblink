@@ -579,6 +579,8 @@ export class ChatHub {
   }
   addGamePlayer(game, user) {
     game.pending = game.pending.filter(person => person.id !== user.id);
+    // A seat is not a spectator seat: someone who watched the board before joining must not be counted twice.
+    game.guests = game.guests.filter(person => person.id !== user.id);
     if (!game.players.some(player => player.id === user.id)) game.players.push({ id: user.id, username: user.username, score: 0 });
     const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
     if (game.status === "lobby" && game.players.length >= seats) this.startGame(game);
@@ -703,7 +705,8 @@ export class ChatHub {
       return this.broadcastGames(room.id);
     }
     if (event.type === "game-watch") {
-      if (!game.guests.some(person => person.id === user.id)) game.guests.push({ id: user.id, username: user.username, score: 0 });
+      // A player is not a spectator of their own board.
+      if (!game.players.some(player => player.id === user.id) && !game.guests.some(person => person.id === user.id)) game.guests.push({ id: user.id, username: user.username, score: 0 });
       return this.broadcastGames(room.id, false);
     }
     if (event.type === "game-leave") {

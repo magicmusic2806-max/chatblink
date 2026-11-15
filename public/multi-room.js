@@ -747,7 +747,8 @@ function gameStatusText(game){
   if(game.status==="lobby")return "waiting for a player";
   if(game.status==="playing")return gameIsMine(game.turn)?"your turn":`${(game.players.find(player=>player.id===game.turn)||{}).username||"?"} is playing`;
   const winner=game.players.find(player=>player.id===game.winnerId);
-  return winner?`${winner.username} won`:"finished";
+  if(winner)return `${winner.username} won`;
+  return game.reason==="draw"?"a tie":"no winner";
 }
 // A game the player is in moving from a result back to a fresh board is worth saying out loud when the dock
 // is shut, because a rematch by the other player otherwise looks like nothing happened.
@@ -768,12 +769,20 @@ function renderGameList(body){
     const name=document.createElement("b");
     name.textContent=`${game.name} · ${game.players.length}/${game.seats}`;
     const meta=document.createElement("small");
-    meta.textContent=`${gameStatusText(game)} · ${game.policy==="open"?"open seat":"by request"}${game.spectators?` · ${game.spectators} watching`:""}`;
+    // A finished board has no seat to fill, no turn and nobody left to play: only the result is worth saying,
+    // and the row stays because its board (and the rematch on it) is opened from here.
+    meta.textContent=game.status==="ended"
+      ?gameStatusText(game)
+      :`${gameStatusText(game)} · ${game.policy==="open"?"open seat":"by request"}${game.spectators?` · ${game.spectators} watching`:""}`;
     info.append(name,meta);
     const go=document.createElement("span");go.className="game-list-actions";
-    const chip=document.createElement("span");chip.className=`game-chip${gameIsMine(game.turn)&&game.status==="playing"?" live":""}`;
-    chip.textContent=game.status==="playing"&&gameIsMine(game.turn)?"your move":game.status==="ended"?"over":"open";
-    go.appendChild(chip);
+    // The chip is an invitation - your move, or a seat to take - so a board with nothing to do carries none.
+    const chipText=game.status==="playing"&&gameIsMine(game.turn)?"your move":game.status==="lobby"?"open":"";
+    if(chipText){
+      const chip=document.createElement("span");chip.className=`game-chip${chipText==="your move"?" live":""}`;
+      chip.textContent=chipText;
+      go.appendChild(chip);
+    }
     row.append(info,go);
     row.onclick=()=>openGame(game.id);
     list.appendChild(row);

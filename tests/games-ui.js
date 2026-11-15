@@ -92,6 +92,15 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
     ok("a finished board says who won, right above the rematch", won.includes(`${hostName} wins`), won);
     ok("both players get a rematch button", (await dockText(host)).includes("Rematch") && (await dockText(rival)).includes("Rematch"));
 
+    // The list names a finished board by its result and says nothing else about it: there is no turn to take,
+    // no seat to fill and nothing to label "over", because the board itself is where the result lives.
+    await host.locator(".game-back").click();
+    await host.locator(".game-list-row").first().waitFor();
+    const listText = await dockText(host);
+    ok("a finished row carries the result and no other status", listText.includes(`${hostName} won`) && !/\bover\b/i.test(listText) && !listText.includes("open seat"), listText.slice(0, 200));
+    await host.locator(".game-list-row").first().click();
+    await waitDock(host, "Rematch");
+
     // The player who lost asks for the rematch: the host role is not the price of playing again.
     await rival.locator(".game-actions button", { hasText: "Rematch" }).click();
     await waitDock(rival, "Your turn");

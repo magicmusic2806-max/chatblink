@@ -232,9 +232,14 @@ async function main() {
   const othelloPacket = await waitFor(ownerSocket, packet => packet.type === "game-state" && packet.games.length === 2);
   const othello = othelloPacket.games.find(game => game.kind === "othello");
   ok("Reversi opens with the four-disc centre", othello.board.length === 64 && [27, 28, 35, 36].every(cell => othello.board[cell] !== 0), JSON.stringify(othello.board.filter(cell => cell !== 0).length));
+  // Watching a board and then taking its seat must not leave the account counted as a spectator as well.
+  ownerSocket.inbox.length = 0;
+  send(peerSocket, { type: "game-watch", gameId: othello.id });
+  await waitGame(ownerSocket, othello.id, game => game.spectators === 1);
   peerSocket.inbox.length = 0;
   send(peerSocket, { type: "game-join", gameId: othello.id });
   const othelloOpen = gameById(await waitGame(peerSocket, othello.id, game => game.status === "playing"), othello.id);
+  ok("taking a seat stops counting you as a spectator", othelloOpen.spectators === 0, String(othelloOpen.spectators));
   ok("the object lists the four legal Reversi openings", JSON.stringify(othelloOpen.moves) === JSON.stringify([19, 26, 37, 44]), JSON.stringify(othelloOpen.moves));
 
   ownerSocket.inbox.length = 0;
