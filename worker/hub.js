@@ -81,9 +81,10 @@ const othelloLegal = (board, player, size) => {
   for (let index = 0; index < board.length; index++) if (!board[index] && othelloFlips(board, player, index, size).length) moves.push(index);
   return moves;
 };
-// The reaction vocabulary belongs to the server: it keeps the stored value bounded (six fixed keys,
-// so a message can never accumulate arbitrary payload), and the client picker can be one short row.
-const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+// The reaction vocabulary belongs to the server: it keeps the stored value bounded (a fixed list, so a
+// message can never accumulate arbitrary payload), and the client picker is built from the same list. The
+// first six are the original set, kept first so old messages keep their meaning.
+const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "😍", "😆", "😅", "🤣", "🥰", "😎", "🤔", "😴", "🤯", "🙌", "👏", "👌", "🤝", "💪", "💯", "🎉", "✨", "👀", "🫡", "💔", "⚡", "🎮", "🍕", "☕", "🌈", "🥳"];
 const REACTION_USERS_MAX = 50;
 const REPLY_SNIPPET_MAX = 120;
 const MESSAGE_TABLE = "CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, room_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, username TEXT, role TEXT, photo TEXT, kind TEXT, content TEXT, created_at INTEGER NOT NULL, reply_to TEXT, reply_username TEXT, reply_snippet TEXT, reactions TEXT, deleted_at INTEGER, deleted_by TEXT)";

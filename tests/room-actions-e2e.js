@@ -108,7 +108,7 @@ const cookieOf = response => response.headers.get("set-cookie").split(";")[0];
     await peerMessage.click();
     await peerMessage.locator('.msg-tool[title="Add a reaction"]').click();
     ok("the reaction picker opens", await peerMessage.locator(".reaction-picker").isVisible());
-    ok("the picker offers exactly the six server reactions", (await peerMessage.locator(".reaction-picker button").count()) === 6);
+    ok("the picker offers every server reaction", (await peerMessage.locator(".reaction-picker button").count()) === 32);
     await peerMessage.locator('.reaction-picker button[title="React with 👍"]').click();
     const chip = peerMessage.locator(".reaction-chip");
     await chip.waitFor();

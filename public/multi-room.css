@@ -101,8 +101,8 @@ input,select,textarea{font-size:16px}
 .reaction-chip.mine{border-color:#c7d2fe;background:#eef2ff}
 .reaction-chip.mine b{color:#4f46e5}
 .reaction-chip:hover{border-color:#c7d2fe}
-.reaction-picker{display:flex;gap:1px;margin-top:5px;background:#fff;border:1px solid #e2e6ee;border-radius:999px;padding:2px 4px;box-shadow:0 12px 28px #24304b1f}
-.reaction-picker button{border:0;background:transparent;font-size:17px;line-height:1;padding:3px 4px;border-radius:9px;cursor:pointer}
+.reaction-picker{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;width:min(272px,100%);margin-top:5px;background:#fff;border:1px solid #e2e6ee;border-radius:14px;padding:4px;box-shadow:0 12px 28px #24304b1f}
+.reaction-picker button{border:0;background:transparent;font-size:18px;line-height:1;padding:4px 0;border-radius:9px;cursor:pointer}
 .reaction-picker button:hover{background:#f2f4f8;transform:scale(1.12)}
 .msg-quote{display:block;width:100%;max-width:100%;text-align:left;border:0;border-left:3px solid currentColor;background:#27334d10;border-radius:6px;padding:4px 7px;margin:0 0 6px;color:inherit;font-size:11.5px;line-height:1.35;cursor:pointer;overflow:hidden}
 .msg-quote b{display:block;font-size:10.5px;font-weight:800;opacity:.95}
@@ -408,19 +408,15 @@ input,select,textarea{font-size:16px}
 }
 
 /* In-room loading spinner. A room opens straight into itself; this is only for the gap while that room's
-   history is in flight (and only when the gap is long enough to notice). The spinner is a cat's face: a faint
-   head with two ears and eyes, and an accent-coloured arc sweeping around it. It is inline SVG in the bundle,
-   so it cannot be waiting on the same network the room is waiting on, and it takes the room's accent colour.
-   It disappears the moment the history renders. */
-.room-opening{display:grid;place-items:center;min-height:100%;padding:24px 0}
-.room-opening-cat{width:76px;height:76px;color:var(--accent,#5c667c);fill:none}
-html[data-theme=dark] .room-opening-cat{color:color-mix(in srgb,var(--accent,#9aa6bb) 82%,#fff)}
-.room-opening-cat .cat-eye,.room-opening-cat .cat-nose{fill:currentColor;stroke:none}
-.room-opening-cat .cat-mouth{stroke-width:1.6}
-.room-opening-cat .cat-whisker{stroke-width:1.2;opacity:.8}
-.room-opening-cat .cat-sweep{transform-box:fill-box;transform-origin:50% 50%;animation:catSpin 1.05s linear infinite}
-@keyframes catSpin{to{transform:rotate(1turn)}}
-@media (prefers-reduced-motion:reduce){.room-opening-cat .cat-sweep{animation:none}}
+   history is in flight (and only when the gap is long enough to notice). A plain ring in the room's accent
+   colour with the room's own symbol in the middle - inline, so it cannot be waiting on the same network the
+   room is waiting on, and it disappears the moment the history renders. */
+.room-opening{position:relative;display:grid;place-items:center;min-height:100%;padding:24px 0}
+.room-opening-ring{width:44px;height:44px;border-radius:50%;border:3px solid color-mix(in srgb,var(--accent,#5c667c) 20%,transparent);border-top-color:var(--accent,#5c667c);animation:roomSpin .9s linear infinite}
+html[data-theme=dark] .room-opening-ring{border-color:color-mix(in srgb,var(--accent,#9aa6bb) 26%,transparent);border-top-color:color-mix(in srgb,var(--accent,#9aa6bb) 82%,#fff)}
+.room-opening-emoji{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:19px;line-height:1;color:var(--accent,#5c667c)}
+@keyframes roomSpin{to{transform:rotate(1turn)}}
+@media (prefers-reduced-motion:reduce){.room-opening-ring{animation:none}}
 #chatPanel{position:relative}
 
 /* Notification permission gate. It appears once, after the profile step, before the app is used -

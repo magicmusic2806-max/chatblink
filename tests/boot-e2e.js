@@ -123,28 +123,27 @@ const get = (route, headers = {}) => fetch(BASE + route, { headers, redirect: "m
     await page.waitForTimeout(90);
     const catEarly = await page.evaluate(() => Boolean(document.querySelector("#roomOpening")));
     await page.locator("#roomOpening").waitFor({ timeout: 4000 });
-    const cat = await page.evaluate(() => {
-      const svg = document.querySelector(".room-opening-cat");
-      const sweep = document.querySelector(".cat-sweep");
+    const loader = await page.evaluate(() => {
+      const node = document.querySelector("#roomOpening");
+      const ring = node ? node.querySelector(".room-opening-ring") : null;
+      const emoji = node ? node.querySelector(".room-opening-emoji") : null;
       document.documentElement.dataset.theme = "light";
       return {
-        ears: document.querySelectorAll(".room-opening-cat .cat-ears path").length,
-        eyes: document.querySelectorAll(".room-opening-cat .cat-eye").length,
-        whiskers: document.querySelectorAll(".room-opening-cat .cat-whisker").length,
-        mouth: document.querySelectorAll(".room-opening-cat .cat-mouth").length,
-        nose: document.querySelectorAll(".room-opening-cat .cat-nose").length,
-        spin: sweep ? getComputedStyle(sweep).animationName : null,
-        color: svg ? getComputedStyle(svg).color : null,
-        label: svg ? svg.getAttribute("aria-label") : null,
+        ring: Boolean(ring),
+        emoji: emoji ? emoji.textContent : null,
+        spin: ring ? getComputedStyle(ring).animationName : null,
+        border: ring ? getComputedStyle(ring).borderTopColor : null,
+        label: ring ? ring.getAttribute("aria-label") : null,
         loaded: document.querySelector("#chatPanel").hasAttribute("data-loaded")
       };
     });
     await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 6000 });
     const afterCat = await page.evaluate(() => ({ cat: Boolean(document.querySelector("#roomOpening")), loaded: document.querySelector("#chatPanel").hasAttribute("data-loaded") }));
-    ok("a room that is quick never shows the cat", catEarly === false);
-    ok("a room that takes a moment shows a cat-face spinner", cat.ears === 2 && cat.eyes === 2 && cat.whiskers === 4 && cat.mouth === 1 && cat.nose === 1 && cat.spin === "catSpin" && cat.label === "Opening room" && cat.loaded === false, JSON.stringify(cat));
-    ok("the spinner wears the room's accent", cat.color === "rgb(22, 163, 74)", cat.color);
-    ok("the cat leaves the moment the room's history lands", afterCat.cat === false && afterCat.loaded === true, JSON.stringify(afterCat));
+    ok("a room that is quick never shows the spinner", catEarly === false);
+    ok("a room that takes a moment shows a ring spinner", loader.ring && loader.spin === "roomSpin" && loader.label === "Opening room" && loader.loaded === false, JSON.stringify(loader));
+    ok("the spinner carries the room's own symbol", loader.emoji === roomB.icon, `${loader.emoji} vs ${roomB.icon}`);
+    ok("the spinner wears the room's accent", loader.border === "rgb(22, 163, 74)", loader.border);
+    ok("the spinner leaves the moment the room's history lands", afterCat.cat === false && afterCat.loaded === true, JSON.stringify(afterCat));
     socket.close();
     ok("no page errors", errors.length === 0, errors.join(" | "));
   } finally {

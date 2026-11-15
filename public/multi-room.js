@@ -6,7 +6,7 @@ function applyTheme(theme,remember=false){const light=theme==="light",label=`Swi
 applyTheme(document.documentElement.dataset.theme==="light"?"light":"dark");
 document.addEventListener("click",event=>{if(event.target.closest("[data-theme-toggle]"))applyTheme(document.documentElement.dataset.theme==="dark"?"light":"dark",true)});
 let currentUser=null,rooms=[],currentRoom=null,socket=null,reconnectTimer=null,activeTool=null,authToken=null,pendingProfileKey=null,onlineUsers=[],profilePhoto="",dmTarget=null,voice=null,replyTarget=null,liveMessages=[],allUsers=[],roomBans=[],requestPoll=null,dmPermission=null,roomsPoll=null,dmsPoll=null,peopleQuery="",exploreCursor=null,exploreQuery="",exploreProfiles=[],exploreSearchTimer=null,profileTarget=null,roomSubscribed=false,subscriptionLoadId=0;
-const REACTIONS=["👍","❤️","😂","😮","😢","🔥"];
+const REACTIONS=["👍","❤️","😂","😮","😢","🔥","😍","😆","😅","🤣","🥰","😎","🤔","😴","🤯","🙌","👏","👌","🤝","💪","💯","🎉","✨","👀","🫡","💔","⚡","🎮","🍕","☕","🌈","🥳"];
 const dmUnread=new Map();
 const seenDmIds=new Set();
 let currentCall=null,callTimer=null;
@@ -53,20 +53,22 @@ function startRoomsPoll(){stopRoomsPoll();roomsPoll=setInterval(async()=>{if(!cu
 function stopDmsPoll(){if(dmsPoll){clearInterval(dmsPoll);dmsPoll=null}}
 function startDmsPoll(){stopDmsPoll();dmsPoll=setInterval(async()=>{if(document.hidden||$("#dmsView").hidden)return;try{await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot()}catch{}},30000)}
 function stopViewPolls(){stopRoomsPoll();stopDmsPoll()}
-// The in-room loading cat. It is not an opening screen: it is painted into the message area only while this
-// room's history is in flight, and only if that takes long enough to notice, so a fast room never flashes it.
-// The moment the history renders the list is rewritten and the cat is gone with it.
+// The in-room loading spinner. It is not an opening screen: it is painted into the message area only while
+// this room's history is in flight, and only if that takes long enough to notice, so a fast room never shows
+// it. The ring takes the room's accent colour and the room's own symbol sits in the middle; the moment the
+// history renders the message list is rewritten and the spinner is gone with it.
 const ROOM_OPENING_DELAY_MS=140;
-const ROOM_OPENING_CAT='<svg class="room-opening-cat" viewBox="0 0 64 64" role="img" aria-label="Opening room" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g class="cat-ears" stroke-width="3.2" opacity=".32"><path d="M16.4 25.1L17 7L27.1 17.6"/><path d="M47.6 25.1L47 7L36.9 17.6"/></g><circle class="cat-head" cx="32" cy="36" r="19" stroke-width="3.2" opacity=".32"/><circle class="cat-sweep" cx="32" cy="36" r="19" pathLength="100" stroke-width="3.2" stroke-dasharray="24 76"/><path class="cat-whisker" d="M26.6 38.6L18.4 37.2"/><path class="cat-whisker" d="M26.6 41.6L18.4 43.2"/><path class="cat-whisker" d="M37.4 38.6L45.6 37.2"/><path class="cat-whisker" d="M37.4 41.6L45.6 43.2"/><circle class="cat-eye" cx="25.5" cy="31.5" r="2.3"/><circle class="cat-eye" cx="38.5" cy="31.5" r="2.3"/><path class="cat-nose" d="M29.8 34.8L34.2 34.8L32 37.8Z"/><path class="cat-mouth" d="M32 37.8C32 40.8 29.6 41.6 28.1 40.2M32 37.8C32 40.8 34.4 41.6 35.9 40.2"/></svg>';
 let roomOpeningTimer=null,roomOpeningToken=0;
 function startRoomOpening(){
-  const token=++roomOpeningToken,roomId=currentRoom?.id;
+  const token=++roomOpeningToken,roomId=currentRoom?.id,icon=currentRoom?.icon||"\uD83D\uDCAC";
   clearTimeout(roomOpeningTimer);
   roomOpeningTimer=setTimeout(()=>{
     const panel=$("#chatPanel"),list=$("#messageList");
     if(token!==roomOpeningToken||currentRoom?.id!==roomId||!panel||panel.hidden||panel.hasAttribute("data-loaded")||!list||list.hidden)return;
     const node=document.createElement("div");node.id="roomOpening";node.className="room-opening";
-    node.innerHTML=ROOM_OPENING_CAT;
+    const ring=document.createElement("span");ring.className="room-opening-ring";ring.setAttribute("role","status");ring.setAttribute("aria-label","Opening room");
+    const emoji=document.createElement("span");emoji.className="room-opening-emoji";emoji.textContent=icon;
+    node.append(ring,emoji);
     list.replaceChildren(node);
   },ROOM_OPENING_DELAY_MS);
 }
