@@ -110,10 +110,11 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   none` before the body is parsed, the app is what appears, and the guard is removed once the boot decides;
   `/api/auth/me` hands the cookie back when it authenticated from the token; and opening a second room
   replaces the previous room's rows at once, shows no opening overlay, and marks `data-loaded` only
-  when its history lands. The loading cat is covered by holding the room's history back with
-  `page.routeWebSocket`: absent at 90 ms (a quick room never flashes it), a four-legged silhouette
-  walking in the message area once the gap passes the delay, and gone the moment the history renders —
-  **15 checks**.
+  when its history lands. The loading spinner is covered by holding the room's history back with
+  `page.routeWebSocket`: absent at 90 ms (a quick room never flashes it), a cat's face with two ears,
+  two eyes, four whiskers, a mouth and a nose plus a spinning `catSpin` arc once the gap passes the
+  delay, that arc in the room's own accent colour, and all of it gone the moment the history renders —
+  **16 checks**.
 - The profile-key door was also driven at 390 px in Chromium: signup hands over a key, the key signs
   in, `Menu → Account details` shows the account with no passkey row and no buttons, the login pane
   has no fingerprint control, `/api/auth/passkey/options` and `/api/account/passkeys/remove` answer
@@ -151,12 +152,13 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - Admin-only paths in `tests/notice-board.js` and `tests/message-actions.js` skip on a database that
   already contains the auto-promoted `dynamic` admin; both were verified once on a fresh
   `--persist-to` state directory.
-- **The loading cat is inline.** The in-room loading animation is an SVG cat in the client bundle, not a
+- **The loading spinner is inline.** The in-room loading animation is a cat's face in the client bundle, not a
   downloaded GIF or sprite: a loader that waits on the same network the room is waiting on defeats itself,
   and any third-party animation would need a verified licence first (`GAMES.md` holds the rule and the
   licence checks). If a real-footage or sprite cat is ever wanted, it has to clear that licence bar and be
-  vendored locally. It is tinted with the room's accent (`var(--accent)`, lightened a little in dark mode)
-  and walks a two-segment, four-beat gait with an asymmetric stance/swing and a deliberately long stride.
+  vendored locally. The face is a faint head, two ears, eyes, a nose, a "w" mouth and four whiskers, with an
+  accent-coloured arc sweeping around the head; it is tinted with the room's accent (`var(--accent)`,
+  lightened a little in dark mode) and holds still under `prefers-reduced-motion`.
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
