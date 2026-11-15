@@ -407,9 +407,29 @@ input,select,textarea{font-size:16px}
 .toast{bottom:24px}
 }
 
-/* The room's first paint is the room itself: there is no opening animation. The panel is cleared on the way
-   in and #chatPanel carries data-loaded only once the room's history has been rendered, which is the signal a
-   browser suite waits on. */
+/* In-room loading cat. A room opens straight into itself; this silhouette is only for the gap while that
+   room's history is in flight (and only when the gap is long enough to notice), so it is a shadow walking in
+   the message area rather than a card over the room. It is inline SVG in the bundle, so it cannot be waiting
+   on the same network the room is waiting on, and it is a two-segment walk with a four-beat gait - the legs
+   are separate upper/lower pieces, so a knee bends. It disappears the moment the history renders. */
+.room-opening{display:grid;place-items:center;min-height:100%;padding:24px 0}
+.room-opening-cat{width:120px;height:80px;color:#5c667c;fill:currentColor;--leg-delay:0s}
+html[data-theme=dark] .room-opening-cat{color:#9aa6bb}
+.room-opening-cat .phase-2{--leg-delay:-.18s}
+.room-opening-cat .phase-3{--leg-delay:-.36s}
+.room-opening-cat .phase-4{--leg-delay:-.54s}
+.room-opening-cat .cat-torso,.room-opening-cat .cat-leg,.room-opening-cat .leg-upper,.room-opening-cat .leg-lower,.room-opening-cat .cat-tail{transform-box:fill-box}
+.room-opening-cat .cat-torso{transform-origin:50% 60%;animation:catBob .72s ease-in-out infinite}
+.room-opening-cat .cat-tail{transform-origin:0% 100%;animation:catTail 1.44s ease-in-out infinite}
+.room-opening-cat .leg-upper{transform-origin:50% 0%;animation:catStepUpper .72s ease-in-out infinite;animation-delay:var(--leg-delay)}
+.room-opening-cat .leg-lower{transform-origin:50% 0%;animation:catStepLower .72s ease-in-out infinite;animation-delay:var(--leg-delay)}
+.room-opening-cat .cat-shadow{opacity:.16;transform-box:fill-box;transform-origin:50% 50%;animation:catShadow .72s ease-in-out infinite}
+@keyframes catBob{0%,50%,100%{transform:translateY(0)}25%,75%{transform:translateY(-1.5px)}}
+@keyframes catStepUpper{0%,100%{transform:rotate(-16deg)}50%{transform:rotate(15deg)}}
+@keyframes catStepLower{0%,100%{transform:rotate(14deg)}50%{transform:rotate(-16deg)}}
+@keyframes catTail{0%,100%{transform:rotate(-9deg)}50%{transform:rotate(8deg)}}
+@keyframes catShadow{0%,50%,100%{transform:scaleX(1)}25%,75%{transform:scaleX(.97)}}
+@media (prefers-reduced-motion:reduce){.room-opening-cat *{animation:none!important}}
 #chatPanel{position:relative}
 
 /* Notification permission gate. It appears once, after the profile step, before the app is used -

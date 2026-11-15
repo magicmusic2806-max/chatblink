@@ -102,10 +102,37 @@ const get = (route, headers = {}) => fetch(BASE + route, { headers, redirect: "m
     }));
     ok("the next room's header is what shows", onSwitch.roomName === `Boot B ${stamp}`, onSwitch.roomName);
     ok("the previous room's messages are gone at once", !onSwitch.messages.includes(`stale-${stamp}`), onSwitch.messages.slice(0, 120));
-    ok("there is no opening animation over the room any more", !onSwitch.loaderPresent && onSwitch.loaded === false);
+    ok("no opening overlay covers the room", !onSwitch.loaderPresent && onSwitch.loaded === false);
     await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 15000 });
     ok("the room is marked loaded once its history lands", await page.evaluate(() => document.querySelector("#chatPanel").hasAttribute("data-loaded")));
     ok("and the new room arrives with no trace of the old one", !(await page.locator("#messageList").innerText()).includes(`stale-${stamp}`));
+
+    // The in-room loading cat: a running silhouette in the message area, only while this room's history is
+    // actually in flight, and only when that gap is long enough to notice. Holding the history back makes the
+    // gap deterministic; a fast room must never flash it (checked at 90 ms, under the client's 140 ms delay).
+    await page.routeWebSocket(url => url.searchParams.get("room") && url.searchParams.get("room") !== "__notify", ws => {
+      const server = ws.connectToServer();
+      server.onMessage(message => {
+        const text = typeof message === "string" ? message : Buffer.from(message).toString("utf8");
+        if (text.includes('"type":"history"')) { setTimeout(() => ws.send(message), 700); return; }
+        ws.send(message);
+      });
+      ws.onMessage(message => server.send(message));
+    });
+    await page.goto(`${BASE}/room/${roomB.id}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(90);
+    const catEarly = await page.evaluate(() => Boolean(document.querySelector("#roomOpening")));
+    await page.locator("#roomOpening").waitFor({ timeout: 4000 });
+    const cat = await page.evaluate(() => ({
+      legs: document.querySelectorAll(".room-opening-cat .cat-leg").length,
+      label: document.querySelector(".room-opening-cat")?.getAttribute("aria-label"),
+      loaded: document.querySelector("#chatPanel").hasAttribute("data-loaded")
+    }));
+    await page.locator("#chatPanel[data-loaded]").waitFor({ timeout: 6000 });
+    const afterCat = await page.evaluate(() => ({ cat: Boolean(document.querySelector("#roomOpening")), loaded: document.querySelector("#chatPanel").hasAttribute("data-loaded") }));
+    ok("a room that is quick never shows the cat", catEarly === false);
+    ok("a room that takes a moment shows a running cat", cat.legs === 4 && cat.label === "Opening room" && cat.loaded === false, JSON.stringify(cat));
+    ok("the cat leaves the moment the room's history lands", afterCat.cat === false && afterCat.loaded === true, JSON.stringify(afterCat));
     socket.close();
     ok("no page errors", errors.length === 0, errors.join(" | "));
   } finally {

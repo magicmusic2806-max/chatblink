@@ -109,8 +109,11 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
   but no session cookie installs the inline guard in the head, so the login shell computes to `display:
   none` before the body is parsed, the app is what appears, and the guard is removed once the boot decides;
   `/api/auth/me` hands the cookie back when it authenticated from the token; and opening a second room
-  replaces the previous room's rows at once, with no opening animation over the room and `data-loaded`
-  set only when its history lands — **12 checks**.
+  replaces the previous room's rows at once, shows no opening overlay, and marks `data-loaded` only
+  when its history lands. The loading cat is covered by holding the room's history back with
+  `page.routeWebSocket`: absent at 90 ms (a quick room never flashes it), a four-legged silhouette
+  walking in the message area once the gap passes the delay, and gone the moment the history renders —
+  **15 checks**.
 - The profile-key door was also driven at 390 px in Chromium: signup hands over a key, the key signs
   in, `Menu → Account details` shows the account with no passkey row and no buttons, the login pane
   has no fingerprint control, `/api/auth/passkey/options` and `/api/account/passkeys/remove` answer
@@ -148,13 +151,18 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - Admin-only paths in `tests/notice-board.js` and `tests/message-actions.js` skip on a database that
   already contains the auto-promoted `dynamic` admin; both were verified once on a fresh
   `--persist-to` state directory.
+- **The loading cat is inline.** The in-room loading animation is an SVG cat in the client bundle, not a
+  downloaded GIF or sprite: a loader that waits on the same network the room is waiting on defeats itself,
+  and any third-party animation would need a verified licence first (`GAMES.md` holds the rule and the
+  licence checks). If a real-footage or sprite cat is ever wanted, it has to clear that licence bar and be
+  vendored locally.
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
 - **Games:** three games are live (`v=85`): Connect Four, Tic-tac-toe and Reversi. A room runs up to
-  four at once (a finished board does not hold a slot, and only the newest two results are kept), one
-  seat per person per room, and the 🎲 Games button counts the games still running in that room. The
-  room list begins with a Games card whose badge is the live total. Games are hidden until that button or
+  four at once (a finished board holds no slot and is never listed — it clears itself after two
+  minutes), one seat per person per room, and the 🎲 Games button counts the games still running in that
+  room. The room list begins with a Games card whose badge is the live total. Games are hidden until that button or
   card is opened, seats are open or by request, the host (or a mod/admin) approves, and every move is
   validated in the Durable Object, which also reports the legal moves so the dock can mark them. A
   finished board says who won (or that it was a tie) with the rematch under that line, and either player
