@@ -185,31 +185,34 @@ async function main() {
 
   /* ------------------------------------------------------------ play it out to a result */
   // Finish the auto-picked turn first so the loop below only ever starts clean turns.
-  const autoWord = bobWords.options[0];
+  const autoWord = bobWords.options[0].toLowerCase();
   for (const node of [aSocket, cSocket]) { node.inbox.length = 0; send(node, { type: "message", kind: "text", content: autoWord }); }
-  await waitGame(aSocket, game.id, view => view?.round?.revealed === true, 8000);
-  await sleep(600);
+  await sleep(900);
 
-  // Two players, three rounds: six turns. Each turn the test draws a word from the drawer's own private packet,
-  // picks it, and has the other people in the room guess it — exactly the loop a real game runs.
+  // Two players, three rounds: six turns. Each turn the test asks both sockets for the truth (`game-sync`), which
+  // also re-sends the drawer's words privately, reads the word, has the others guess it, and then asks again. It
+  // deliberately never waits for a transient state like the 400 ms reveal: a slow CI runner can miss one of those
+  // and then hold a stale game-state from an earlier turn, which is exactly how this suite failed once in CI.
   let finished = null;
-  for (let turn = 0; turn < 12; turn++) {
-    const view = gameById(await waitGame(aSocket, game.id, item => item?.status === "ended" || (item?.round && !item.round.revealed && item.round.choosing), 12000), game.id);
-    if (!view || view.status === "ended") { finished = view; break; }
-    const drawerSocket = view.round.drawerId === alice.user.id ? aSocket : bSocket;
-    const packet = await waitFor(drawerSocket, message => message.type === "game-word" && Array.isArray(message.options), 8000);
-    const turnWord = packet.options[0];
+  for (let turn = 0; turn < 14; turn++) {
+    for (const node of [aSocket, bSocket]) { node.inbox.length = 0; send(node, { type: "game-sync" }); }
+    const state = gameById(await waitFor(aSocket, packet => packet.type === "game-state", 8000), game.id);
+    if (!state || state.status === "ended") { finished = state; break; }
+    // Between turns (revealed, or the next turn has not started): give the object a moment and ask again.
+    if (!state.round || state.round.revealed || !state.round.choosing) { await sleep(400); continue; }
+    const drawerSocket = state.round.drawerId === alice.user.id ? aSocket : bSocket;
+    const wordPacket = await waitFor(drawerSocket, packet => packet.type === "game-word" && packet.gameId === game.id, 8000);
+    const turnWord = (wordPacket.options ? wordPacket.options[0] : wordPacket.word || "").toLowerCase();
     drawerSocket.inbox.length = 0;
     send(drawerSocket, { type: "game-pick-word", gameId: game.id, word: turnWord });
-    await waitGame(aSocket, game.id, item => item?.round && item.round.choosing === false && !item.round.revealed, 6000);
+    await waitFor(aSocket, packet => packet.type === "game-state" && gameById(packet, game.id)?.round?.choosing === false, 8000).catch(() => null);
     for (const node of [aSocket, bSocket, cSocket]) {
       if (node === drawerSocket) continue;
       node.inbox.length = 0;
       send(node, { type: "message", kind: "text", content: turnWord });
-      await waitFor(node, packet2 => packet2.type === "message" || packet2.type === "game-error", 4000).catch(() => null);
+      await waitFor(node, packet => packet.type === "message" || packet.type === "game-error", 5000).catch(() => null);
     }
-    await waitGame(aSocket, game.id, item => item?.status === "ended" || item?.round?.revealed, 6000);
-    await sleep(520);
+    await sleep(500);
   }
   if (!finished || finished.status !== "ended") finished = gameById(await waitGame(aSocket, game.id, item => item?.status === "ended", 15000).catch(() => null), game.id);
   ok("three rounds end the game", finished?.status === "ended", finished?.status);
