@@ -980,7 +980,7 @@ function renderGameStart(body,{compact=false}={}){
   if(createKind==="chess"){
     const clockLabel=document.createElement("p");clockLabel.className="game-copy";clockLabel.textContent="Clock";
     const choices=document.createElement("div");choices.className="game-clock-choices";
-    [[5,"5 min"],[20,"20 min"],[40,"40 min"],[0,"No clock"]].forEach(([value,label])=>{
+    [[10,"10 min"],[20,"20 min"],[40,"40 min"],[0,"No clock"]].forEach(([value,label])=>{
       const button=document.createElement("button");button.type="button";
       button.className=`game-clock-choice${createMinutes===value?" active":""}`;button.dataset.minutes=String(value);button.textContent=label;
       button.onclick=()=>{createMinutes=value;renderGames()};

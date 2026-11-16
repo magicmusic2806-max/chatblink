@@ -66,9 +66,9 @@ const OTHELLO_DIRECTIONS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1]
 // Standard casual chess: five minutes on each clock, no increment, and a clock that runs out is a loss on
 // time. CHESS_CLOCK_MS is env-overridable so the test suite can watch a flag fall in seconds.
 const CHESS_CLOCK_MS = 300000;
-// The allowances the create form offers, in minutes: five, twenty, forty, or no clock at all (0). The env override
+// The allowances the create form offers, in minutes: ten, twenty, forty, or no clock at all (0). The env override
 // stays the default for a create that names none, which is how the suites run a game on a four-second clock.
-const CHESS_TIME_OPTIONS = [5, 20, 40, 0];
+const CHESS_TIME_OPTIONS = [10, 20, 40, 0];
 const CHESS_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const CHESS_PROMOTIONS = ["q", "r", "b", "n"];
 // The board the client draws, in visual order (rank 8 first, the way a player reads it). Codes are

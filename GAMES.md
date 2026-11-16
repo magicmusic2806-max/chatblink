@@ -443,7 +443,7 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
   spectator, not on an ended board). A running two-seat game asks first, because there the seat is the whole game;
   in a bigger game the seat just goes and the game carries on. The options page keeps only the deliberate actions
   (`End game` for a host, `Clear`, `New game`, `Resign`, draw offer, `Watch`).
-- **Chess has a clock to choose.** The create form shows a `Clock` row for chess only: **5 min / 20 min / 40 min /
+- **Chess has a clock to choose.** The create form shows a `Clock` row for chess only: **10 min / 20 min / 40 min /
   No clock** (default 20). The game carries its own `clockMs`; `startGame` builds the clock from it, `0` means no
   clock at all (no ticking, no flag, no alarm to wake for, no clock row in the panel), and an allowance that is not
   one of the four falls back to the room default `CHESS_CLOCK_MS` (which is how the suites run a 4 s clock). A

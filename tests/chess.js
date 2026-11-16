@@ -224,6 +224,10 @@ async function main() {
     const running = gameById(await waitFor(blackSocket, packet => packet.type === "game-state" && gameById(packet, made.id)?.status === "playing"), made.id);
     return { id: made.id, view: running };
   };
+  const ten = await startWith(10);
+  ok("a 10-minute game carries ten minutes each", ten.view.clockMs === 600000 && ten.view.clock?.[black.user.id] === 600000, JSON.stringify(ten.view.clock));
+  await clear(whiteSocket, ten.id);
+
   const twenty = await startWith(20);
   // The side to move is already a millisecond or two into its clock by the time the packet arrives, so the check is
   // "twenty minutes, minus at most a second" rather than an exact equality.
@@ -237,8 +241,8 @@ async function main() {
   ok("a game with no clock still plays, and its clock never appears", moved.status === "playing" && moved.clock === null, `${moved.status}/${JSON.stringify(moved.clock)}`);
   await clear(whiteSocket, untimed.id);
 
-  const odd = await startWith(7);
-  ok("an allowance that is not offered falls back to the room default", odd.view.clockMs === 4000, JSON.stringify(odd.view.clockMs));
+  const odd = await startWith(5);
+  ok("five minutes is no longer offered, so it falls back to the room default", odd.view.clockMs === 4000, JSON.stringify(odd.view.clockMs));
   await clear(whiteSocket, odd.id);
 
   whiteSocket.close(); blackSocket.close();
