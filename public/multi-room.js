@@ -88,7 +88,7 @@ $("#chatPanel").removeAttribute("data-loaded");
 loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;if(switching)startRoomOpening();connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed});renderRoomCall()}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
-function handleSocketEvent(event){if(event.type==="history"){stopRoomOpening();liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);$("#chatPanel").dataset.loaded="1"}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamePane").hidden&&gamesMode!=="all")renderGames()}}if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-word"){gameWords.set(event.gameId,event);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-approved")toast("You are in");if(event.type==="game-draw-offer")toast(`${event.by?.username||"Your opponent"} offers a draw`);if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
+function handleSocketEvent(event){if(event.type==="history"){stopRoomOpening();liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);$("#chatPanel").dataset.loaded="1"}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message);noteDrawChat(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamePane").hidden&&gamesMode!=="all")renderGames()}}if(event.type==="game-stroke")noteDrawStroke(event);if(event.type==="game-cleared")noteDrawCleared(event);if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-word"){gameWords.set(event.gameId,event);if(!$("#gamePane").hidden)renderGames();else if(event.options?.length)toast("Your turn to draw - open Games")}if(event.type==="game-approved")toast("You are in");if(event.type==="game-draw-offer")toast(`${event.by?.username||"Your opponent"} offers a draw`);if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
 function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message||room.access==="request")return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
 async function refreshRoomsList(){try{await loadRooms();if(!$("#roomsView").hidden)renderRoomsGrid();if(currentRoom){const room=rooms.find(item=>item.id===currentRoom.id);if(room){currentRoom=room;$("#requestCount").textContent=room.pendingCount||0}}}catch{}}
 async function refreshUsers(){if(!currentUser)return;await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot();if(!$("#onlineModal").hidden)renderOnlineList();refreshMessageAvatars()}
@@ -794,6 +794,10 @@ function autoMaximise(game){
   if(!game||game.layout?.type!=="canvas")return;
   if(!$("#chatSplit")||$("#chatSplit").dataset.userLayout)return;
   if(window.innerWidth>=700||autoMaximisedFor===game.id)return;
+  // A phone cannot show a drawing and a conversation side by side: in the split the canvas sat below the fold with
+  // only the mask on screen. The panel opens maximised, the composer stays where it is, and the last few lines of
+  // chat are echoed beside the canvas (see renderDrawBoard) so both players can still follow the guesses. The ⤢
+  // toggle gives the conversation back and is remembered for the rest of the panel.
   autoMaximisedFor=game.id;
   setPaneMaximised(true);
 }
@@ -807,6 +811,7 @@ function closeGames(){
   // with the panel, so the next game gets the 60/40 default again.
   delete $("#chatSplit").dataset.max;
   delete $("#chatSplit").dataset.userLayout;
+  delete $("#chatSplit").dataset.canvas;
   autoMaximisedFor=null;
   setMaxButton(false);
   activeGameId=null;creatingGame=false;
@@ -817,6 +822,9 @@ function renderGames(){
   stopChessClock();
   stopDrawTimer();
   body.innerHTML="";
+  // A drawing needs height: the pane takes 55% of a phone split while a canvas game is open, and everything else
+  // keeps the 60/40 default (see `.chat-split[data-canvas]`).
+  if($("#chatSplit"))delete $("#chatSplit").dataset.canvas;
   if(all){$("#gamesTitle").textContent="Games being played";renderLiveGames(body);return}
   $("#gamePaneTitle").textContent=currentRoom?`Games - ${currentRoom.name}`:"Games";
   if(!currentRoom){body.textContent="Open a room first.";return}
@@ -830,7 +838,7 @@ function renderGames(){
 function gameStatusText(game){
   if(game.kind==="draw-guess"){
     const round=game.round,name=id=>(game.players.find(player=>player.id===id)||{}).username||"somebody";
-    if(game.status==="lobby")return `waiting for players (${game.players.length}/${game.seats})`;
+    if(game.status==="lobby")return `${game.players.length} of ${game.seats} seated - ${gameIsMine(game.hostId)?"start when ready":"waiting for the host to start"}`;
     if(game.status==="ended"){
       const winner=game.players.find(player=>player.id===game.winnerId);
       return winner?`${winner.username} won on points`:game.reason==="draw"?"it's a draw":"no winner";
@@ -898,12 +906,15 @@ function gamePlayerSlot(game,index){
   slot.className=`game-seat${player&&game.turn===player.id&&game.status==="playing"?" turn":""}`;
   const disc=document.createElement("i");disc.className=`game-disc seat${index+1}`;
   const name=document.createElement("b");
-  // The drawer is marked on their seat rather than in a second score list: one row per player, not two.
-  name.textContent=player?player.username+(gameIsMine(player.id)?" (you)":"")+(game.kind==="draw-guess"&&game.round?.drawerId===player.id?" ✏️":""):"Open seat";
+  // The drawer is marked on their seat rather than in a second score list: one row per player, not two. A seat
+  // that has already guessed this turn is marked too, so the drawer can see who is still thinking.
+  const isDrawer=player&&game.kind==="draw-guess"&&game.round?.drawerId===player.id;
+  const guessed=player&&game.kind==="draw-guess"&&(game.guessed||[]).includes(player.id);
+  name.textContent=player?player.username+(gameIsMine(player.id)?" (you)":"")+(isDrawer?" ✏️":guessed?" ✔":""):"Open seat";
   const meta=document.createElement("small");
-  // Chess and Draw & Guess count points, not wins; the older games count wins.
-  const points=game.kind==="draw-guess"||game.kind==="chess";
-  meta.textContent=player?(points?`${player.score||0} pts`:`${player.score||0} ${player.score===1?"win":"wins"}`):game.policy==="open"?"Anyone can sit here":"By request";
+  // Draw & Guess counts points. Chess counts wins, even though its panel shows a score: printing "1 pts" for a
+  // won game reads like a scoring bug.
+  meta.textContent=player?(game.kind==="draw-guess"?`${player.score||0} pts`:`${player.score||0} ${player.score===1?"win":"wins"}`):game.policy==="open"?"Anyone can sit here":"By request";
   slot.append(disc,name,meta);
   return slot;
 }
@@ -954,6 +965,10 @@ function renderGameCreate(body){
   body.appendChild(arcadeSection());
 }
 function renderGameDetail(body,game){
+  // The layout is settled before the board is drawn: a canvas game on a phone may open maximised, and the drawing
+  // (and the chat echo beside it) has to be laid out for the space it actually gets.
+  autoMaximise(game);
+  if(game.layout?.type==="canvas"&&$("#chatSplit"))$("#chatSplit").dataset.canvas="1";
   const back=document.createElement("button");back.type="button";back.className="game-back";back.textContent=unfinishedGames().length>1?"← All games in this room":"← Back";
   back.onclick=()=>{activeGameId=null;renderGames()};
   body.appendChild(back);
@@ -1010,6 +1025,14 @@ function renderGameDetail(body,game){
     join.disabled=asked;
     join.onclick=()=>sendGame(game.policy==="open"?"game-join":"game-request",{gameId:game.id});
     actions.appendChild(join);
+  }
+  // A game with a range of seats (Draw & Guess) waits in its lobby until the host says go, so the room can gather
+  // instead of the second person to arrive starting a two-player round for everybody.
+  if(game.status==="lobby"&&mine&&mayRun&&game.players.length>=(game.minSeats||2)){
+    const begin=document.createElement("button");begin.type="button";begin.className="primary";
+    begin.textContent=`Start now (${game.players.length} playing)`;
+    begin.onclick=()=>sendGame("game-start",{gameId:game.id});
+    actions.appendChild(begin);
   }
   if(!mine&&game.status!=="ended"){
     const watch=document.createElement("button");watch.type="button";watch.className="secondary";watch.textContent=`Watch (${game.spectators})`;
@@ -1084,7 +1107,9 @@ function renderGameDetail(body,game){
     });
     body.appendChild(pending);
   }
-  autoMaximise(game);
+  // Last, once every row is in the DOM: a canvas that would push the controls under it past the fold gives back
+  // exactly what is missing (see fitDrawCanvas).
+  fitDrawCanvas(body);
 }
 // Three layouts, all server-owned: columns for Connect Four (dropped bottom-up like gravity), a square grid
 // for tic-tac-toe and Reversi, and a chess board drawn from the position in FEN. The object sends the legal
@@ -1259,8 +1284,60 @@ function paintStroke(ctx,stroke){
   if(points.length===1)ctx.lineTo(points[0][0]+0.1,points[0][1]);
   ctx.stroke();
 }
-// Draw & Guess: one shared canvas. A stroke is sent as one event with its points batched (never one event per
-// point), the server caps it at 200 points, and everyone else repaints from the state they are sent.
+// A stroke now travels as a stroke. The object used to re-send the whole drawing in a game-state for every line,
+// which grew with the square of the drawing and rebuilt this panel and its canvas under the drawer's finger. A
+// sequence number says whether anything was missed: a gap means "ask for the truth", never "paint a gap".
+function activeDrawCanvas(){return $("#gameBody .draw-canvas")}
+function paintLiveStroke(stroke){
+  const canvas=activeDrawCanvas();
+  if(!canvas||!stroke)return;
+  const ctx=canvas.getContext("2d");
+  if(ctx)paintStroke(ctx,stroke);
+}
+function repaintDrawCanvas(){
+  const canvas=activeDrawCanvas(),game=activeGame();
+  if(!canvas||!game)return;
+  const ctx=canvas.getContext("2d");
+  if(!ctx)return;
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,1024,768);
+  for(const stroke of game.strokes||[])paintStroke(ctx,stroke);
+}
+function noteDrawStroke(event){
+  const game=roomGames.find(item=>item.id===event.gameId);
+  if(!game||!event.stroke)return;
+  if(!Array.isArray(game.strokes))game.strokes=[];
+  if(typeof event.seq==="number"&&event.seq!==(game.strokeSeq||0)+1){sendGame("game-sync");return}
+  game.strokes.push(event.stroke);
+  game.strokeSeq=event.seq;
+  if(activeGameId===event.gameId&&!$("#gamePane").hidden)paintLiveStroke(event.stroke);
+}
+function noteDrawCleared(event){
+  const game=roomGames.find(item=>item.id===event.gameId);
+  if(!game)return;
+  game.strokes=[];game.strokeSeq=event.seq;
+  if(activeGameId===event.gameId&&!$("#gamePane").hidden)repaintDrawCanvas();
+}
+// The guesses are the room's chat, and the maximised panel hides the chat. The last few lines are echoed in the
+// game panel so the drawer (and anybody whose pane covers the conversation) can still see what people are saying.
+const recentDrawLines=[];
+function noteDrawChat(message){
+  if(!message||(message.kind!=="text"&&message.kind!=="system"))return;
+  recentDrawLines.push({kind:message.kind,username:message.username,content:String(message.content||"").slice(0,90)});
+  if(recentDrawLines.length>3)recentDrawLines.shift();
+  const strip=$("#drawRecent");
+  if(!strip)return;
+  strip.innerHTML="";
+  recentDrawLines.forEach(line=>{
+    const row=document.createElement("p");row.className=`draw-recent-line${line.kind==="system"?" system":""}`;
+    row.textContent=line.kind==="system"?line.content:`${line.username}: ${line.content}`;
+    strip.appendChild(row);
+  });
+  // A line arriving here grows the panel under the canvas, so the canvas gives the space back now rather than on
+  // the next render (which may be a whole turn away).
+  fitDrawCanvas($("#gameBody"));
+}
+// Draw & Guess: one shared canvas. Everyone repaints from the strokes the object holds, and a live stroke is painted
+// as it arrives instead of forcing a whole re-render.
 function renderDrawBoard(body,game){
   stopDrawTimer();
   const round=game.round||null;
@@ -1292,6 +1369,18 @@ function renderDrawBoard(body,game){
     if(!word.textContent)word.textContent="…";
   }
   body.appendChild(word);
+
+  // Who is still guessing. With more than two players the drawer otherwise cannot tell an empty room from a room
+  // full of people thinking, and a guesser cannot tell whether anybody else is close. Guests guess too and the turn
+  // waits for them, so they are counted here: a line that says "1 of 1" while the turn runs on is a lie.
+  if(playing&&round&&!round.revealed&&!round.choosing){
+    const guessed=Array.isArray(game.guessed)?game.guessed:[];
+    const others=[...game.players,...(game.guests||[])].filter(person=>person.id!==round.drawerId);
+    const done=others.filter(person=>guessed.includes(person.id)).length;
+    const line=document.createElement("p");line.className="draw-guessed";
+    line.textContent=others.length?`${done} of ${others.length} guessed`:"nobody to guess yet";
+    body.appendChild(line);
+  }
 
   // The drawer's three words, offered for the short choosing window.
   if(playing&&round&&round.choosing&&iAmDrawer&&secret?.options?.length){
@@ -1379,12 +1468,36 @@ function renderDrawBoard(body,game){
     body.appendChild(scores);
   }
 
+  // The chat is hidden while the panel is maximised, and the chat is where the guesses are. The strip is always
+  // present in that layout, even while it is empty, so a line arriving later has somewhere to go without a repaint.
+  if($("#chatSplit")?.dataset.max==="1"){
+    const strip=document.createElement("div");strip.className="draw-recent";strip.id="drawRecent";
+    recentDrawLines.forEach(line=>{
+      const row=document.createElement("p");row.className=`draw-recent-line${line.kind==="system"?" system":""}`;
+      row.textContent=line.kind==="system"?line.content:`${line.username}: ${line.content}`;
+      strip.appendChild(row);
+    });
+    body.appendChild(strip);
+  }
+
   // The clock is a readout of the server's deadline; the object decides when a turn is over.
   const deadline=round?(round.revealed?null:round.choosing?round.choosingUntil:round.endsAt):null;
   if(deadline){
     const tick=()=>{const left=deadline-Date.now();timer.textContent=left>0?drawClock(left):"0:00";timer.classList.toggle("low",left>0&&left<15000)};
     tick();drawTimer=setInterval(tick,250);
   }else timer.textContent=round&&round.revealed?"—":"";
+}
+// The canvas has a floor so it can never shrink to nothing, which means that on a short pane it can land a few pixels
+// past the fold together with the tools and the actions under it. Give back exactly what is missing: the rows below
+// the canvas are only known once they are in the DOM, which is the one thing the container query cannot see.
+function fitDrawCanvas(body){
+  const canvas=body?.querySelector?.(".draw-canvas");
+  if(!canvas)return;
+  const over=body.scrollHeight-body.clientHeight;
+  if(over<=0)return;
+  const width=canvas.getBoundingClientRect().width;
+  const next=Math.max(180,Math.round(width-over*4/3));
+  if(next<width)canvas.style.maxWidth=`${next}px`;
 }
 function renderLiveGames(body){
   if(!liveGames.length){const empty=document.createElement("p");empty.className="game-copy";empty.textContent="No game is running right now. Open a room and start one.";body.appendChild(empty)}
@@ -1570,6 +1683,9 @@ $("#gamePaneMax").onclick=()=>{
   const split=$("#chatSplit");
   split.dataset.userLayout="1";
   setPaneMaximised(split.dataset.max!=="1");
+  // The drawing panel shows a chat echo only while the chat itself is hidden, so the switch has to be re-laid out
+  // rather than only resized.
+  if(!$("#gamePane").hidden&&gamesMode!=="all")renderGames();
 };
 $("#safetyClose").onclick=()=>{$("#safetyModal").hidden=true};
 $("#menuDrop").querySelector('[data-menu="safety"]').onclick=()=>{$("#menuDrop").hidden=true;openSafety()};

@@ -356,3 +356,49 @@ Everything below is what the code actually does, not the plan it came from:
   rotation, the auto-pick, and a whole three-round game to a result) and `tests/draw-ui.js` (16 checks in two
   browsers: the picker, the mask, the tools being the drawer's alone, a pointer stroke reaching the other
   canvas, and a chat sentence turning into the highlighted line).
+
+## As built (`v=97`, Draw & Guess played for real)
+
+Everything below is a defect that only showed up once the game was played as a game rather than through a suite.
+
+- **A game with a range of seats waits for its host.** Draw & Guess seats two to eight, but it used to start the
+  moment a second player arrived, so a third was always told "that game already started" and every game was a
+  two-player game wearing an eight-seat label. A two-seat board (Connect Four, tic-tac-toe, Reversi, chess) still
+  starts when its last seat fills; Draw & Guess stays in its lobby with a **Start now (N playing)** button for the
+  host (`game-start`, host or moderator, refuses below `minSeats`).
+- **The auto-picked word reaches the drawer.** `DRAW_CHOOSE_MS` gives the drawer 15 s to choose and then takes the
+  first word for them - and the drawer was never told which one. Their client opens the canvas only when it knows
+  the word, so the turn was 80 blank seconds nobody could draw in. `pickDrawWord` now tells the drawer privately,
+  which covers both the choice and the auto-pick, and `game-pick-word` no longer repeats it.
+- **A stroke is broadcast as a stroke.** The whole drawing used to ride in a `game-state` on every line: quadratic
+  in the number of strokes, measured at 135 KB for the first twenty strokes and 892 KB for the next eighty to one
+  watcher, and every packet rebuilt the panel and repainted the canvas under the drawer's finger. `game-draw` now
+  broadcasts `game-stroke` (`seq` + one stroke) and `game-clear` broadcasts `game-cleared`; a client that sees a
+  gap in `seq` asks for `game-sync` instead of drawing a picture with a line missing. Measured after the change:
+  661 bytes per stroke, flat (13 KB for twenty strokes, 26 KB for the next forty). Strokes also have their own
+  rate window (`DRAW_EVENT_LIMIT`, 120 per 10 s per connection) so a scribble cannot be dropped silently by the
+  seat-change budget, and the stored drawing is capped at `DRAW_POINTS_TOTAL_MAX` (12 000 points) because the full
+  state travels in one WebSocket message and Cloudflare closes a socket past 1 MiB.
+- **One player leaving a bigger game does not end it.** `game-leave` and the away sweep ended any running game and
+  handed the win to `players[0]`; with more than two seats the seat is now dropped and the game carries on, and
+  only a fall below `minSeats` is a forfeit. A drawer who leaves has their turn revealed early and the rotation
+  carries on from the seat they held (`advanceDrawTurn` is anchored to the previous drawer's id, never to a stored
+  index, so removing a seat cannot skip a player).
+- **The turn says who has guessed.** `gameView` carries `guessed`, the seat cards mark a player who has already
+  guessed (✔) next to the drawer's ✏️, and the board prints "N of M guessed" over the players *and* the guests,
+  because the turn waits for both.
+- **Points, not wins.** `endGame` adds a win to the winner, which printed 601 for a 600-point game; Draw & Guess is
+  excluded, and the seat cards print "pts" for it and "wins" for chess instead of "1 pts".
+- **A phone can actually see the drawing.** At 390 px the canvas sat below the fold in the 40% pane: the seats, the
+  word and the guessed line used every pixel, so a guesser saw the mask and no picture at all. A canvas game now
+  takes 55% of the split (the drawer's panel still opens maximised), the rows above the drawing shrink on a phone,
+  the game's actions share one line instead of one each, and the last three chat lines are echoed inside the panel
+  while the chat is hidden - guesses are typed in the chat, so a maximised panel used to hide the game's own input.
+  `fitDrawCanvas` gives back exactly the pixels the rows below the canvas need, measured after the DOM is complete.
+  Measured at 390×844: pane 647 px, content 601 px, zero scroll, canvas 366×275 with the echo line on screen.
+- **The drawer is told when it is their turn** even with the panel shut (`game-word` toast), and a phone layout
+  choice survives until the panel is closed.
+- **Covered by** `tests/draw.js` (50 checks, including the lobby and the start, a third seat, the stroke delta, the
+  auto-pick reaching the drawer, a player leaving a three-player game, and the whole game to a result) and
+  `tests/draw-ui.js` (20 checks in two browsers, adding the start button and the guessed line).
+

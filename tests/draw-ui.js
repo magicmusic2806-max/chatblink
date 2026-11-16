@@ -71,6 +71,12 @@ const hasInk = page => page.evaluate(() => {
     await openPanel(b);
     await b.locator(".game-list-row").first().click();
     await b.locator(".game-actions button", { hasText: "Join game" }).click();
+    // The game waits in its lobby for the host: a second person arriving no longer starts a two-player round before
+    // anybody else can take a seat.
+    await waitPane(a, "Start now");
+    ok("the host is offered a start with everybody seated", await b.locator(".game-actions button", { hasText: "Start now" }).count() === 0, "a guest could start it");
+    ok("the other player is told the game is waiting on the host", /waiting for the host/i.test(await b.locator("#gameBody").innerText()), (await b.locator("#gameBody").innerText()).slice(0, 200));
+    await a.locator(".game-actions button", { hasText: "Start now" }).click();
     await waitPane(a, "Pick a word");
 
     ok("the drawer is offered three words to pick", await a.locator(".draw-picker button").count() === 3, String(await a.locator(".draw-picker button").count()));
@@ -88,6 +94,7 @@ const hasInk = page => page.evaluate(() => {
     ok("the drawer reads the whole word", drawnWord.toLowerCase() === word.toLowerCase(),
       JSON.stringify({ drawn: [...drawnWord].map(character => character.charCodeAt(0)), picked: [...word].map(character => character.charCodeAt(0)) }));
     ok("the guesser only sees the mask", (await b.locator(".draw-word").innerText()).includes("_") && !(await b.locator(".draw-word").innerText()).toLowerCase().includes(word.toLowerCase()), await b.locator(".draw-word").innerText());
+    ok("the guesser can see that nobody has guessed yet", /0 of 1 guessed/i.test(await b.locator("#gameBody").innerText()), (await b.locator("#gameBody").innerText()).slice(0, 200));
     ok("only the drawer gets drawing tools", await a.locator(".draw-tools").count() === 1 && await b.locator(".draw-tools").count() === 0);
 
     // Draw a line with the mouse: pointerdown, a few moves, pointerup.

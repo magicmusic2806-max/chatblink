@@ -884,6 +884,15 @@ html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
 .draw-score i{font-style:normal;font-weight:800;color:#3146d8}
 .draw-score.drawing{border-color:#f9c74f;background:#fffaf0}
 .draw-score.guest{border-style:dashed}
+/* Who is still guessing, and the chat echo shown when the maximised panel has hidden the conversation. */
+.draw-guessed{margin:0 0 6px;text-align:center;font-size:12px;font-weight:700;color:#6d788c}
+.draw-recent{margin:0 0 8px;display:grid;gap:2px;max-height:64px;overflow:hidden}
+.draw-recent:empty{display:none}
+.draw-recent-line{margin:0;font-size:12px;line-height:1.35;color:#4a5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.draw-recent-line.system{color:#3146d8;font-weight:700;text-align:center}
+html[data-theme=dark] .draw-guessed{color:#9aa7bd}
+html[data-theme=dark] .draw-recent-line{color:#b6c2d6}
+html[data-theme=dark] .draw-recent-line.system{color:#9aa4ff}
 html[data-theme=dark] .draw-head b{color:#e4e9f2}
 html[data-theme=dark] .draw-head span{color:#9aa7bd}
 html[data-theme=dark] .draw-timer{color:#c3cee0}
@@ -897,6 +906,9 @@ html[data-theme=dark] .draw-score i{color:#9aa4ff}
 html[data-theme=dark] .draw-score.drawing{background:#1d1a10;border-color:#8a6d1f}
 .game-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .game-actions button{flex:1 1 auto;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}
+/* The page's primary/secondary buttons are full width, which turns every action in a 40% pane into a row of its
+   own: three buttons cost a phone's whole canvas. In the dock they share one line instead. */
+.game-pane .game-actions button{flex:1 1 40%;width:auto;min-width:0;margin-top:0}
 .game-pending{border-top:1px solid #e7eaf1;padding-top:10px;margin-top:4px}
 .game-pending-row{display:flex;align-items:center;gap:8px;margin:0 0 6px}
 .game-pending-row b{flex:1;font-size:12.5px;color:#26303f}
@@ -932,6 +944,26 @@ a.game-list-row .game-chip{color:#5b6cff}
 .game-pane .cf-board{max-width:min(100%,calc((100cqh - 44px) * 7 / 6));margin-inline:auto}
 /* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. */
 .game-pane .chess-board{max-width:min(100%,calc(100cqh - 76px));margin-inline:auto}
+/* A drawing needs height. On a phone 40% of the split is about 260 px, and the seats, the word, the guessed count
+   and a canvas anybody could read do not fit in that: the picture ended up below the fold with only the mask
+   showing. While a canvas game is open the pane takes 55% of the split and the rows above the drawing shrink; the
+   drawer's panel opens maximised on top of this (see autoMaximise), and every other game keeps the 60/40 default. */
+@media (max-width:859px){
+  .chat-split[data-canvas="1"]>.messages{flex:1 1 45%}
+  .chat-split[data-canvas="1"]>.game-pane{flex:1 1 55%}
+  .chat-split[data-canvas="1"] .game-status{display:none}
+  .chat-split[data-canvas="1"] .game-seats{gap:5px;margin:0 0 6px}
+  .chat-split[data-canvas="1"] .game-seat{padding:5px 7px;gap:0}
+  .chat-split[data-canvas="1"] .game-seat b{font-size:11px}
+  .chat-split[data-canvas="1"] .game-seat small{font-size:10px}
+  .chat-split[data-canvas="1"] .game-back{margin:0 0 4px;font-size:11.5px}
+  .chat-split[data-canvas="1"] .draw-head{margin:0 0 4px}
+  .chat-split[data-canvas="1"] .draw-word{margin:0 0 4px;font-size:14px}
+  .chat-split[data-canvas="1"] .draw-guessed{margin:0 0 4px;font-size:11px}
+  /* The actions are one row, not two: every 40 px spent under the canvas is 40 px the drawing does not get. */
+  .chat-split[data-canvas="1"] .game-actions{margin:0 0 6px}
+  .chat-split[data-canvas="1"] .game-actions button{padding:7px 10px;font-size:12px}
+}
 /* Maximise is the escape hatch for a small screen: the 60/40 split stays the default, and one tap gives the
    board the whole room for a move. */
 .chat-split[data-max="1"]>.messages{display:none}

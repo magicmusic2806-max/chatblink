@@ -44,8 +44,11 @@ const GAME_KINDS = {
 // The seat helpers keep the older games honest: they have one number, so min and max are the same.
 const gameMinSeats = kind => Math.max(1, kind?.minSeats || kind?.seats || 2);
 const gameMaxSeats = kind => Math.max(1, kind?.maxSeats || kind?.seats || 2);
-const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-sync", "game-resign", "game-offer-draw", "game-accept-draw", "game-pick-word", "game-draw", "game-clear"];
+const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-start", "game-sync", "game-resign", "game-offer-draw", "game-accept-draw", "game-pick-word", "game-draw", "game-clear"];
 const GAME_EVENT_LIMIT = 60;
+// A pen stroke is one event per finished line, and a fast scribble is a lot of lines: the drawing gets its own,
+// larger window so the room's per-connection budget can never swallow a line the drawer watched themselves draw.
+const DRAW_EVENT_LIMIT = 120;
 // A slot in a room belongs to a game still being waited on or played. A finished board is history and
 // must never take a slot: four dead boards at the cap used to close a room to new games for good, which
 // stranded every player whose host had walked off.
@@ -98,6 +101,10 @@ const DRAW_REVEAL_MS = 5000;
 const DRAW_CHOICES = 3;
 const DRAW_STROKE_POINTS_MAX = 200;
 const DRAW_STROKES_MAX = 400;
+// The whole drawing has to fit in one WebSocket message when a client syncs or rejoins, and Cloudflare closes a
+// socket whose message is over 1 MiB. 400 strokes of 200 points is ~900 KB of JSON, so the oldest strokes are
+// dropped instead: a drawing keeps its recent lines and can never take the room's socket down with it.
+const DRAW_POINTS_TOTAL_MAX = 12000;
 const DRAW_POINTS_MAX = 1024;
 const DRAW_COLORS = ["#172033", "#ef476f", "#f9c74f", "#43aa8b", "#4f8cff", "#a259ff", "#ff8c42", "#ffffff"];
 const DRAW_SCORE_FOR_GUESS = 200, DRAW_SCORE_FOR_DRAWER = 50;
@@ -640,6 +647,12 @@ export class ChatHub {
         choosing: Boolean(!round.word && !round.revealed)
       } : null;
       view.strokes = (game.strokes || []).map(stroke => ({ color: stroke.color, size: stroke.size, points: stroke.points }));
+      // Strokes arrive as `game-stroke` packets after this; the sequence number is how a client notices it missed
+      // one and asks for the whole truth again instead of drawing a picture with a line missing.
+      view.strokeSeq = game.strokeSeq || 0;
+      // Who has guessed this turn, so the drawer and the other guessers can see who is still thinking. The word
+      // itself stays out of it: the list is accounts, never the answer.
+      view.guessed = (game.guessed || []).slice();
       // Guests keep their own score list (the owner's rule), so the panel can show who scored best among them.
       view.guests = game.guests.map(person => ({ id: person.id, username: person.username, score: person.score || 0 }));
       view.turn = round && !round.revealed ? round.drawerId : null;
@@ -720,13 +733,15 @@ export class ChatHub {
     return rooms;
   }
   gameError(socket, message) { this.send(socket, { type: "game-error", message }); }
-  // Games get their own window so a click-heavy board never eats the chat message budget.
-  gameLimited(connectionId, now) {
-    const record = this.gameWindows.get(connectionId) || { start: now, count: 0 };
+  // Games get their own window so a click-heavy board never eats the chat message budget. Strokes count in a
+  // window of their own, with a larger limit: a scribble is one event per line and must never be dropped silently
+  // by the same counter that guards seat changes.
+  gameLimited(bucket, now, limit = GAME_EVENT_LIMIT) {
+    const record = this.gameWindows.get(bucket) || { start: now, count: 0 };
     if (now - record.start > MESSAGE_WINDOW_MS) { record.start = now; record.count = 0; }
     record.count++;
-    this.gameWindows.set(connectionId, record);
-    return record.count > GAME_EVENT_LIMIT;
+    this.gameWindows.set(bucket, record);
+    return record.count > limit;
   }
   // The host runs a game; moderators and the admin can cover for a host who has gone quiet. A seated player
   // can run a board whose host is not in the room at all - the host role is handed over on the way out, but
@@ -740,14 +755,35 @@ export class ChatHub {
     // A seat is not a spectator seat: someone who watched the board before joining must not be counted twice.
     game.guests = game.guests.filter(person => person.id !== user.id);
     if (!game.players.some(player => player.id === user.id)) game.players.push({ id: user.id, username: user.username, score: 0 });
-    // A game starts when it has enough players, not when it is full: Draw & Guess seats eight but two can play.
+    // A two-seat game starts the moment its last seat fills. A game with a range of seats (Draw & Guess, two to
+    // eight) waits for its host instead: auto-starting at the minimum is why it was only ever a two-player game -
+    // the second person to arrive started the round and everybody after them was told it had already started.
     const kind = GAME_KINDS[game.kind] || {};
-    if (game.status === "lobby" && game.players.length >= gameMinSeats(kind)) this.startGame(game);
+    if (game.status === "lobby" && game.players.length >= gameMaxSeats(kind)) this.startGame(game);
   }
   endGame(game, winnerId = null, reason = null) {
     game.status = "ended"; game.turn = null; game.winnerId = winnerId; game.reason = reason; game.endedAt = Date.now();
-    if (winnerId) { const winner = game.players.find(player => player.id === winnerId); if (winner) winner.score = (winner.score || 0) + 1; }
+    // A two-seat board counts wins, so its winner gets one. Draw & Guess is decided on points that are already on
+    // the scoreboard - adding a "win" there printed 601 for a 600-point game.
+    if (winnerId && game.kind !== "draw-guess") { const winner = game.players.find(player => player.id === winnerId); if (winner) winner.score = (winner.score || 0) + 1; }
     this.scheduleClear(game);
+  }
+  // A seat that goes away while the game is being played. A two-seat board is a forfeit (that is the whole game),
+  // but a game that seats more than two carries on with the people still there: one closed tab, or one player
+  // pressing Leave, must not hand the room a result - it used to end a four-player drawing for everybody and
+  // award the win to whoever happened to be first in the list.
+  playerGone(game, goneId, seatIndex = -1) {
+    if (game.status !== "playing" || !game.players.length) return false;
+    const min = gameMinSeats(GAME_KINDS[game.kind] || {});
+    if (game.players.length < min) { this.endGame(game, game.players[0].id, "left"); return true; }
+    // A drawer who walked out leaves their turn behind: it is revealed early and the rotation carries on from the
+    // seat they held, so the player who moved up into it draws next.
+    if (game.kind === "draw-guess" && game.round && game.round.drawerId === goneId) {
+      if (seatIndex >= 0) game.drawerIndex = Math.min(seatIndex, game.players.length - 1);
+      if (!game.round.revealed) { game.round.revealed = true; game.round.revealUntil = 0; game.round.endsAt = Date.now(); game.turn = null; }
+      this.advanceDrawTurn(game, Date.now());
+    }
+    return false;
   }
   // Connect Four, tic-tac-toe and Reversi share the seat/approval/spectator flow and differ only in how a
   // move is validated and how a move ends the game.
@@ -879,6 +915,10 @@ export class ChatHub {
     game.round.endsAt = now + this.drawSeconds * 1000;
     game.round.choosingUntil = null;
     this.wakeAt(game.round.endsAt);
+    // The drawer is told privately however the word was chosen. When the object picks it for a drawer who never
+    // answered, this is the only place they can learn it - without it the canvas has no word to draw and the
+    // whole turn is a blank 80 seconds that nobody can end early but the clock.
+    this.notifyUser(game.round.drawerId, { type: "game-word", roomId: game.roomId, gameId: game.id, word, options: null });
     return true;
   }
   // Points: a guesser earns up to 200 scaled by the time left on the clock, and the drawer earns 50 for every
@@ -912,12 +952,15 @@ export class ChatHub {
     this.wakeAt(game.round.revealUntil);
     return true;
   }
-  // The next drawer in the room, and the next round once everybody has drawn once.
+  // The next drawer in the room, and the next round once everybody has drawn once. The rotation is anchored to
+  // the drawer of the round that just ended rather than to a stored index: a seat can go away mid-game (somebody
+  // leaves, or their grace runs out), and a stale index would either skip a player or point past the end.
   advanceDrawTurn(game, now = Date.now()) {
     const round = game.round;
     if (!round || !round.revealed || now < (round.revealUntil || 0)) return false;
     const players = Math.max(1, game.players.length);
-    game.drawerIndex = ((game.drawerIndex || 0) + 1) % players;
+    const current = game.players.findIndex(player => player.id === round.drawerId);
+    game.drawerIndex = current < 0 ? Math.min(game.drawerIndex || 0, players - 1) : (current + 1) % players;
     if (game.drawerIndex === 0) {
       game.roundNumber = (game.roundNumber || 1) + 1;
       if (game.roundNumber > DRAW_ROUNDS) {
@@ -964,6 +1007,18 @@ export class ChatHub {
     if (!points.length) return null;
     return { color, size, points };
   }
+  // A drawing is bounded as a whole, not just stroke by stroke: the full state travels in one WebSocket message
+  // on a sync, and Cloudflare closes a socket whose message passes 1 MiB. The oldest lines go first, so the
+  // drawing always keeps what is being drawn now.
+  pruneStrokes(game) {
+    const strokes = game.strokes || [];
+    let total = strokes.reduce((sum, stroke) => sum + stroke.points.length, 0);
+    let drop = 0;
+    while (total > DRAW_POINTS_TOTAL_MAX && drop < strokes.length - 1) { total -= strokes[drop].points.length; drop++; }
+    if (drop) game.strokes = strokes.slice(drop);
+    game.strokes = (game.strokes || []).slice(-DRAW_STROKES_MAX);
+    return game.strokes;
+  }
   // A correct guess: points for the guesser (guests keep their own score), points for the drawer, a system line
   // in the room, and the word itself never echoed into the transcript.
   drawCorrectGuess(room, game, user, now = Date.now()) {
@@ -979,7 +1034,10 @@ export class ChatHub {
   gameEvent(socket, event, user, now) {
     const meta = attachment(socket), room = this.findRoom(meta.roomId);
     if (!room || (Array.isArray(room.bans) && room.bans.includes(user.id))) return;
-    if (this.gameLimited(meta.connectionId || user.id, now)) return;
+    // A stroke has its own, larger window: one event per line is not a click, and a drawing must never lose a
+    // line to the seat-change budget.
+    const drawing = event.type === "game-draw";
+    if (this.gameLimited(drawing ? `${meta.connectionId || user.id}:draw` : (meta.connectionId || user.id), now, drawing ? DRAW_EVENT_LIMIT : GAME_EVENT_LIMIT)) return;
     // Any interaction first settles seats whose grace ran out, so nobody has to wait for the alarm.
     this.sweepAway(now);
     const gameId = clean(event.gameId).slice(0, 64), game = gameId ? this.gameIn(room.id, gameId) : null;
@@ -1054,17 +1112,28 @@ export class ChatHub {
       if (!game.players.some(player => player.id === user.id) && !game.guests.some(person => person.id === user.id)) game.guests.push({ id: user.id, username: user.username, score: 0 });
       return this.broadcastGames(room.id, false);
     }
+    if (event.type === "game-start") {
+      // Draw & Guess seats two to eight, so the room gathers first and the host says when to begin. A two-seat
+      // board has no lobby worth waiting in: it starts by itself the moment its last seat fills.
+      if (game.status !== "lobby") return this.gameError(socket, "That game already started.");
+      if (!this.canRunGame(room, game, user)) return this.gameError(socket, "Only the host can start it.");
+      const min = gameMinSeats(GAME_KINDS[game.kind] || {});
+      if (game.players.length < min) return this.gameError(socket, `That game needs ${min} players.`);
+      this.startGame(game);
+      return this.broadcastGames(room.id);
+    }
     if (event.type === "game-leave") {
       game.pending = game.pending.filter(person => person.id !== user.id);
       game.guests = game.guests.filter(person => person.id !== user.id);
       if (isPlayer) {
+        const leftAt = game.players.findIndex(player => player.id === user.id);
         game.players = game.players.filter(player => player.id !== user.id);
-        // Walking out of a running two-player game is a forfeit; a lobby game nobody is left in closes.
+        // A lobby game nobody is left in closes.
         if (!game.players.length) {
           this.dropGame(room.id, game.id);
           return this.broadcastGames(room.id);
         }
-        if (game.status === "playing") this.endGame(game, game.players[0].id, "left");
+        this.playerGone(game, user.id, leftAt);
       }
       // The leaver may have been the host: the seat that is left takes the controls, so the game can still
       // be rematched, cleared or ended.
@@ -1103,9 +1172,7 @@ export class ChatHub {
       if (!isPlayer || game.round?.drawerId !== user.id) return this.gameError(socket, "Only the drawer picks the word.");
       if (game.round?.word) return this.gameError(socket, "The word is already chosen.");
       if (!this.pickDrawWord(game, clean(event.word).toLowerCase())) return this.gameError(socket, "That word is not one of the choices.");
-      // The drawer's own client still has no word in the broadcast (that is the point), so it is told privately
-      // the moment the choice is made — otherwise it would know what it is drawing only from the mask.
-      this.notifyUser(user.id, { type: "game-word", roomId: room.id, gameId: game.id, word: game.round.word, options: null });
+      // pickDrawWord tells the drawer their word privately; the broadcast still must not carry it.
       return this.broadcastGames(room.id);
     }
     if (event.type === "game-draw") {
@@ -1114,18 +1181,25 @@ export class ChatHub {
       if (!game.round?.word || game.round.revealed) return;
       const stroke = this.cleanStroke(event.stroke);
       if (!stroke) return;
-      game.strokes = [...(game.strokes || []), stroke].slice(-DRAW_STROKES_MAX);
-      // Every stroke is broadcast, but only every twentieth is written to storage: the free tier meters rows
-      // written, and a live drawing would otherwise cost a row per finger movement. A stroke is one event, not
-      // one event per point.
-      game.strokeCount = (game.strokeCount || 0) + 1;
-      return this.broadcastGames(room.id, game.strokeCount % 20 === 0);
+      game.strokes = [...(game.strokes || []), stroke];
+      this.pruneStrokes(game);
+      // One stroke travels as one stroke. The whole drawing used to be re-sent in a game-state on every line, which
+      // is quadratic in the number of strokes (a busy drawing reached hundreds of kilobytes a line) and made every
+      // client rebuild its panel and repaint the canvas mid-stroke. The full state still rides on game-sync, seat
+      // changes and turn changes, so a client that missed one repaints from the truth.
+      game.strokeSeq = (game.strokeSeq || 0) + 1;
+      // Only every twentieth stroke is written to storage: the free tier meters rows written, and a live drawing
+      // would otherwise cost a row per line. A stroke is one event, not one event per point.
+      if (game.strokeSeq % 20 === 0) this.saveGames();
+      return this.broadcast(room.id, { type: "game-stroke", roomId: room.id, gameId: game.id, seq: game.strokeSeq, stroke });
     }
     if (event.type === "game-clear") {
       if (game.kind !== "draw-guess") return;
       if (!isPlayer || game.round?.drawerId !== user.id) return this.gameError(socket, "Only the drawer can clear the canvas.");
       game.strokes = [];
-      return this.broadcastGames(room.id);
+      game.strokeSeq = (game.strokeSeq || 0) + 1;
+      this.saveGames();
+      return this.broadcast(room.id, { type: "game-cleared", roomId: room.id, gameId: game.id, seq: game.strokeSeq });
     }
     if (event.type === "game-restart") {
       // A rematch only ever follows a result: the board screen says who won (or that it was a tie) and the
@@ -1235,12 +1309,15 @@ export class ChatHub {
           game.pending = game.pending.filter(person => person.id !== userId);
           if (!seated) continue;
           if (game.status === "playing") {
-            const remaining = game.players.filter(player => player.id !== userId);
-            if (!remaining.length) {
+            // A game that seats more than two loses the seat and carries on (see playerGone); a two-seat board is
+            // over the moment one of them is gone.
+            const leftAt = game.players.findIndex(player => player.id === userId);
+            game.players = game.players.filter(player => player.id !== userId);
+            if (!game.players.length) {
               this.dropGame(roomId, game.id);
               continue;
             }
-            this.endGame(game, remaining[0].id, "left");
+            this.playerGone(game, userId, leftAt);
           } else if (game.status === "lobby") {
             game.players = game.players.filter(player => player.id !== userId);
             if (!game.players.length) {
@@ -1461,6 +1538,7 @@ export class ChatHub {
     if (meta.connectionId) this.messageWindows.delete(meta.connectionId);
     if (meta.connectionId) this.callWindows.delete(meta.connectionId);
     if (meta.connectionId) this.gameWindows.delete(meta.connectionId);
+    if (meta.connectionId) this.gameWindows.delete(`${meta.connectionId}:draw`);
     try { socket.close(1000, "closed"); } catch {}
     if (meta.roomId && meta.roomId !== "__notify") {
       // The call only loses this member when their last socket in the room goes; a second tab in the
