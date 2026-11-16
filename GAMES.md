@@ -478,3 +478,14 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
   wizard only when it can work, and the maximise icon's geometry), plus `tests/draw-ui.js` (24) and
   `tests/games-ui.js` (27, now measuring the create view's 60% and the list's 40%).
 
+## As built (`v=101`, boards take most of a phone)
+
+- **A board takes 68% of a phone split** (the chat keeps 32%) instead of 60, the pane header is 4 px padding with
+  24 px glyphs and the body padding is 8 px: measured at 390×844, a drawing is **374×281** for both roles (was
+  349×262 / 327×245), chess is **319×319** (was 261), Connect Four **374×322**, tic-tac-toe **358×358** - and none
+  of them scrolls. The drawing is now the pane's full width, so only a wider pane could make it bigger.
+- The list of running games and the wizard keep the 60/40 default and 60% respectively; the chat at 32% still shows
+  the last two or three messages above the composer.
+- The quick chess clock offered is now **10 min** (`CHESS_TIME_OPTIONS = [10, 20, 40, 0]`), and 5 is no longer
+  accepted - a create that names it falls back to `CHESS_CLOCK_MS` like any other un-offered allowance, which
+  `tests/chess.js` now proves by asking for 5.

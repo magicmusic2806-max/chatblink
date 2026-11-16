@@ -985,15 +985,17 @@ a.game-list-row .game-chip{color:#5b6cff}
 .game-pane .cf-board{max-width:min(100%,calc((100cqh - 26px) * 7 / 6));margin-inline:auto}
 /* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. */
 .game-pane .chess-board{max-width:min(100%,calc(100cqh - 60px));margin-inline:auto}
-/* A board needs height, and so does every other board: on a phone the split gives the pane 60% and the chat 40%,
+/* A board needs height, and so does every other board: on a phone the split gives the pane 68% and the chat 32%,
    which is still a conversation you can play beside, and makes a drawing or a chess board big enough to use. The
    list and create views keep the 60/40 default in the chat's favour. */
 @media (max-width:859px){
-  .chat-split[data-board="1"]>.messages{flex:1 1 40%}
-  .chat-split[data-board="1"]>.game-pane{flex:1 1 60%}
+  .chat-split[data-board="1"]>.messages{flex:1 1 32%}
+  .chat-split[data-board="1"]>.game-pane{flex:1 1 68%}
   /* Six glyphs and a title in a 40% pane on a 390 px phone: 24 px squares below 480 px. */
-  .game-pane-head{gap:4px;padding:5px 8px}
+  .game-pane-head{gap:4px;padding:4px 8px}
   .game-pane-head button{width:24px;height:24px;font-size:13px}
+  /* Every pixel of padding is a pixel the board does not get. */
+  .game-pane-body{padding:8px}
   /* The options are one row, not two: every 40 px under the board is 40 px the board does not get. */
   .chat-split[data-board="1"] .game-actions button{padding:7px 10px;font-size:12px}
 }
