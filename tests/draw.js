@@ -179,8 +179,8 @@ async function main() {
   ok("the new drawer is offered words of their own", bobWords.options.length === 3);
 
   /* ------------------------------------------------------------ a drawer who never chooses */
-  // DRAW_CHOOSE_MS is 2000 for this suite: the first word is taken for them instead of stalling the room.
-  const autoPicked = gameById(await waitGame(aSocket, game.id, view => view?.round && view.round.drawerId === bob.user.id && view.round.choosing === false, 9000), game.id);
+  // DRAW_CHOOSE_MS is 6 s for this suite: the first word is taken for them instead of stalling the room.
+  const autoPicked = gameById(await waitGame(aSocket, game.id, view => view?.round && view.round.drawerId === bob.user.id && view.round.choosing === false, 14000), game.id);
   ok("a drawer who never chooses gets the first word", autoPicked.round.choosing === false && autoPicked.round.endsAt > Date.now());
 
   /* ------------------------------------------------------------ play it out to a result */
@@ -197,7 +197,7 @@ async function main() {
     const view = gameById(await waitGame(aSocket, game.id, item => item?.status === "ended" || (item?.round && !item.round.revealed && item.round.choosing), 12000), game.id);
     if (!view || view.status === "ended") { finished = view; break; }
     const drawerSocket = view.round.drawerId === alice.user.id ? aSocket : bSocket;
-    const packet = await waitFor(drawerSocket, message => message.type === "game-word" && Array.isArray(message.options), 4000);
+    const packet = await waitFor(drawerSocket, message => message.type === "game-word" && Array.isArray(message.options), 8000);
     const turnWord = packet.options[0];
     drawerSocket.inbox.length = 0;
     send(drawerSocket, { type: "game-pick-word", gameId: game.id, word: turnWord });

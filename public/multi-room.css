@@ -860,14 +860,21 @@ html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
 .draw-word{margin:0 0 8px;text-align:center;font-weight:800;letter-spacing:.16em;font-size:15px;color:#31406b}
 .draw-picker{display:flex;gap:6px;margin:0 0 8px;flex-wrap:wrap}
 .draw-picker button{flex:1 1 30%;font-size:13px;padding:9px 6px}
-.game-pane .draw-canvas{max-width:min(100%,calc((100cqh - 150px) * 4 / 3));margin-inline:auto}
+/* A canvas needs a floor, not just a cap: in a 40% pane on a phone the height budget after the word line,
+   the tools and the scores is nearly nothing, and "fit the panel" would draw a 50 px canvas nobody can use.
+   Below the floor the pane body scrolls instead. */
+.game-pane .draw-canvas{max-width:min(100%,max(220px,calc((100cqh - 150px) * 4 / 3)));margin-inline:auto}
 .draw-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3;background:#fff;border:1px solid #cfd6e4;
   border-radius:10px;touch-action:none;margin:0 auto 8px;cursor:crosshair}
-.draw-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px}
-.draw-swatch{width:26px;height:26px;border-radius:8px;border:2px solid transparent;background:var(--swatch);padding:0}
+/* One row, never wrapped: wrapping cost 133 px of a 390 px phone's pane and pushed Clear off the bottom. If it
+   cannot all fit it scrolls sideways instead. */
+.draw-tools{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 0 8px}
+.draw-tools::-webkit-scrollbar{display:none}
+.draw-tools>button.secondary{flex:0 0 auto;padding:5px 8px;font-size:12px;border-radius:7px}
+.draw-swatch{width:20px;height:20px;flex:0 0 auto;border-radius:6px;border:2px solid transparent;background:var(--swatch);padding:0}
 .draw-swatch.active{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff33}
-.draw-sizes{display:flex;gap:6px}
-.draw-size{width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:8px}
+.draw-sizes{display:flex;gap:4px;flex:0 0 auto}
+.draw-size{width:24px;height:24px;flex:0 0 auto;display:grid;place-items:center;padding:0;border-radius:6px}
 .draw-size i{display:block;border-radius:50%;background:#4a5568}
 .draw-size.active{border-color:#5b6cff;background:#eef1ff}
 .draw-scores{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}

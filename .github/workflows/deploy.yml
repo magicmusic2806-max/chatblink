@@ -56,9 +56,25 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
       # Server-free and instant: it imports worker/index.js and drives its handler, so a module that
-      # cannot even be loaded never reaches production. `npm run test:all` is the fuller gate if this
-      # pipeline ever grows one (it starts wrangler dev, so it is slower and easier to flake).
+      # cannot even be loaded never reaches production.
       - run: npm run test:canonical
+
+      # The secrets a local `wrangler dev` normally reads. .dev.vars is gitignored because a developer's
+      # copy holds real ones, so CI writes its own: the Worker signs device tokens with AUTH_SECRET, and an
+      # empty key throws, which would fail every signup in the suites below.
+      - name: Test secrets for the local Worker
+        run: printf 'AUTH_SECRET=ci-only-not-a-real-secret\n' > .dev.vars
+
+      # Chess and Draw & Guess carry server-authoritative rules — legal moves, clocks, turns, scoring — so
+      # the two suites that prove them run before anything is uploaded. They start their own `wrangler dev`
+      # instances with shortened timers, which is why they cannot join the server-free check above. The
+      # browser suites stay out of this pipeline (hence PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD); these two only
+      # need sockets, so npm ci must not pull browsers for them.
+      - name: Game rules (chess + Draw & Guess)
+        env:
+          CI: "1"
+          WRANGLER_SEND_METRICS: "false"
+        run: node tests/run-all.js chess draw
 
       - name: Deploy
         env:

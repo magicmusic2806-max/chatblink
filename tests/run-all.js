@@ -1,7 +1,11 @@
 /**
  * Runs every end-to-end suite and reports a summary.
  *
- * Usage:  node tests/run-all.js
+ * Usage:  node tests/run-all.js [suite ...]
+ *
+ * With no arguments every group runs. Naming suites runs only the groups that contain them, which is how the
+ * deploy workflow gates on the game rules (`node tests/run-all.js chess draw`) without paying for the browser
+ * suites. An unknown name is an error rather than a silent no-op: a typo in CI must not pass as "everything".
  *
  * Most suites run against their own local `wrangler dev`. The quota-cap suite needs deliberately
  * small budgets, so it gets a second server on another port with --var overrides; everything else
@@ -51,9 +55,10 @@ const servers = [
   { port: 8795, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000", "CHESS_CLOCK_MS:4000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000", CHESS_CLOCK_MS: "4000" }, suites: [
     { name: "chess", file: "tests/chess.js" }
   ] },
-  // Draw & Guess: short turns, a short reveal and a short choosing window, so a whole three-round game runs in
-  // seconds and the timers can be watched rather than waited out.
-  { port: 8797, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000", "DRAW_SECONDS:20", "DRAW_REVEAL_MS:400", "DRAW_CHOOSE_MS:2000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000", DRAW_SECONDS: "20", DRAW_REVEAL_MS: "400", DRAW_CHOOSE_MS: "2000" }, suites: [
+  // Draw & Guess: short turns and a short reveal, so a whole three-round game runs in seconds. The choosing
+  // window is longer than the others because the suite reads the words and then picks one: with a two-second
+  // window the object's auto-pick could win the race and the test would fail on its own timing.
+  { port: 8797, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000", "DRAW_SECONDS:20", "DRAW_REVEAL_MS:400", "DRAW_CHOOSE_MS:6000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000", DRAW_SECONDS: "20", DRAW_REVEAL_MS: "400", DRAW_CHOOSE_MS: "6000" }, suites: [
     { name: "draw", file: "tests/draw.js" }
   ] },
   // Draw & Guess in two browsers: the drawer's word, the pointer strokes and the chat-sentence guess.
@@ -102,19 +107,37 @@ const stop = server => {
 };
 
 async function main() {
-  console.log("applying the local D1 schema (idempotent)");
-  spawnSync("npm", ["run", "db:local"], { cwd: ROOT, shell: true, stdio: "ignore" });
+  // No names means everything; names narrow it to the groups that contain them.
+  const wanted = new Set(process.argv.slice(2));
+  const selected = name => wanted.size === 0 || wanted.has(name);
+  const offlineSuites = offline.filter(suite => selected(suite.name));
+  const serverGroups = servers
+    .map(config => ({ ...config, suites: config.suites.filter(suite => selected(suite.name)) }))
+    .filter(config => config.suites.length);
+  if (!offlineSuites.length && !serverGroups.length) {
+    const known = [...offline, ...servers.flatMap(config => config.suites)].map(suite => suite.name).join(", ");
+    console.error(`no suite matches "${[...wanted].join(" ")}" - known suites: ${known}`);
+    process.exit(1);
+  }
+
+  // Only the server suites need the local D1 tables; a filtered offline run must not touch them.
+  if (serverGroups.length) {
+    console.log("applying the local D1 schema (idempotent)");
+    spawnSync("npm", ["run", "db:local"], { cwd: ROOT, shell: true, stdio: "ignore" });
+  }
 
   const results = [];
 
-  console.log(`\n=== ${offline.map(suite => suite.name).join(" + ")} (no server needed) ===`);
-  for (const suite of offline) {
-    // NODE_NO_WARNINGS: importing the Worker module re-parses it as ESM, which Node warns about.
-    const run = spawnSync(process.execPath, [suite.file], { cwd: ROOT, stdio: "inherit", env: { ...process.env, NODE_NO_WARNINGS: "1" } });
-    results.push({ name: suite.name, code: run.status === null ? 99 : run.status });
+  if (offlineSuites.length) {
+    console.log(`\n=== ${offlineSuites.map(suite => suite.name).join(" + ")} (no server needed) ===`);
+    for (const suite of offlineSuites) {
+      // NODE_NO_WARNINGS: importing the Worker module re-parses it as ESM, which Node warns about.
+      const run = spawnSync(process.execPath, [suite.file], { cwd: ROOT, stdio: "inherit", env: { ...process.env, NODE_NO_WARNINGS: "1" } });
+      results.push({ name: suite.name, code: run.status === null ? 99 : run.status });
+    }
   }
 
-  for (const config of servers) {
+  for (const config of serverGroups) {
     const args = ["wrangler", "dev", "--port", String(config.port), ...config.vars.flatMap(pair => ["--var", pair])];
     console.log(`\n=== ${config.suites.map(s => s.name).join(" + ")} on port ${config.port} ${config.vars.length ? `(${config.vars.join(" ")})` : "(default budgets)"} ===`);
     const server = spawn("npx", args, { cwd: ROOT, shell: true, stdio: "ignore" });

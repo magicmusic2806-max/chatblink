@@ -775,16 +775,40 @@ function openGames(mode){
   renderGames();
   if(mode==="all")loadLiveGames();else sendGame("game-sync");
 }
+// The panel layout: 60/40 by default, everywhere. A canvas game cannot be played in 40% of a phone (the height
+// left after the word line, the tools and the scores is nothing), so it opens maximised once per game - and the
+// player's own toggle always wins afterwards, because their choice is remembered while that panel is open.
+let autoMaximisedFor=null;
+function setMaxButton(on){
+  const button=$("#gamePaneMax");
+  if(!button)return;
+  button.textContent=on?"⤡":"⤢";
+  button.setAttribute("aria-pressed",on?"true":"false");
+}
+function setPaneMaximised(on){
+  const split=$("#chatSplit");
+  if(on)split.dataset.max="1";else delete split.dataset.max;
+  setMaxButton(on);
+}
+function autoMaximise(game){
+  if(!game||game.layout?.type!=="canvas")return;
+  if(!$("#chatSplit")||$("#chatSplit").dataset.userLayout)return;
+  if(window.innerWidth>=700||autoMaximisedFor===game.id)return;
+  autoMaximisedFor=game.id;
+  setPaneMaximised(true);
+}
 function closeGames(){
   stopChessClock();
   stopDrawTimer();
   $("#gamesModal").hidden=true;
   $("#gamePane").hidden=true;
   delete $("#chatSplit").dataset.game;
-  // A maximised panel must not be the state the next game opens in.
+  // A maximised panel must not be the state the next game opens in, and a layout the player chose is forgotten
+  // with the panel, so the next game gets the 60/40 default again.
   delete $("#chatSplit").dataset.max;
-  const maximiseButton=$("#gamePaneMax");
-  if(maximiseButton){maximiseButton.textContent="⤢";maximiseButton.setAttribute("aria-pressed","false")}
+  delete $("#chatSplit").dataset.userLayout;
+  autoMaximisedFor=null;
+  setMaxButton(false);
   activeGameId=null;creatingGame=false;
 }
 function renderGames(){
@@ -873,7 +897,9 @@ function gamePlayerSlot(game,index){
   const player=game.players[index],slot=document.createElement("div");
   slot.className=`game-seat${player&&game.turn===player.id&&game.status==="playing"?" turn":""}`;
   const disc=document.createElement("i");disc.className=`game-disc seat${index+1}`;
-  const name=document.createElement("b");name.textContent=player?player.username+(gameIsMine(player.id)?" (you)":""):"Open seat";
+  const name=document.createElement("b");
+  // The drawer is marked on their seat rather than in a second score list: one row per player, not two.
+  name.textContent=player?player.username+(gameIsMine(player.id)?" (you)":"")+(game.kind==="draw-guess"&&game.round?.drawerId===player.id?" ✏️":""):"Open seat";
   const meta=document.createElement("small");
   // Chess and Draw & Guess count points, not wins; the older games count wins.
   const points=game.kind==="draw-guess"||game.kind==="chess";
@@ -1058,6 +1084,7 @@ function renderGameDetail(body,game){
     });
     body.appendChild(pending);
   }
+  autoMaximise(game);
 }
 // Three layouts, all server-owned: columns for Connect Four (dropped bottom-up like gravity), a square grid
 // for tic-tac-toe and Reversi, and a chess board drawn from the position in FEN. The object sends the legal
@@ -1289,7 +1316,14 @@ function renderDrawBoard(body,game){
   body.appendChild(canvas);
 
   if(drawing){
-    // Tools sit with the canvas, not in the chat tools, because they only mean anything while drawing.
+    // Tools sit with the canvas, not in the chat tools, because they only mean anything while drawing. Clear goes
+    // in the header instead of the end of the row: on a 390 px phone the row is already full of palette, and the
+    // one control that must never need a sideways scroll is the one that wipes the board.
+    const clear=document.createElement("button");clear.type="button";clear.className="secondary";
+    clear.style.cssText="flex:0 0 auto;width:auto;min-width:0;max-width:max-content;padding:4px 8px;font-size:12px;border-radius:7px";
+    clear.textContent="Clear";
+    clear.onclick=()=>sendGame("game-clear",{gameId:game.id});
+    head.appendChild(clear);
     const tools=document.createElement("div");tools.className="draw-tools";
     DRAW_COLORS.forEach((color,index)=>{
       const swatch=document.createElement("button");swatch.type="button";swatch.className=`draw-swatch${index===0?" active":""}`;
@@ -1303,9 +1337,7 @@ function renderDrawBoard(body,game){
       button.setAttribute("aria-label",`Brush ${size}`);button.onclick=()=>{choice.size=size;sizes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
       const dot=document.createElement("i");dot.style.width=`${size*4+2}px`;dot.style.height=`${size*4+2}px`;button.appendChild(dot);sizes.appendChild(button);
     });
-    const clear=document.createElement("button");clear.type="button";clear.className="secondary";clear.textContent="Clear";
-    clear.onclick=()=>sendGame("game-clear",{gameId:game.id});
-    tools.append(sizes,clear);
+    tools.appendChild(sizes);
     body.appendChild(tools);
 
     let stroke=null;
@@ -1333,22 +1365,19 @@ function renderDrawBoard(body,game){
     canvas.addEventListener("pointerleave",event=>{if(event.buttons===0)finish()});
   }
 
-  // Scores: players first, then the guests who guessed, because watching is allowed to score on this site.
-  const scores=document.createElement("div");scores.className="draw-scores";
-  [...game.players].sort((left,right)=>(right.score||0)-(left.score||0)).forEach(player=>{
-    const row=document.createElement("span");row.className=`draw-score${drawerId===player.id?" drawing":""}`;
-    const name=document.createElement("b");name.textContent=player.username+(gameIsMine(player.id)?" (you)":"")+(drawerId===player.id?" ✏️":"");
-    const value=document.createElement("i");value.textContent=`${player.score||0}`;
-    row.append(name,value);scores.appendChild(row);
-  });
-  (game.guests||[]).forEach(guest=>{
-    if(!guest.score)return;
-    const row=document.createElement("span");row.className="draw-score guest";
-    const name=document.createElement("b");name.textContent=`${guest.username} (guest)`;
-    const value=document.createElement("i");value.textContent=`${guest.score||0}`;
-    row.append(name,value);scores.appendChild(row);
-  });
-  body.appendChild(scores);
+  // Guest scores only: the players are already on the seat cards above, and repeating them cost ~50 px of a
+  // 390 px phone's pane for nothing. Guests have no seat card, so this is the only place they appear.
+  const guestScores=(game.guests||[]).filter(guest=>guest.score);
+  if(guestScores.length){
+    const scores=document.createElement("div");scores.className="draw-scores";
+    guestScores.forEach(guest=>{
+      const row=document.createElement("span");row.className="draw-score guest";
+      const name=document.createElement("b");name.textContent=`${guest.username} (guest)`;
+      const value=document.createElement("i");value.textContent=`${guest.score||0}`;
+      row.append(name,value);scores.appendChild(row);
+    });
+    body.appendChild(scores);
+  }
 
   // The clock is a readout of the server's deadline; the object decides when a turn is over.
   const deadline=round?(round.revealed?null:round.choosing?round.choosingUntil:round.endsAt):null;
@@ -1535,12 +1564,12 @@ async function loadNotice(){
 $("#gamesButton").onclick=()=>openGames("room");
 $("#gamesClose").onclick=closeGames;
 $("#gamePaneClose").onclick=closeGames;
-// Maximise is a per-view toggle, not a stored preference: the split is the default every time a game opens.
+// Maximise is a per-view toggle; touching it records that the player chose their own layout, so the auto rule
+// above never takes the choice back.
 $("#gamePaneMax").onclick=()=>{
-  const split=$("#chatSplit"),on=split.dataset.max!=="1";
-  if(on)split.dataset.max="1";else delete split.dataset.max;
-  $("#gamePaneMax").setAttribute("aria-pressed",on?"true":"false");
-  $("#gamePaneMax").textContent=on?"⤡":"⤢";
+  const split=$("#chatSplit");
+  split.dataset.userLayout="1";
+  setPaneMaximised(split.dataset.max!=="1");
 };
 $("#safetyClose").onclick=()=>{$("#safetyModal").hidden=true};
 $("#menuDrop").querySelector('[data-menu="safety"]').onclick=()=>{$("#menuDrop").hidden=true;openSafety()};

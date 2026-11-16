@@ -118,9 +118,10 @@ const hasInk = page => page.evaluate(() => {
     await waitPane(a, "The word was");
     ok("the turn reveals the word to everybody", (await a.locator(".draw-word").innerText()).length === 0 || (await a.locator(".draw-head").innerText()).includes("The word was"));
 
-    const scores = await b.locator(".draw-score").allInnerTexts();
-    ok("both players appear on the scoreboard", scores.length >= 2, JSON.stringify(scores));
-    ok("the scoreboard shows points, not wins", scores.every(text => /^\d+$/.test(text.split("\n").pop().trim())), JSON.stringify(scores));
+    const seatText = await b.locator(".game-seats").innerText();
+    ok("both players appear on the score cards", /du_a_/.test(seatText) && /du_b_/.test(seatText), JSON.stringify(seatText.slice(0, 120)));
+    ok("the drawer is marked on their seat", (await b.locator(".game-seats").innerText()).includes("✏️"), (await b.locator(".game-seats").innerText()).slice(0, 120));
+    ok("the score cards show points, not wins", seatText.includes("pts"), JSON.stringify(seatText.slice(0, 120)));
 
     await b.screenshot({ path: ".forge/shots/draw-desktop.png" });
     ok("no page errors", true);

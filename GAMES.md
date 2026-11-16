@@ -158,6 +158,10 @@ per second) and are never stored per point.
   list, seats, host approve / deny controls, the scoreboard and the spectator count, and a **⤢** toggle
   gives the board the whole room for a move without changing the default. Boards are sized from the
   panel's own height (container query units), so nothing hangs off the bottom of a 40% panel.
+  **Draw & Guess is the exception on a phone:** below 700px it opens maximised (once per game, and the
+  player's own ⤢ toggle wins from then on), because a drawing needs more than 40% of a 390px screen to be
+  playable — in a 40% pane the canvas measured 51×39 px. The canvas also has a minimum size instead of
+  shrinking to fit, and its Clear control lives in the header so it never needs a sideways scroll.
 - **Room list:** a **Games** card above the room grid showing every live game across rooms with its
   room, game, seats taken and the three actions. It opens the all-games **modal**, which stays a modal
   because it is a directory across rooms rather than a game in the room you are in. It is the only place
