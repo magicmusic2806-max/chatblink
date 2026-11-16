@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f4f7fb">
+<title>Sudoku — Chatblink arcade</title>
+<meta name="robots" content="noindex,follow">
+<script>(()=>{try{if(localStorage.getItem("chatblink.theme")==="light"){document.documentElement.dataset.theme="light"}else{document.documentElement.dataset.theme="dark"}}catch{}})()</script>
+<style>
+  /* Standalone like 2048: a solo puzzle has no opponent, so nothing here talks to the Worker. */
+  :root{--ink:#172033;--muted:#667085;--line:#e4e9f2;--canvas:#f4f7fb;--surface:#fff;--brand:#4f46e5;
+    --given:#172033;--entry:#3146d8;--bad:#d92d20;--ok:#159947;--pick:#eef1ff;--peer:#f4f7fb;--same:#e4ecff;
+    --boxline:#c9d3e5;--shadow:0 10px 30px #1720330f}
+  html[data-theme=dark]{--ink:#e7ecf6;--muted:#94a1b6;--line:#232c3d;--canvas:#090a12;--surface:#11151f;
+    --brand:#8b93ff;--given:#e7ecf6;--entry:#9aa4ff;--bad:#ff7b72;--ok:#3ddc84;--pick:#1f2740;
+    --peer:#161c29;--same:#212b45;--boxline:#3c4a63;--shadow:0 10px 30px #0006;color-scheme:dark}
+  *{box-sizing:border-box}
+  /* Author rules beat the user-agent [hidden] rule, so the solved panel must opt out explicitly or it
+     paints over the grid on load. */
+  [hidden]{display:none!important}
+  body{margin:0;min-height:100%;background:var(--canvas);color:var(--ink);
+    font-family:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:12px;padding:16px 18px;max-width:560px;margin:0 auto;width:100%}
+  header a{color:var(--brand);text-decoration:none;font-weight:700;font-size:14px}
+  header h1{font-size:18px;margin:0;font-weight:800;letter-spacing:-.01em}
+  header .clock{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;color:var(--muted)}
+  main{flex:1;width:100%;max-width:560px;margin:0 auto;padding:0 18px 28px;display:flex;flex-direction:column;gap:12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select,button{font:inherit;cursor:pointer;border-radius:12px;border:1px solid var(--line);background:var(--surface);
+    color:var(--ink);padding:11px 13px;font-weight:700;font-size:14px}
+  button.primary{background:var(--brand);border-color:transparent;color:#fff}
+  button:active{transform:translateY(1px)}
+  .board{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:8px;box-shadow:var(--shadow)}
+  /* Nine boxes of nine cells: the thick lines of a Sudoku come from the gap between the boxes, so a
+     selected square can own its own inset ring without fighting a border drawn on a cell.
+     minmax(0,1fr) and min-width:0 are load-bearing: a plain 1fr floors each column at its min-content
+     width, and an aspect-ratio cell reports one, so the grid would refuse to shrink and overflow. */
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;background:var(--boxline);
+    padding:3px;border-radius:10px}
+  .box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--boxline);min-width:0}
+  .cell{aspect-ratio:1;width:100%;min-width:0;background:var(--surface);border:0;padding:0;display:grid;
+    place-items:center;font-weight:700;font-size:clamp(15px,4.6vw,22px);color:var(--entry);border-radius:0}
+  .cell.given{color:var(--given);background:var(--peer);font-weight:800}
+  .cell.peer{background:var(--peer)}
+  .cell.same{background:var(--same)}
+  .cell.selected{background:var(--pick);box-shadow:inset 0 0 0 2px var(--brand)}
+  .cell.bad{color:var(--bad)}
+  .pad{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .pad button{aspect-ratio:1.25;font-size:20px;padding:0}
+  .status{margin:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .status.bad{color:var(--bad);font-weight:700}
+  .status.good{color:var(--ok);font-weight:700}
+  .done{position:absolute;inset:0;border-radius:16px;background:#0b1020cc;color:#fff;display:grid;
+    place-content:center;gap:8px;justify-items:center;text-align:center;padding:20px}
+  html[data-theme=light] .done{background:#ffffffdd;color:var(--ink)}
+  .done h2{margin:0;font-size:22px}
+  .done p{margin:0;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<header><a href="/rooms">← Rooms</a><h1>Sudoku</h1><span class="clock" id="clock">0:00</span></header>
+<main>
+  <div class="row">
+    <select id="level" aria-label="Difficulty">
+      <option value="easy">Easy</option>
+      <option value="medium" selected>Medium</option>
+      <option value="hard">Hard</option>
+    </select>
+    <button type="button" class="primary" id="fresh">New puzzle</button>
+    <button type="button" id="check">Check</button>
+    <button type="button" id="hint">Hint</button>
+  </div>
+  <div class="board">
+    <div class="grid" id="grid" role="grid" aria-label="Sudoku grid"></div>
+    <div class="done" id="done" hidden>
+      <h2>Solved</h2>
+      <p id="doneText"></p>
+      <button type="button" class="primary" id="doneAgain">Another puzzle</button>
+    </div>
+  </div>
+  <div class="pad" id="pad"></div>
+  <p class="status" id="status">Tap a square, then a number. Givens cannot be changed.</p>
+</main>
+<script>
+(() => {
+  "use strict";
+  // A Sudoku with exactly one solution is the only kind worth shipping: a puzzle with two solutions makes
+  // "Check" lie to whoever found the other one. Generation therefore removes a clue only while the count
+  // of solutions stays at one, which is why a solver lives on this page as well.
+  const CLUES = { easy: 42, medium: 34, hard: 28 };
+  const gridEl = document.getElementById("grid");
+  const padEl = document.getElementById("pad");
+  const statusEl = document.getElementById("status");
+  const clockEl = document.getElementById("clock");
+  const doneEl = document.getElementById("done");
+  const doneText = document.getElementById("doneText");
+  const levelEl = document.getElementById("level");
+
+  let solution = new Array(81).fill(0);
+  let puzzle = new Array(81).fill(0);
+  let values = new Array(81).fill(0);
+  let selected = -1;
+  let seconds = 0, timer = null, finished = false;
+
+  const rowOf = index => Math.floor(index / 9);
+  const colOf = index => index % 9;
+  const boxOf = index => Math.floor(rowOf(index) / 3) * 3 + Math.floor(colOf(index) / 3);
+  const bit = value => 1 << (value - 1);
+  const shuffle = list => { for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; } return list; };
+
+  // Solves by MRV - always the empty square with the fewest candidates - counting up to `limit` solutions
+  // and stopping the moment a second one exists. That ordering is what keeps a uniqueness probe fast
+  // enough to run on a phone while generating a puzzle.
+  function countSolutions(board, limit) {
+    const rows = new Array(9).fill(0), cols = new Array(9).fill(0), boxes = new Array(9).fill(0);
+    const work = board.slice(), blanks = [];
+    for (let index = 0; index < 81; index++) {
+      const value = work[index];
+      if (!value) { blanks.push(index); continue; }
+      const mask = bit(value);
+      rows[rowOf(index)] |= mask; cols[colOf(index)] |= mask; boxes[boxOf(index)] |= mask;
+    }
+    let found = 0;
+    const solve = () => {
+      let best = -1, bestMask = 0, bestCount = 10;
+      for (const index of blanks) {
+        if (work[index]) continue;
+        const used = rows[rowOf(index)] | cols[colOf(index)] | boxes[boxOf(index)];
+        let count = 0, mask = 0;
+        for (let value = 1; value <= 9; value++) if (!(used & bit(value))) { count++; mask |= bit(value); }
+        if (!count) return;
+        if (count < bestCount) { best = index; bestMask = mask; bestCount = count; if (count === 1) break; }
+      }
+      if (best < 0) { found++; return; }
+      const row = rowOf(best), col = colOf(best), box = boxOf(best);
+      for (let value = 1; value <= 9; value++) {
+        const mask = bit(value);
+        if (!(bestMask & mask)) continue;
+        work[best] = value; rows[row] |= mask; cols[col] |= mask; boxes[box] |= mask;
+        solve();
+        work[best] = 0; rows[row] &= ~mask; cols[col] &= ~mask; boxes[box] &= ~mask;
+        if (found >= limit) return;
+      }
+    };
+    solve();
+    return found;
+  }
+
+  // A full grid built by randomised backtracking, again MRV-first so it never crawls.
+  function fill(board) {
+    const rows = new Array(9).fill(0), cols = new Array(9).fill(0), boxes = new Array(9).fill(0);
+    const go = () => {
+      let best = -1, bestCandidates = null, bestCount = 10;
+      for (let index = 0; index < 81; index++) {
+        if (board[index]) continue;
+        const used = rows[rowOf(index)] | cols[colOf(index)] | boxes[boxOf(index)];
+        const candidates = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9].filter(value => !(used & bit(value))));
+        if (!candidates.length) return false;
+        if (candidates.length < bestCount) { best = index; bestCandidates = candidates; bestCount = candidates.length; if (bestCount === 1) break; }
+      }
+      if (best < 0) return true;
+      const row = rowOf(best), col = colOf(best), box = boxOf(best);
+      for (const value of bestCandidates) {
+        const mask = bit(value);
+        board[best] = value; rows[row] |= mask; cols[col] |= mask; boxes[box] |= mask;
+        if (go()) return true;
+        board[best] = 0; rows[row] &= ~mask; cols[col] &= ~mask; boxes[box] &= ~mask;
+      }
+      return false;
+    };
+    return go();
+  }
+
+  function generate(level) {
+    const board = new Array(81).fill(0);
+    // fill() is randomised and a blank grid always has a solution, so this retry only ever runs on a bug.
+    for (let attempt = 0; attempt < 5; attempt++) { board.fill(0); if (fill(board)) break; }
+    const full = board.slice();
+    const target = CLUES[level] || CLUES.medium;
+    const positions = shuffle([...Array(81).keys()]);
+    let clues = 81;
+    for (const index of positions) {
+      if (clues <= target) break;
+      const backup = board[index];
+      board[index] = 0;
+      if (countSolutions(board, 2) === 1) clues--;
+      else board[index] = backup;
+    }
+    return { puzzle: board, solution: full };
+  }
+
+  const cells = [];
+  const boxes = [];
+  for (let box = 0; box < 9; box++) {
+    const node = document.createElement("div");
+    node.className = "box";
+    node.setAttribute("role", "row");
+    gridEl.appendChild(node);
+    boxes.push(node);
+  }
+  for (let index = 0; index < 81; index++) {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "cell";
+    cell.dataset.index = String(index);
+    cell.setAttribute("role", "gridcell");
+    cell.onclick = () => select(index);
+    boxes[boxOf(index)].appendChild(cell);
+    cells.push(cell);
+  }
+  for (let value = 1; value <= 9; value++) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = String(value);
+    button.onclick = () => enter(value);
+    padEl.appendChild(button);
+  }
+  const erase = document.createElement("button");
+  erase.type = "button";
+  erase.textContent = "⌫";
+  erase.setAttribute("aria-label", "Erase");
+  erase.onclick = () => enter(0);
+  padEl.appendChild(erase);
+
+  // Two different kinds of wrong matter here: a value that repeats in a row, column or box is a conflict
+  // the player can see, and a value that disagrees with the unique solution is a mistake. The red tint
+  // while typing shows the first without handing out the answer; Check reports the second.
+  function conflicts(index) {
+    const value = values[index];
+    if (!value) return false;
+    for (let other = 0; other < 81; other++) {
+      if (other === index || values[other] !== value) continue;
+      if (rowOf(other) === rowOf(index) || colOf(other) === colOf(index) || boxOf(other) === boxOf(index)) return true;
+    }
+    return false;
+  }
+
+  function paint() {
+    const focusValue = selected >= 0 ? values[selected] : 0;
+    cells.forEach((cell, index) => {
+      const value = values[index];
+      cell.textContent = value ? String(value) : "";
+      cell.classList.toggle("given", puzzle[index] !== 0);
+      cell.classList.toggle("selected", index === selected);
+      cell.classList.toggle("peer", selected >= 0 && index !== selected &&
+        (rowOf(index) === rowOf(selected) || colOf(index) === colOf(selected) || boxOf(index) === boxOf(selected)));
+      cell.classList.toggle("same", Boolean(focusValue) && value === focusValue && index !== selected);
+      cell.classList.toggle("bad", Boolean(value) && conflicts(index));
+    });
+  }
+
+  function select(index) {
+    if (finished) return;
+    selected = index;
+    paint();
+  }
+
+  function enter(value) {
+    if (finished) return;
+    if (selected < 0) { statusEl.textContent = "Pick a square first."; statusEl.className = "status"; return; }
+    if (puzzle[selected]) { statusEl.textContent = "That number is a given and cannot be changed."; statusEl.className = "status"; return; }
+    values[selected] = value;
+    statusEl.textContent = "Tap a square, then a number. Givens cannot be changed.";
+    statusEl.className = "status";
+    paint();
+    if (values.every((cell, index) => cell === solution[index])) finish();
+  }
+
+  function finish() {
+    finished = true;
+    clearInterval(timer);
+    doneText.textContent = `Solved in ${clockEl.textContent}.`;
+    doneEl.hidden = false;
+    statusEl.textContent = "Every square matches the solution.";
+    statusEl.className = "status good";
+  }
+
+  function tick() {
+    if (document.hidden || finished) return;
+    seconds++;
+    clockEl.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+
+  function start() {
+    statusEl.textContent = "Shuffling squares…";
+    statusEl.className = "status";
+    doneEl.hidden = true;
+    finished = false; selected = -1; seconds = 0;
+    clockEl.textContent = "0:00";
+    clearInterval(timer);
+    const built = generate(levelEl.value);
+    solution = built.solution;
+    puzzle = built.puzzle;
+    values = puzzle.slice();
+    timer = setInterval(tick, 1000);
+    paint();
+    statusEl.textContent = "Tap a square, then a number. Givens cannot be changed.";
+  }
+
+  document.getElementById("fresh").onclick = start;
+  document.getElementById("doneAgain").onclick = start;
+  levelEl.onchange = start;
+  document.getElementById("check").onclick = () => {
+    const wrong = values.reduce((count, value, index) => (value && value !== solution[index] ? count + 1 : count), 0);
+    const blanks = values.reduce((count, value) => (value ? count : count + 1), 0);
+    if (wrong) { statusEl.textContent = `${wrong} square${wrong === 1 ? "" : "s"} do not match the solution.`; statusEl.className = "status bad"; }
+    else if (blanks) { statusEl.textContent = `Nothing wrong so far - ${blanks} square${blanks === 1 ? "" : "s"} left.`; statusEl.className = "status good"; }
+    else finish();
+  };
+  document.getElementById("hint").onclick = () => {
+    if (finished) return;
+    const empty = values.reduce((list, value, index) => (value === solution[index] ? list : value === 0 ? [...list, index] : list), []);
+    const target = selected >= 0 && values[selected] !== solution[selected] ? selected : empty[Math.floor(Math.random() * empty.length)];
+    if (target === undefined) return finish();
+    values[target] = solution[target];
+    selected = target;
+    paint();
+    statusEl.textContent = "One square filled in.";
+    statusEl.className = "status";
+    if (values.every((value, index) => value === solution[index])) finish();
+  };
+
+  const KEYS = { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, Backspace: 0, Delete: 0 };
+  addEventListener("keydown", event => {
+    if (event.key in KEYS) { event.preventDefault(); enter(KEYS[event.key]); return; }
+    const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -9, ArrowDown: 9 };
+    if (!(event.key in moves)) return;
+    event.preventDefault();
+    const base = selected < 0 ? 0 : selected + moves[event.key];
+    if (base >= 0 && base < 81) select(base);
+  });
+
+  start();
+})();
+</script>
+</body>
+</html>

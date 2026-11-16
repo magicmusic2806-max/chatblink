@@ -812,6 +812,82 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
    game without them. */
 .grid-cell.legal{box-shadow:inset 0 0 0 2px #5b6cff66}
 .cf-cell:not(:disabled){box-shadow:inset 0 0 0 2px #5b6cff66}
+/* Chess: the board is eight square files on a light/dark chequer, and every highlight is a thin inset ring so
+   it never changes the square's size (a border would jog the grid). */
+.chess-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));border-radius:10px;overflow:hidden;
+  border:1px solid #c9d3e5;margin:0 0 10px;touch-action:manipulation}
+.chess-square{position:relative;aspect-ratio:1;min-width:0;border:0;padding:0;display:grid;place-items:center;
+  line-height:1;background:#e8edf6;cursor:pointer}
+.chess-square.dark{background:#a3b1cb}
+.chess-piece{font-size:clamp(18px,5.2vw,40px);pointer-events:none}
+.chess-piece.white{color:#fff;text-shadow:0 0 1px #10161f,0 0 2px #10161f,0 1px 2px #10161f99,0 2px 3px #10161f55}
+.chess-piece.black{color:#0f1420;text-shadow:0 0 1px #ffffffaa,0 1px 2px #ffffff77}
+.chess-square.last{box-shadow:inset 0 0 0 3px #eab308cc}
+.chess-square.check{box-shadow:inset 0 0 0 3px #ef4444dd}
+.chess-square.selected{box-shadow:inset 0 0 0 3px #5b6cff}
+.chess-square.target::after{content:"";position:absolute;width:30%;height:30%;border-radius:50%;background:#5b6cffcc}
+.chess-square.target.capture::after{width:86%;height:86%;background:transparent;border:3px solid #ef4444cc}
+.chess-clocks{display:flex;gap:8px;margin:0 0 8px}
+.chess-clock{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;
+  border:1px solid #e5eaf3;background:#fff;border-radius:10px;padding:6px 10px;font-variant-numeric:tabular-nums}
+.chess-clock b{font-size:12px;color:#26303f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chess-clock span{font-weight:800;font-size:13px;color:#4a5568}
+.chess-clock.running{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff22}
+.chess-clock.low span{color:#c33b55}
+.chess-check{color:#c33b55;font-weight:800;margin:8px 0}
+.chess-promo{display:flex;gap:6px;margin:0 0 8px}
+.chess-promo button{flex:1;padding:8px 0;font-size:20px;line-height:1}
+html[data-theme=dark] .chess-square{background:#5a6885}
+html[data-theme=dark] .chess-square.dark{background:#2a3348}
+html[data-theme=dark] .chess-piece.white{color:#ffffff;text-shadow:0 0 1px #000,0 1px 2px #000c}
+html[data-theme=dark] .chess-piece.black{color:#0a0f18;text-shadow:0 0 1px #cfd8ea99}
+html[data-theme=dark] .chess-board{border-color:#2c3648}
+html[data-theme=dark] .chess-clock{background:#101725;border-color:#293243}
+html[data-theme=dark] .chess-clock b{color:#e4e9f2}
+html[data-theme=dark] .chess-clock span{color:#b6c2d6}
+html[data-theme=dark] .chess-clock.running{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff33}
+html[data-theme=dark] .chess-clock.low span{color:#ff8b8b}
+/* Draw & Guess: the canvas keeps a 4:3 shape and is capped by the panel's own height, so the drawing stays a
+   usable size on a phone instead of pushing the tools off the bottom. */
+.message-system{margin:6px auto;padding:6px 12px;border-radius:999px;background:#eef1f8;color:#5a6579;
+  font-size:12px;font-weight:700;text-align:center;max-width:90%}
+html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
+.draw-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 6px}
+.draw-head b{font-size:13px;color:#26303f}
+.draw-head span{font-size:12px;color:#6d788c}
+.draw-timer{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;color:#4a5568}
+.draw-timer.low{color:#c33b55}
+.draw-word{margin:0 0 8px;text-align:center;font-weight:800;letter-spacing:.16em;font-size:15px;color:#31406b}
+.draw-picker{display:flex;gap:6px;margin:0 0 8px;flex-wrap:wrap}
+.draw-picker button{flex:1 1 30%;font-size:13px;padding:9px 6px}
+.game-pane .draw-canvas{max-width:min(100%,calc((100cqh - 150px) * 4 / 3));margin-inline:auto}
+.draw-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3;background:#fff;border:1px solid #cfd6e4;
+  border-radius:10px;touch-action:none;margin:0 auto 8px;cursor:crosshair}
+.draw-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.draw-swatch{width:26px;height:26px;border-radius:8px;border:2px solid transparent;background:var(--swatch);padding:0}
+.draw-swatch.active{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff33}
+.draw-sizes{display:flex;gap:6px}
+.draw-size{width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:8px}
+.draw-size i{display:block;border-radius:50%;background:#4a5568}
+.draw-size.active{border-color:#5b6cff;background:#eef1ff}
+.draw-scores{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.draw-score{display:flex;align-items:center;gap:6px;border:1px solid #e5eaf3;background:#fff;
+  border-radius:999px;padding:4px 10px;font-size:12px}
+.draw-score b{color:#26303f;font-weight:700}
+.draw-score i{font-style:normal;font-weight:800;color:#3146d8}
+.draw-score.drawing{border-color:#f9c74f;background:#fffaf0}
+.draw-score.guest{border-style:dashed}
+html[data-theme=dark] .draw-head b{color:#e4e9f2}
+html[data-theme=dark] .draw-head span{color:#9aa7bd}
+html[data-theme=dark] .draw-timer{color:#c3cee0}
+html[data-theme=dark] .draw-word{color:#c9d4ff}
+html[data-theme=dark] .draw-canvas{border-color:#2c3648}
+html[data-theme=dark] .draw-size i{background:#c3cee0}
+html[data-theme=dark] .draw-size.active{background:#1b2340;border-color:#5b6cff}
+html[data-theme=dark] .draw-score{background:#101725;border-color:#293243}
+html[data-theme=dark] .draw-score b{color:#e4e9f2}
+html[data-theme=dark] .draw-score i{color:#9aa4ff}
+html[data-theme=dark] .draw-score.drawing{background:#1d1a10;border-color:#8a6d1f}
 .game-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .game-actions button{flex:1 1 auto;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}
 .game-pending{border-top:1px solid #e7eaf1;padding-top:10px;margin-top:4px}
@@ -827,6 +903,42 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .game-list-info b{font-size:13px;color:#26303f}
 .game-list-info small{font-size:11.5px;color:#7b8497}
 .game-list-actions{display:flex;gap:6px;flex-wrap:wrap}
+/* Solo arcade rows are links to their own pages, so they carry the same shape as a room game row. */
+.game-arcade{margin:14px 0 0;padding:12px 0 0;border-top:1px solid #e7eaf1}
+a.game-list-row{text-decoration:none}
+a.game-list-row .game-chip{color:#5b6cff}
+/* A game is played next to the conversation, never on top of it: the messages keep 60% and the game
+   panel takes 40%. On a phone the same ratio is stacked, because a side-by-side split at 390px would
+   leave roughly 230px of chat - narrower than one message bubble. */
+.chat-split{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.chat-split>.messages{flex:1 1 60%;min-height:0}
+.game-pane{flex:0 0 40%;min-height:0;display:flex;flex-direction:column;background:#fff;border-top:1px solid #e7eaf0}
+.game-pane[hidden]{display:none}
+.game-pane-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eef1f6;flex:0 0 auto}
+.game-pane-head b{flex:1;min-width:0;font-size:13px;font-weight:800;color:#26303f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-pane-head button{border:0;background:#f2f4f8;border-radius:8px;width:28px;height:28px;color:#59647a;font-weight:800;font-size:13px;padding:0}
+.game-pane-body{flex:1;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;container-type:size}
+/* A board must fit the panel it was given: on a phone the pane is 40% of the room, and a board sized only
+   by width would hang off the bottom of it. Container query units let the board follow the pane's own
+   height, so a square grid is min(width, height) and Connect Four keeps its 7:6 shape. */
+.game-pane .grid-board{max-width:min(100%,calc(100cqh - 44px));margin-inline:auto}
+.game-pane .cf-board{max-width:min(100%,calc((100cqh - 44px) * 7 / 6));margin-inline:auto}
+/* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. */
+.game-pane .chess-board{max-width:min(100%,calc(100cqh - 76px));margin-inline:auto}
+/* Maximise is the escape hatch for a small screen: the 60/40 split stays the default, and one tap gives the
+   board the whole room for a move. */
+.chat-split[data-max="1"]>.messages{display:none}
+.chat-split[data-max="1"]>.game-pane{flex:1 1 100%}
+html[data-theme=dark] .game-pane{background:#0d1220;border-color:#232c3d}
+html[data-theme=dark] .game-pane-head{border-color:#1d2537}
+html[data-theme=dark] .game-pane-head b{color:#e7ecf6}
+html[data-theme=dark] .game-pane-head button{background:#1b2130;color:#94a1b6}
+@media(min-width:860px){
+  .chat-split{flex-direction:row}
+  .chat-split>.messages{flex:1 1 60%}
+  .game-pane{flex:0 0 40%;border-top:0;border-left:1px solid #e7eaf0}
+  html[data-theme=dark] .game-pane{border-left-color:#232c3d}
+}
 html[data-theme=dark] .room-card.games-room-card{background:linear-gradient(135deg,#151c30,#1a1630);border-color:#2f3a5c}
 html[data-theme=dark] .game-copy{color:#94a1b6}
 html[data-theme=dark] .game-status{color:#c3cee0}

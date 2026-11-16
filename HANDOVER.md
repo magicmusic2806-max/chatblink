@@ -162,7 +162,7 @@ production stops carrying dead credential rows; the client drops `chatblink.pass
 - The retired prototype files (`server.js`, `server-clean.js`, `public/app*.js`, `location*`, …) are
   still in the tree, unused. `AUTH_SETUP.md`, the email/password prototype and the four email tables
   are gone.
-- **Games:** three games are live (`v=85`): Connect Four, Tic-tac-toe and Reversi. A room runs up to
+- **Games:** five room games are live (`v=96`): Connect Four, Tic-tac-toe, Reversi, Chess and Draw & Guess, and since `v=94` they open in a **60/40 split beside the chat** (two columns from 860px, stacked on a phone, with a ⤢ maximise toggle) so playing never hides the conversation. Two static solo arcade pages (2048, Sudoku) sit in the same panel. A room runs up to
   four at once (a finished board holds no slot and is never listed — it clears itself after two
   minutes), one seat per person per room, and the 🎲 Games button counts the games still running in that
   room. The room list begins with a Games card whose badge is the live total. Games are hidden until that button or

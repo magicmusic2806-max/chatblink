@@ -151,12 +151,17 @@ per second) and are never stored per point.
 
 ## UI surfaces
 
-- **In a room:** a **Games** button beside the existing actions opens a small dock listing that room's
-  game (or the create list when there is none). The dock carries the player list, seats, host approve
-  / deny controls, the scoreboard and the spectator count. Collapsed by default.
+- **In a room:** a **Games** button beside the existing actions opens the room's games in a panel
+  **beside the chat, never over it** (owner's rule, 2026-11-16: people play while they talk). The split
+  is **60% conversation / 40% game**: two columns from 860px up, the same ratio stacked vertically on a
+  phone, because a side-by-side split at 390px leaves about 230px of chat. The panel carries the player
+  list, seats, host approve / deny controls, the scoreboard and the spectator count, and a **⤢** toggle
+  gives the board the whole room for a move without changing the default. Boards are sized from the
+  panel's own height (container query units), so nothing hangs off the bottom of a 40% panel.
 - **Room list:** a **Games** card above the room grid showing every live game across rooms with its
-  room, game, seats taken and the three actions. It is the only place games are discoverable without
-  opening a room, which is what "hidden by default" means.
+  room, game, seats taken and the three actions. It opens the all-games **modal**, which stays a modal
+  because it is a directory across rooms rather than a game in the room you are in. It is the only place
+  games are discoverable without opening a room, which is what "hidden by default" means.
 - **Guesses** stay in the room chat (that is where the fun is), with the word masked in the transcript
   until the round ends and a system line when someone gets it.
 
@@ -176,10 +181,22 @@ per second) and are never stored per point.
    all; a game whose last player leaves clears itself. `v=84`: a seat is never counted as a spectator.
    `v=85`: no history at all — a finished board is never listed and clears itself after
    `ENDED_GAME_TTL_MS` (two minutes, `--var` overridable).
-6. **Draw & Guess.** Next, and the one users asked for by name. Design below.
-7. **Chess** (`chess.js` BSD-2 + `cm-chessboard` MIT), human only, with clocks and draw offers.
-8. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages and listed in the same Games entry,
-   watchable but not joinable.
+6. **Draw & Guess.** ✅ `v=96` — three rounds, everybody draws once per round, 80 seconds a turn, three words
+   offered with 15 seconds to choose (the first one is taken for a drawer who never answers). Guesses are typed
+   into the **ordinary chat box**: any sentence containing the word counts, it scores the guesser and 50 to the
+   drawer, and that message becomes the highlighted "xyz guessed the word" line instead of being posted. Guests
+   score on their own list. A stroke is one event with its points batched and capped at 200. Details below.
+7. **Chess** (`chess.js` BSD-2), human only, with clocks and draw offers. ✅ `v=95` — the object holds the
+   position in FEN and every rule is chess.js's: castling, en passant, promotion, check, mate, stalemate,
+   threefold, the 50-move draw. **Five minutes per side, no increment**, a clock that runs out loses on time
+   (the alarm ends it even if nobody clicks), draw offers must be offered and accepted, resigning is its own
+   action, and a rematch swaps colours because white always moves first. The panel draws the board from the
+   server's board array (no chess library on the client) and marks the legal squares for the side to move.
+   Covered by `tests/chess.js` (25 checks) and the chess part of the panel behaviour in `tests/games-ui.js`.
+8. **Solo arcade** (2048 MIT, sudoku MIT) served as static pages. ✅ `v=94` — `public/arcade-2048.html` and
+   `public/arcade-sudoku.html`, reachable from the Games panel and the all-games list. They are static on
+   purpose (see "As built"): nothing to validate, nothing to watch, no Worker, D1 or rate-limit
+   involvement, and the sudoku generator proves uniqueness with its own solver before showing a puzzle.
 9. **Poker / trivia** only if demand appears.
 
 ## As built (`v=85`, three games)
@@ -254,10 +271,84 @@ Everything below is what the code actually does, not the plan it came from:
 - **Defaults taken** from the open questions: host, moderators and the admin may approve/end; the card
   shows the count, game name, room and seats, no board preview.
 
-## Remaining for Draw & Guess
+## As built (`v=94`, split panel + solo arcade)
 
-- Word list: curated and safe, from `dwyl/english-words` (Unlicense). Never fetched at runtime.
-- Rounds, seconds per round, drawer rotation, masked word in the transcript, guesses in the room chat.
-- Guests: separate score list, "xyz guest guessed the word" system line, end-of-game scoreboard showing
-  players and guests independently.
-- Strokes: batched (~50 ms per stroke, capped), redrawn from state on rejoin, never stored per point.
+- **The game sits beside the conversation.** Opening the room's Games button no longer covers the chat:
+  `#chatSplit` holds `#messageList` (60%) and `#gamePane` (40%), as two columns from 860px and stacked
+  at the same ratio below it. `tests/games-ui.js` measures the ratio in a real browser instead of
+  trusting the CSS, and it also proves the messages are still on screen with the panel open.
+- **The composer never moves.** It stays outside the split, so a message can be typed and sent while the
+  board is open, and a game move never hides the input.
+- **Boards follow the panel's height**, not its width: `.game-pane-body` is a size container and the
+  boards cap themselves at `100cqh`, so Connect Four, the grids and (next) chess fit the 40% panel on a
+  phone instead of hanging off the bottom of it. A ⤢ toggle swaps the split for a full-room board and
+  back; closing the panel resets it.
+- **Two surfaces, on purpose.** A game in the room you are in opens the panel; the all-games card in the
+  room list still opens a modal, because it lists games in *other* rooms and is a directory rather than
+  something you play from here.
+- **Solo arcade is static.** `public/arcade-2048.html` and `public/arcade-sudoku.html` are standalone
+  pages (no socket, no Worker, no rate limit) linked from the Games panel and the all-games list. A
+  puzzle has no opponent, so there is no seat to take and nothing for the object to validate, and
+  nothing for anyone to cheat at. Their boards use `minmax(0,1fr)` with `min-width:0`, because a plain
+  `1fr` floors a column at the min-content width an `aspect-ratio` cell reports, which made the grid
+  overflow its panel.
+- **The sudoku proves itself.** A puzzle is only shown after its own solver confirms exactly one
+  solution; a puzzle with two makes "Check" lie to whoever found the other one. Generation is MRV-first
+  and lands in single-digit milliseconds.
+- **2048 keeps the merge rule honest:** a 2-2-2-2 line becomes 4-4, not 8, with one level of undo.
+
+## As built (`v=95`, chess)
+
+- **The position is FEN and the rules are the library's.** `game.fen` is the state; `Chess` from
+  `chess.js` (BSD-2-Clause, a dependency rather than a vendored file because it ships as ESM and wrangler
+  bundles it) generates the moves and judges mate, stalemate, insufficient material, threefold repetition and
+  the 50-move rule. Hand-written chess rules are exactly where castling and en passant go quietly wrong.
+- **Standard clock:** five minutes each, no increment (`CHESS_CLOCK_MS`, env-overridable so the suite can use
+  four seconds). A move first subtracts the time it took; a flag that already fell means the move never lands
+  and the game is lost on time. `settleChessClock()` runs on the sweep, and the sweep's next-wake calculation
+  schedules the alarm for the moment a flag falls, so a timeout ends the game with nobody touching it.
+- **Draw offers and resignation are their own events** (`game-offer-draw`, `game-accept-draw`,
+  `game-resign`), not overloaded onto "leave": leaving already forfeits, but it also gives up the seat and
+  the wrong word is the wrong shape for "I resign". An offer only stands until the offerer moves.
+- **Colours swap on a rematch.** White always moves first, so instead of alternating the opening seat the
+  restart reverses the players; the clock, the last-move marker and any open offer are reset with the board.
+- **The client knows no rules at all.** The view carries a 64-square board of `wK`/`bP` codes, the legal
+  moves for the side to move, the last move, a `check` flag and both clocks; the panel decides only which way
+  up the board is (your colour at the bottom, spectators watch white's way) and what a tap means. Promotion
+  shows four pieces because the server lists one move per piece; a move without a promotion piece is refused.
+- **Chess shows its board while it waits.** The starting position and the clocks are drawn in the lobby
+  (the other kinds stay empty until they start), because "what am I about to play, and how long do I have"
+  is exactly what somebody waiting wants to see.
+
+## As built (`v=96`, Draw & Guess)
+
+- **The word is the drawer's secret, and the state packet never carries it.** `game.round` holds the word in
+  the object; `gameView` sends the mask and, once the turn is over, the word. The drawer is told their word
+  privately (`game-word`), on picking and again on `game-sync`, so a reconnect restores it without a spectator
+  ever being able to read it out of a broadcast.
+- **Guesses are the room's own chat.** The "message" path checks text for the word before the message can be
+  stored: a sentence containing it becomes a `system` message ("xyz guessed the word") and the sentence itself
+  is never written to the transcript. Matching is by whole words, so "concatenate" is not "cat" and a two-word
+  answer has to appear together. The drawing player typing the answer is refused rather than posted, because a
+  drawer could otherwise spoil their own round. Clients cannot post `system` messages: it is not in
+  `MESSAGE_KINDS`, only the object writes them.
+- **Standard settings:** `DRAW_ROUNDS` 3 (everybody draws once per round), `DRAW_SECONDS` 80,
+  `DRAW_CHOOSE_MS` 15 s to choose from three words (the first is taken if the drawer says nothing),
+  `DRAW_REVEAL_MS` 5 s to read the answer before the next drawer. All four are env-overridable, which is how the
+  suites play a whole game in seconds.
+- **Scoring:** a guesser earns up to 200 scaled by the time left on the turn clock (never less than 50), and the
+  drawer earns 50 per correct guesser — drawing well has to pay. Guests keep a separate score list, per the
+  owner's rule, and both lists are shown.
+- **Strokes are batched and bounded.** One event per stroke with its points, at most 200 points per stroke and
+  a fixed palette, coordinates clamped to the 1024×768 canvas. A long drag is sent as consecutive strokes rather
+  than truncated. Strokes are broadcast every time but written to storage only every twentieth, because the
+  free tier meters rows written and a drawing would otherwise cost a row per finger movement.
+- **Timers are the object's, not the client's.** The sweep settles a drawer who never chose, a turn whose clock
+  ran out and a reveal that has had its time, and its next-wake calculation brings the alarm forward to whichever
+  of those is due, so a turn ends with nobody touching the page.
+- **A rejoining player redraws from state**, not from a stroke stream: the canvas is repainted from the strokes
+  the object holds, so a reload shows the picture as it stands.
+- **Covered by** `tests/draw.js` (37 checks: secrecy, masking, refusals, stroke limits, guess matching, scoring,
+  rotation, the auto-pick, and a whole three-round game to a result) and `tests/draw-ui.js` (16 checks in two
+  browsers: the picker, the mask, the tools being the drawer's alone, a pointer stroke reaching the other
+  canvas, and a chat sentence turning into the highlighted line).

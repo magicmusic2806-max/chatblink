@@ -43,7 +43,7 @@ $("#downloadKey").onclick=()=>{const key=$("#profileKeyValue").textContent,blob=
 $("#enterRoomsNow").onclick=()=>$("#profileForm").requestSubmit();
 $("#profileForm").addEventListener("submit",async event=>{event.preventDefault();const form=event.currentTarget,data=new FormData(form);error("#profileError","");busy(form,true);$("#enterRoomsNow").disabled=true;try{const result=await request("/api/profile",{method:"POST",body:JSON.stringify({displayName:data.get("displayName"),avatar:data.get("avatar"),bio:data.get("bio"),gender:data.get("gender"),interests:data.get("interests")})});forgetProfileKey();$("#setupView").hidden=true;await enterApp(result.user)}catch(problem){error("#profileError",problem.message)}finally{busy(form,false);$("#enterRoomsNow").disabled=false}});
 async function enterApp(user){clearBootGuard();currentUser=user;$("#authView").hidden=true;$("#setupView").hidden=true;$("#appView").hidden=false;await loadRooms();ensureNotifySocket();route("initial")}
-async function leaveApp(){endCall();leaveRoomCall(true);roomCallState=null;roomGames=[];liveGames=[];$("#gamesModal").hidden=true;stopRequestPoll();stopViewPolls();closeNotifySocket();clearTimeout(reconnectTimer);if(socket){socket.onclose=null;socket.close()}currentUser=null;currentRoom=null;$("#setupView").hidden=true;$("#authView").hidden=false;switchAuth("login");enterGuestMode()}
+async function leaveApp(){endCall();leaveRoomCall(true);roomCallState=null;roomGames=[];liveGames=[];$("#gamesModal").hidden=true;$("#gamePane").hidden=true;delete $("#chatSplit").dataset.game;stopRequestPoll();stopViewPolls();closeNotifySocket();clearTimeout(reconnectTimer);if(socket){socket.onclose=null;socket.close()}currentUser=null;currentRoom=null;$("#setupView").hidden=true;$("#authView").hidden=false;switchAuth("login");enterGuestMode()}
 async function enterGuestMode(){try{const result=await request("/api/rooms");rooms=result.rooms;ensureNotifySocket();route("initial")}catch{}}
 async function loadRooms(){rooms=(await request("/api/rooms")).rooms}
 function stopRequestPoll(){if(requestPoll){clearInterval(requestPoll);requestPoll=null}}
@@ -88,7 +88,7 @@ $("#chatPanel").removeAttribute("data-loaded");
 loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;if(switching)startRoomOpening();connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed});renderRoomCall()}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
-function handleSocketEvent(event){if(event.type==="history"){stopRoomOpening();liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);$("#chatPanel").dataset.loaded="1"}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamesModal").hidden&&gamesMode==="room")renderGames()}}if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamesModal").hidden)renderGames()}if(event.type==="game-approved")toast("You are in");if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
+function handleSocketEvent(event){if(event.type==="history"){stopRoomOpening();liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);$("#chatPanel").dataset.loaded="1"}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamePane").hidden&&gamesMode!=="all")renderGames()}}if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-word"){gameWords.set(event.gameId,event);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-approved")toast("You are in");if(event.type==="game-draw-offer")toast(`${event.by?.username||"Your opponent"} offers a draw`);if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
 function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message||room.access==="request")return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
 async function refreshRoomsList(){try{await loadRooms();if(!$("#roomsView").hidden)renderRoomsGrid();if(currentRoom){const room=rooms.find(item=>item.id===currentRoom.id);if(room){currentRoom=room;$("#requestCount").textContent=room.pendingCount||0}}}catch{}}
 async function refreshUsers(){if(!currentUser)return;await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot();if(!$("#onlineModal").hidden)renderOnlineList();refreshMessageAvatars()}
@@ -247,6 +247,15 @@ function replyQuote(reply){
   return quote;
 }
 function buildMessage(message,compact){
+  // A server line (someone guessed the word) is not a person talking: no avatar, no reply, no actions.
+  if(message.kind==="system"){
+    const line=document.createElement("p");
+    line.className="message-system";
+    line.dataset.messageId=message.id||"";
+    line.dataset.createdAt=String(Number(message.createdAt)||Date.now());
+    line.textContent=`💡 ${message.content}`;
+    return line;
+  }
   const mine=Boolean(currentUser&&message.userId===currentUser.id),sender=message.userId||message.username||"",createdAt=Number(message.createdAt)||Date.now();
   const article=document.createElement("article");
   article.className=`message${mine?" me":""}${compact?" compact":""}${message.deleted?" deleted":""}`;
@@ -734,6 +743,13 @@ let safetyState=null,siteNotice=null,noticeEditing=false;
 // room (roomGames) and, for the room list, the flat list of everything running (liveGames).
 let roomGames=[],activeGameId=null,creatingGame=false,gamesMode="room",liveGames=[],gamesRefreshTimer=null,pendingGameAction=null;
 const MAX_GAMES_PER_ROOM=4;
+// Chess is drawn from the server's position, so the client owns no rules at all - only the glyph for a piece
+// code and which way up the board looks.
+const CHESS_GLYPHS={K:"♚",Q:"♛",R:"♜",B:"♝",N:"♞",P:"♟"};
+const CHESS_ENDINGS={checkmate:"by checkmate",time:"on time",resign:"by resignation",agreed:"by agreement",stalemate:"by stalemate",material:"by insufficient material",repetition:"by repetition",fifty:"by the fifty-move rule"};
+const CHESS_PROMOTIONS=[["q","Queen"],["r","Rook"],["b","Bishop"],["n","Knight"]];
+let chessClockTimer=null;
+function stopChessClock(){if(chessClockTimer){clearInterval(chessClockTimer);chessClockTimer=null}}
 function sendGame(type,extra){if(!socket||socket.readyState!==WebSocket.OPEN)return toast("Reconnecting - try again in a moment");socket.send(JSON.stringify({type,...(extra||{})}))}
 const gameIsMine=id=>Boolean(currentUser&&id===currentUser.id);
 const activeGame=()=>roomGames.find(game=>game.id===activeGameId)||null;
@@ -751,17 +767,34 @@ function renderGameBadge(){
 function openGames(mode){
   if(!currentUser)return toast("Sign in to play");
   gamesMode=mode;activeGameId=null;creatingGame=false;
-  $("#gamesModal").hidden=false;
+  // "All games" is a directory across rooms, so it stays a modal over the page. A game in the room the
+  // person is already in belongs beside the conversation: the panel opens next to the chat so playing
+  // never costs them the messages.
+  if(mode==="all"){$("#gamesModal").hidden=false}
+  else{$("#gamePane").hidden=false;$("#chatSplit").dataset.game="open"}
   renderGames();
   if(mode==="all")loadLiveGames();else sendGame("game-sync");
 }
-function closeGames(){$("#gamesModal").hidden=true;activeGameId=null;creatingGame=false}
+function closeGames(){
+  stopChessClock();
+  stopDrawTimer();
+  $("#gamesModal").hidden=true;
+  $("#gamePane").hidden=true;
+  delete $("#chatSplit").dataset.game;
+  // A maximised panel must not be the state the next game opens in.
+  delete $("#chatSplit").dataset.max;
+  const maximiseButton=$("#gamePaneMax");
+  if(maximiseButton){maximiseButton.textContent="⤢";maximiseButton.setAttribute("aria-pressed","false")}
+  activeGameId=null;creatingGame=false;
+}
 function renderGames(){
-  const body=$("#gamesBody"),title=$("#gamesTitle");
+  const all=gamesMode==="all",body=all?$("#gamesBody"):$("#gameBody");
   if(!body)return;
+  stopChessClock();
+  stopDrawTimer();
   body.innerHTML="";
-  if(gamesMode==="all"){title.textContent="Games being played";renderLiveGames(body);return}
-  title.textContent=currentRoom?`Games - ${currentRoom.name}`:"Games";
+  if(all){$("#gamesTitle").textContent="Games being played";renderLiveGames(body);return}
+  $("#gamePaneTitle").textContent=currentRoom?`Games - ${currentRoom.name}`:"Games";
   if(!currentRoom){body.textContent="Open a room first.";return}
   const game=activeGame();
   if(game){renderGameDetail(body,game);return}
@@ -771,6 +804,18 @@ function renderGames(){
   renderGameList(body);
 }
 function gameStatusText(game){
+  if(game.kind==="draw-guess"){
+    const round=game.round,name=id=>(game.players.find(player=>player.id===id)||{}).username||"somebody";
+    if(game.status==="lobby")return `waiting for players (${game.players.length}/${game.seats})`;
+    if(game.status==="ended"){
+      const winner=game.players.find(player=>player.id===game.winnerId);
+      return winner?`${winner.username} won on points`:game.reason==="draw"?"it's a draw":"no winner";
+    }
+    if(!round)return "starting";
+    if(round.revealed)return "the turn is over";
+    if(round.choosing)return gameIsMine(round.drawerId)?"pick a word to draw":`${name(round.drawerId)} is choosing a word`;
+    return gameIsMine(round.drawerId)?"your turn to draw":`${name(round.drawerId)} is drawing`;
+  }
   if(game.status==="lobby")return "waiting for a player";
   if(game.status==="playing")return gameIsMine(game.turn)?"your turn":`${(game.players.find(player=>player.id===game.turn)||{}).username||"?"} is playing`;
   const winner=game.players.find(player=>player.id===game.winnerId);
@@ -780,7 +825,7 @@ function gameStatusText(game){
 // A game the player is in moving from a result back to a fresh board is worth saying out loud when the dock
 // is shut, because a rematch by the other player otherwise looks like nothing happened.
 function noteGameChanges(games){
-  if(!currentUser||!$("#gamesModal").hidden)return;
+  if(!currentUser||!$("#gamePane").hidden)return;
   for(const game of games){
     if(!game.players.some(player=>gameIsMine(player.id)))continue;
     const before=roomGames.find(item=>item.id===game.id);
@@ -830,15 +875,38 @@ function gamePlayerSlot(game,index){
   const disc=document.createElement("i");disc.className=`game-disc seat${index+1}`;
   const name=document.createElement("b");name.textContent=player?player.username+(gameIsMine(player.id)?" (you)":""):"Open seat";
   const meta=document.createElement("small");
-  meta.textContent=player?`${player.score||0} ${player.score===1?"win":"wins"}`:game.policy==="open"?"Anyone can sit here":"By request";
+  // Chess and Draw & Guess count points, not wins; the older games count wins.
+  const points=game.kind==="draw-guess"||game.kind==="chess";
+  meta.textContent=player?(points?`${player.score||0} pts`:`${player.score||0} ${player.score===1?"win":"wins"}`):game.policy==="open"?"Anyone can sit here":"By request";
   slot.append(disc,name,meta);
   return slot;
+}
+// Solo arcade games are static pages, not room games: a puzzle has no opponent, so there is no seat to
+// take, nobody to watch and nothing for the server to validate. They are listed in this dock because it is
+// where games are found, but opening one leaves the chat for its own page.
+const ARCADE=[["/arcade-2048.html","2048","Slide, merge, and chase a higher tile."],["/arcade-sudoku.html","Sudoku","A fresh puzzle with exactly one solution."]];
+function arcadeSection(){
+  const wrap=document.createElement("div");wrap.className="game-arcade";
+  const title=document.createElement("p");title.className="game-copy";title.textContent="Solo arcade - play on your own, nothing to join.";
+  const list=document.createElement("div");list.className="game-list";
+  ARCADE.forEach(([href,name,blurb])=>{
+    const row=document.createElement("a");row.className="game-list-row";row.href=href;
+    const info=document.createElement("span");info.className="game-list-info";
+    const label=document.createElement("b");label.textContent=`🎮 ${name}`;
+    const small=document.createElement("small");small.textContent=blurb;
+    info.append(label,small);
+    const actions=document.createElement("span");actions.className="game-list-actions";
+    const open=document.createElement("span");open.className="game-chip live";open.textContent="Play";
+    actions.appendChild(open);row.append(info,actions);list.appendChild(row);
+  });
+  wrap.append(title,list);
+  return wrap;
 }
 function renderGameCreate(body){
   const card=document.createElement("div");card.className="game-create";
   const copy=document.createElement("p");copy.className="game-copy";
   copy.textContent=unfinishedGames().length?"Pick another game for this room.":"Nobody is playing here yet. Start a game and people can join or watch.";
-  const kinds=[["connect-four","Connect Four"],["tic-tac-toe","Tic-tac-toe"],["othello","Reversi"]];
+  const kinds=[["connect-four","Connect Four"],["tic-tac-toe","Tic-tac-toe"],["othello","Reversi"],["chess","Chess"],["draw-guess","Draw & Guess"]];
   const pick=document.createElement("div");pick.className="game-kinds";
   kinds.forEach(([value,label],index)=>{
     const button=document.createElement("button");button.type="button";button.className=`game-kind${index===0?" active":""}`;button.dataset.kind=value;button.textContent=label;
@@ -857,6 +925,7 @@ function renderGameCreate(body){
     back.onclick=()=>{creatingGame=false;renderGames()};
     body.appendChild(back);
   }
+  body.appendChild(arcadeSection());
 }
 function renderGameDetail(body,game){
   const back=document.createElement("button");back.type="button";back.className="game-back";back.textContent=unfinishedGames().length>1?"← All games in this room":"← Back";
@@ -869,10 +938,15 @@ function renderGameDetail(body,game){
   body.appendChild(status);
 
   const seats=document.createElement("div");seats.className="game-seats";
-  for(let index=0;index<game.seats;index++)seats.appendChild(gamePlayerSlot(game,index));
+  // Enough slots to show the seats that exist: a room of eight for Draw & Guess, plus the open seat while it is
+  // still a lobby, and never more than the game allows.
+  const minSeats=game.minSeats||game.seats||2,slots=Math.min(game.seats||2,Math.max(game.players.length+(game.status==="lobby"?1:0),minSeats));
+  for(let index=0;index<slots;index++)seats.appendChild(gamePlayerSlot(game,index));
   body.appendChild(seats);
 
-  if(game.status!=="lobby")renderBoard(body,game);
+  // A waiting chess board is worth showing: the starting position is the answer to "what am I about to play",
+  // and the clocks say how long each side gets. The other kinds stay empty until they start.
+  if(game.status!=="lobby"||game.kind==="chess")renderBoard(body,game);
 
   const state=document.createElement("p");state.className="game-status";
   if(game.status==="ended"){
@@ -880,14 +954,20 @@ function renderGameDetail(body,game){
     // tie. A board still in play has no result yet, so the dock ends it first rather than restarting it.
     const winner=game.players.find(player=>player.id===game.winnerId);
     const result=document.createElement("p");result.className="game-result";
-    if(winner)result.textContent=`🏆 ${winner.username} wins${game.reason==="left"?" - the other player left":""}`;
+    // Chess endings have their own words: "wins on time" and "wins by resignation" are how the result reads,
+    // and a draw by stalemate is not the same thing as a tie on a grid.
+    const ending=game.kind==="chess"?CHESS_ENDINGS[game.reason]:game.kind==="draw-guess"&&game.reason==="points"?"on points":null;
+    if(winner)result.textContent=ending?`🏆 ${winner.username} wins ${ending}`:`🏆 ${winner.username} wins${game.reason==="left"?" - the other player left":""}`;
+    else if(ending)result.textContent=`🤝 Draw ${ending}`;
     else if(game.reason==="draw")result.textContent="🤝 It's a tie";
     else if(game.reason==="left")result.textContent="The other player left - no winner";
     else result.textContent="Nobody won - the host ended the game";
     body.appendChild(result);
   }else if(game.status==="playing"){
     const turnPlayer=game.players.find(player=>player.id===game.turn);
-    state.textContent=game.passed
+    state.textContent=game.kind==="draw-guess"
+      ?(game.round?.revealed?"Next turn in a moment":game.round?.choosing&&gameIsMine(game.round.drawerId)?"Choose a word above":"Guess in the chat")
+      :game.passed
       ?`${turnPlayer?turnPlayer.username:"They"} had no legal move and plays again`
       :gameIsMine(game.turn)?"Your turn":turnPlayer?`Waiting for ${turnPlayer.username}`:"Waiting";
     body.appendChild(state);
@@ -914,6 +994,24 @@ function renderGameDetail(body,game){
     const leave=document.createElement("button");leave.type="button";leave.className="secondary";leave.textContent="Leave game";
     leave.onclick=()=>sendGame("game-leave",{gameId:game.id});
     actions.appendChild(leave);
+  }
+  // Chess-only mechanics: a draw has to be offered and accepted, and resigning is not the same as walking out
+  // (leaving already forfeits, but it is the wrong word for it and it drops the seat).
+  if(mine&&game.status==="playing"&&game.kind==="chess"){
+    if(game.drawOffer&&!gameIsMine(game.drawOffer)){
+      const accept=document.createElement("button");accept.type="button";accept.className="primary";accept.textContent="Accept draw";
+      accept.onclick=()=>sendGame("game-accept-draw",{gameId:game.id});
+      actions.appendChild(accept);
+    }else{
+      const offered=Boolean(game.drawOffer&&gameIsMine(game.drawOffer));
+      const offer=document.createElement("button");offer.type="button";offer.className="secondary";offer.textContent=offered?"Draw offered":"Offer draw";
+      offer.disabled=offered;
+      offer.onclick=()=>sendGame("game-offer-draw",{gameId:game.id});
+      actions.appendChild(offer);
+    }
+    const resign=document.createElement("button");resign.type="button";resign.className="secondary danger";resign.textContent="Resign";
+    resign.onclick=()=>openConfirm("Resign this game?","Your opponent wins immediately. This cannot be undone.",()=>sendGame("game-resign",{gameId:game.id}));
+    actions.appendChild(resign);
   }
   if(game.status==="ended"){
     // A rematch keeps the seats and only resets the board. Any player at the board may ask for it - the host
@@ -961,13 +1059,16 @@ function renderGameDetail(body,game){
     body.appendChild(pending);
   }
 }
-// Two layouts, both server-owned: columns for Connect Four (dropped bottom-up like gravity) and a square
-// grid for tic-tac-toe and Reversi. The object sends the legal moves for the side to move, so a client can
-// highlight and disable the rest instead of letting people click into a refusal.
+// Three layouts, all server-owned: columns for Connect Four (dropped bottom-up like gravity), a square grid
+// for tic-tac-toe and Reversi, and a chess board drawn from the position in FEN. The object sends the legal
+// moves for the side to move, so a client can highlight and disable the rest instead of letting people click
+// into a refusal.
 function renderBoard(body,game){
   const yourTurn=game.status==="playing"&&gameIsMine(game.turn);
   const legal=Array.isArray(game.moves)?game.moves:null;
   const layout=game.layout||{type:"columns",columns:7,rows:6};
+  if(layout.type==="chess"){renderChessBoard(body,game);return}
+  if(layout.type==="canvas"){renderDrawBoard(body,game);return}
   if(layout.type==="columns"){
     const board=document.createElement("div");board.className="cf-board";
     for(let row=layout.rows-1;row>=0;row--){
@@ -997,36 +1098,300 @@ function renderBoard(body,game){
   });
   body.appendChild(board);
 }
-function renderLiveGames(body){
-  if(!liveGames.length){const empty=document.createElement("p");empty.className="game-copy";empty.textContent="No game is running right now. Open a room and start one.";body.appendChild(empty);return}
-  const list=document.createElement("div");list.className="game-list";
-  liveGames.forEach(game=>{
-    const row=document.createElement("div");row.className="game-list-row";
-    const info=document.createElement("span");info.className="game-list-info";
-    const name=document.createElement("b");name.textContent=`${game.roomIcon||"🎮"} ${game.name}`;
-    const meta=document.createElement("small");
-    const state=game.status==="lobby"?"waiting":game.status==="playing"?"in progress":"finished";
-    meta.textContent=[game.roomName,`${game.players}/${game.seats} players`,state,game.policy==="open"?"open":"by request"].join(" · ");
-    info.append(name,meta);
-    const actions=document.createElement("span");actions.className="game-list-actions";
-    const open=document.createElement("button");open.type="button";open.className="secondary small";open.textContent="Watch";
-    open.onclick=()=>enterGameRoom(game,"watch");
-    actions.appendChild(open);
-    if(game.status==="lobby"&&game.players<game.seats){
-      const join=document.createElement("button");join.type="button";join.className="primary small";join.textContent=game.policy==="open"?"Join":"Request";
-      join.onclick=()=>enterGameRoom(game,game.policy==="open"?"join":"request");
-      actions.appendChild(join);
-    }
-    row.append(info,actions);list.appendChild(row);
+// The chess panel: clocks, then the board drawn from the server's position. The object owns the rules, so
+// this file only decides which way up the board is (your colour at the bottom) and what a tap means.
+function renderChessBoard(body,game){
+  stopChessClock();
+  const seat=game.players.findIndex(player=>gameIsMine(player.id));
+  const myColor=seat===0?"w":seat===1?"b":null;
+  const flipped=seat===1;
+  const playing=game.status==="playing";
+  const legal=Array.isArray(game.moves)?game.moves:[];
+  const files="abcdefgh";
+  const pieces={};
+  for(let row=0;row<8;row++)for(let col=0;col<8;col++)pieces[files[col]+(8-row)]=game.board[row*8+col]||"";
+
+  // Clocks tick locally from the number the server last sent, so the display moves between moves without a
+  // packet every second. The server's own arithmetic is the truth; this is only the readout.
+  const clocks=document.createElement("div");clocks.className="chess-clocks";
+  const clockNodes=new Map(),renderedAt=Date.now();
+  game.players.forEach(player=>{
+    const box=document.createElement("div");
+    box.className=`chess-clock${playing&&game.turn===player.id?" running":""}`;
+    const name=document.createElement("b");
+    name.textContent=player.username+(gameIsMine(player.id)?" (you)":"");
+    const time=document.createElement("span");
+    const remaining=game.clock?game.clock[player.id]:null;
+    time.textContent=remaining==null?"-":clockText(remaining);
+    if(remaining!=null&&remaining<20000)box.classList.add("low");
+    box.append(name,time);clocks.appendChild(box);
+    clockNodes.set(player.id,{time,box,base:remaining});
   });
-  body.appendChild(list);
+  body.appendChild(clocks);
+  if(playing&&game.clock){
+    const running=game.turn;
+    chessClockTimer=setInterval(()=>{
+      for(const [id,node] of clockNodes){
+        if(node.base==null)continue;
+        const left=Math.max(0,node.base-(id===running?Date.now()-renderedAt:0));
+        node.time.textContent=clockText(left);
+        node.box.classList.toggle("low",left<20000);
+      }
+    },250);
+  }
+
+  const turnColor=(game.players.findIndex(player=>player.id===game.turn)===0)?"w":"b";
+  const kingSquare=Object.keys(pieces).find(name=>pieces[name]===turnColor+"K")||null;
+  if(playing&&game.check){
+    const warning=document.createElement("p");warning.className="game-status chess-check";warning.textContent="Check";
+    body.appendChild(warning);
+  }
+
+  const board=document.createElement("div");board.className="chess-board";
+  const squares=new Map();
+  const options=from=>legal.filter(move=>move.from===from);
+  let selected=null;
+  const paint=()=>{
+    for(const [name,node] of squares){
+      const isTarget=Boolean(selected)&&options(selected).some(move=>move.to===name);
+      node.classList.toggle("selected",name===selected);
+      node.classList.toggle("target",isTarget);
+      node.classList.toggle("capture",isTarget&&Boolean(pieces[name]));
+      node.classList.toggle("last",Boolean(game.last)&&(game.last.from===name||game.last.to===name));
+      node.classList.toggle("check",Boolean(playing&&game.check)&&name===kingSquare);
+    }
+  };
+  const choosePromotion=(from,to,choices)=>{
+    const wrap=document.createElement("div");wrap.className="chess-promo";
+    choices.forEach(choice=>{
+      const button=document.createElement("button");button.type="button";
+      button.textContent=CHESS_GLYPHS[choice[0].toUpperCase()];
+      button.setAttribute("aria-label",`Promote to ${choice[1]}`);
+      button.onclick=()=>{wrap.remove();sendGame("game-move",{gameId:game.id,from,to,promotion:choice[0]})};
+      wrap.appendChild(button);
+    });
+    body.insertBefore(wrap,board);
+  };
+  board.onclick=event=>{
+    const node=event.target.closest(".chess-square");
+    // A spectator gets the board as a picture; only a player to move can pick anything up.
+    if(!node||!playing||!myColor)return;
+    const name=node.dataset.square;
+    if(selected&&name===selected){selected=null;paint();return}
+    if(selected){
+      const moves=options(selected).filter(move=>move.to===name);
+      if(moves.length){
+        const choices=CHESS_PROMOTIONS.filter(choice=>moves.some(move=>move.promotion===choice[0]));
+        if(choices.length)return choosePromotion(selected,name,choices);
+        return sendGame("game-move",{gameId:game.id,from:selected,to:name});
+      }
+    }
+    // Selecting is only offered for a piece that has a legal move, so a tap on a pinned piece says nothing
+    // rather than starting a move the object would refuse.
+    selected=(pieces[name]||"").startsWith(myColor)&&options(name).length?name:null;
+    paint();
+  };
+  for(let row=0;row<8;row++){
+    for(let column=0;column<8;column++){
+      const visualRow=flipped?7-row:row,visualColumn=flipped?7-column:column;
+      const name=files[visualColumn]+(8-visualRow);
+      const piece=pieces[name]||"";
+      const node=document.createElement("button");
+      node.type="button";node.dataset.square=name;
+      node.className=`chess-square ${(visualRow+visualColumn)%2?"dark":"light"}`;
+      node.setAttribute("aria-label",piece?`${name}, ${piece[0]==="w"?"white":"black"} ${piece[1]}`:name);
+      if(piece){
+        const glyph=document.createElement("span");
+        glyph.className=`chess-piece ${piece[0]==="w"?"white":"black"}`;
+        glyph.textContent=CHESS_GLYPHS[piece[1]]||"";
+        node.appendChild(glyph);
+      }
+      squares.set(name,node);
+      board.appendChild(node);
+    }
+  }
+  body.appendChild(board);
+  paint();
+}
+// The drawer's word never travels in the broadcast state, so it is kept per game from the private game-word
+// packet and dropped when the round changes. That is what keeps a spectator's client from reading the answer.
+const gameWords=new Map();
+const DRAW_COLORS=["#172033","#ef476f","#f9c74f","#43aa8b","#4f8cff","#a259ff","#ff8c42","#ffffff"];
+const DRAW_SIZES=[1,2,3];
+let drawTimer=null;
+function stopDrawTimer(){if(drawTimer){clearInterval(drawTimer);drawTimer=null}}
+const drawClock=ms=>{const total=Math.max(0,Math.ceil(ms/1000));return `${Math.floor(total/60)}:${String(total%60).padStart(2,"0")}`};
+function paintStroke(ctx,stroke){
+  const points=stroke.points||[];
+  if(!points.length)return;
+  ctx.strokeStyle=stroke.color||DRAW_COLORS[0];
+  ctx.lineWidth=(stroke.size||2)*6;
+  ctx.lineCap="round";ctx.lineJoin="round";
+  ctx.beginPath();ctx.moveTo(points[0][0],points[0][1]);
+  for(let index=1;index<points.length;index++)ctx.lineTo(points[index][0],points[index][1]);
+  if(points.length===1)ctx.lineTo(points[0][0]+0.1,points[0][1]);
+  ctx.stroke();
+}
+// Draw & Guess: one shared canvas. A stroke is sent as one event with its points batched (never one event per
+// point), the server caps it at 200 points, and everyone else repaints from the state they are sent.
+function renderDrawBoard(body,game){
+  stopDrawTimer();
+  const round=game.round||null;
+  const playing=game.status==="playing";
+  const me=currentUser?currentUser.id:null;
+  const drawerId=round?round.drawerId:null;
+  const iAmDrawer=Boolean(me&&drawerId===me);
+  const secret=iAmDrawer?gameWords.get(game.id)||null:null;
+  const drawing=Boolean(iAmDrawer&&secret&&secret.word&&round&&!round.revealed);
+  const choice={color:DRAW_COLORS[0],size:2};
+
+  const head=document.createElement("div");head.className="draw-head";
+  const title=document.createElement("b");
+  title.textContent=round?`Round ${Math.min(round.number||1,game.rounds||3)} of ${game.rounds||3}`:"Draw & Guess";
+  const state=document.createElement("span");
+  if(!playing)state.textContent="Not started";
+  else if(!round)state.textContent="Starting…";
+  else if(round.revealed)state.textContent=`The word was “${round.word||"?"}”`;
+  else if(round.choosing)state.textContent=iAmDrawer?"Pick a word to draw":"choosing a word…";
+  else state.textContent=iAmDrawer?"You are drawing":"Draw it and guess in the chat";
+  const timer=document.createElement("span");timer.className="draw-timer";
+  head.append(title,state,timer);
+  body.appendChild(head);
+
+  // Word line: the drawer reads the answer, everybody else reads the mask.
+  const word=document.createElement("p");word.className="draw-word";
+  if(round&&!round.revealed){
+    word.textContent=iAmDrawer&&secret?.word?secret.word:round.mask||"";
+    if(!word.textContent)word.textContent="…";
+  }
+  body.appendChild(word);
+
+  // The drawer's three words, offered for the short choosing window.
+  if(playing&&round&&round.choosing&&iAmDrawer&&secret?.options?.length){
+    const picker=document.createElement("div");picker.className="draw-picker";
+    secret.options.forEach(option=>{
+      const button=document.createElement("button");button.type="button";button.className="primary";button.textContent=option;
+      button.onclick=()=>sendGame("game-pick-word",{gameId:game.id,word:option});
+      picker.appendChild(button);
+    });
+    body.appendChild(picker);
+  }
+
+  const canvas=document.createElement("canvas");
+  canvas.className="draw-canvas";canvas.width=1024;canvas.height=768;
+  canvas.setAttribute("aria-label","Drawing canvas");
+  const ctx=canvas.getContext("2d");
+  const repaint=()=>{
+    ctx.fillStyle="#ffffff";ctx.fillRect(0,0,1024,768);
+    for(const stroke of game.strokes||[])paintStroke(ctx,stroke);
+  };
+  repaint();
+  body.appendChild(canvas);
+
+  if(drawing){
+    // Tools sit with the canvas, not in the chat tools, because they only mean anything while drawing.
+    const tools=document.createElement("div");tools.className="draw-tools";
+    DRAW_COLORS.forEach((color,index)=>{
+      const swatch=document.createElement("button");swatch.type="button";swatch.className=`draw-swatch${index===0?" active":""}`;
+      swatch.style.setProperty("--swatch",color);swatch.setAttribute("aria-label",`Colour ${index+1}`);
+      swatch.onclick=()=>{choice.color=color;tools.querySelectorAll(".draw-swatch").forEach(item=>item.classList.toggle("active",item===swatch))};
+      tools.appendChild(swatch);
+    });
+    const sizes=document.createElement("div");sizes.className="draw-sizes";
+    DRAW_SIZES.forEach(size=>{
+      const button=document.createElement("button");button.type="button";button.className=`draw-size${size===2?" active":""}`;
+      button.setAttribute("aria-label",`Brush ${size}`);button.onclick=()=>{choice.size=size;sizes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
+      const dot=document.createElement("i");dot.style.width=`${size*4+2}px`;dot.style.height=`${size*4+2}px`;button.appendChild(dot);sizes.appendChild(button);
+    });
+    const clear=document.createElement("button");clear.type="button";clear.className="secondary";clear.textContent="Clear";
+    clear.onclick=()=>sendGame("game-clear",{gameId:game.id});
+    tools.append(sizes,clear);
+    body.appendChild(tools);
+
+    let stroke=null;
+    const point=event=>{const rect=canvas.getBoundingClientRect();return [Math.round((event.clientX-rect.left)/rect.width*1024),Math.round((event.clientY-rect.top)/rect.height*768)]};
+    const sendStroke=value=>{if(value&&value.points.length)sendGame("game-draw",{gameId:game.id,stroke:{color:value.color,size:value.size,points:value.points.slice(0,200)}})};
+    canvas.addEventListener("pointerdown",event=>{
+      if(event.button!==undefined&&event.button!==0)return;
+      canvas.setPointerCapture(event.pointerId);
+      stroke={color:choice.color,size:choice.size,points:[point(event)]};
+      repaint();paintStroke(ctx,stroke);
+    });
+    canvas.addEventListener("pointermove",event=>{
+      if(!stroke)return;
+      const next=point(event),last=stroke.points[stroke.points.length-1];
+      if(Math.hypot(next[0]-last[0],next[1]-last[1])<4)return;
+      stroke.points.push(next);
+      paintStroke(ctx,{...stroke,points:[last,next]});
+      // The server caps a stroke at 200 points; a longer line is sent as consecutive strokes rather than being
+      // silently truncated mid-drag.
+      if(stroke.points.length>=200){sendStroke(stroke);stroke={color:stroke.color,size:stroke.size,points:[next]}}
+    });
+    const finish=()=>{if(!stroke)return;sendStroke(stroke);stroke=null};
+    canvas.addEventListener("pointerup",finish);
+    canvas.addEventListener("pointercancel",finish);
+    canvas.addEventListener("pointerleave",event=>{if(event.buttons===0)finish()});
+  }
+
+  // Scores: players first, then the guests who guessed, because watching is allowed to score on this site.
+  const scores=document.createElement("div");scores.className="draw-scores";
+  [...game.players].sort((left,right)=>(right.score||0)-(left.score||0)).forEach(player=>{
+    const row=document.createElement("span");row.className=`draw-score${drawerId===player.id?" drawing":""}`;
+    const name=document.createElement("b");name.textContent=player.username+(gameIsMine(player.id)?" (you)":"")+(drawerId===player.id?" ✏️":"");
+    const value=document.createElement("i");value.textContent=`${player.score||0}`;
+    row.append(name,value);scores.appendChild(row);
+  });
+  (game.guests||[]).forEach(guest=>{
+    if(!guest.score)return;
+    const row=document.createElement("span");row.className="draw-score guest";
+    const name=document.createElement("b");name.textContent=`${guest.username} (guest)`;
+    const value=document.createElement("i");value.textContent=`${guest.score||0}`;
+    row.append(name,value);scores.appendChild(row);
+  });
+  body.appendChild(scores);
+
+  // The clock is a readout of the server's deadline; the object decides when a turn is over.
+  const deadline=round?(round.revealed?null:round.choosing?round.choosingUntil:round.endsAt):null;
+  if(deadline){
+    const tick=()=>{const left=deadline-Date.now();timer.textContent=left>0?drawClock(left):"0:00";timer.classList.toggle("low",left>0&&left<15000)};
+    tick();drawTimer=setInterval(tick,250);
+  }else timer.textContent=round&&round.revealed?"—":"";
+}
+function renderLiveGames(body){
+  if(!liveGames.length){const empty=document.createElement("p");empty.className="game-copy";empty.textContent="No game is running right now. Open a room and start one.";body.appendChild(empty)}
+  else{
+    const list=document.createElement("div");list.className="game-list";
+    liveGames.forEach(game=>{
+      const row=document.createElement("div");row.className="game-list-row";
+      const info=document.createElement("span");info.className="game-list-info";
+      const name=document.createElement("b");name.textContent=`${game.roomIcon||"🎮"} ${game.name}`;
+      const meta=document.createElement("small");
+      const state=game.status==="lobby"?"waiting":game.status==="playing"?"in progress":"finished";
+      meta.textContent=[game.roomName,`${game.players}/${game.seats} players`,state,game.policy==="open"?"open":"by request"].join(" · ");
+      info.append(name,meta);
+      const actions=document.createElement("span");actions.className="game-list-actions";
+      const open=document.createElement("button");open.type="button";open.className="secondary small";open.textContent="Watch";
+      open.onclick=()=>enterGameRoom(game,"watch");
+      actions.appendChild(open);
+      if(game.status==="lobby"&&game.players<game.seats){
+        const join=document.createElement("button");join.type="button";join.className="primary small";join.textContent=game.policy==="open"?"Join":"Request";
+        join.onclick=()=>enterGameRoom(game,game.policy==="open"?"join":"request");
+        actions.appendChild(join);
+      }
+      row.append(info,actions);list.appendChild(row);
+    });
+    body.appendChild(list);
+  }
+  // The arcade is listed here too: "what can I play right now" should not depend on somebody else
+  // having started a board.
+  body.appendChild(arcadeSection());
 }
 // From the room list a game sits in another room, so the browser has to be in that room's socket before it
 // can act: open the room, then send the action as soon as the socket is up.
 function enterGameRoom(game,action){
   const room=rooms.find(item=>item.id===game.roomId);
   if(!room)return toast("That room is no longer available");
-  gamesMode="room";activeGameId=game.id;$("#gamesModal").hidden=false;
+  gamesMode="room";activeGameId=game.id;$("#gamePane").hidden=false;$("#chatSplit").dataset.game="open";
   if(currentRoom&&currentRoom.id===room.id){
     sendGame(action==="join"?"game-join":action==="request"?"game-request":"game-watch",{gameId:game.id});
     renderGames();
@@ -1169,6 +1534,14 @@ async function loadNotice(){
 
 $("#gamesButton").onclick=()=>openGames("room");
 $("#gamesClose").onclick=closeGames;
+$("#gamePaneClose").onclick=closeGames;
+// Maximise is a per-view toggle, not a stored preference: the split is the default every time a game opens.
+$("#gamePaneMax").onclick=()=>{
+  const split=$("#chatSplit"),on=split.dataset.max!=="1";
+  if(on)split.dataset.max="1";else delete split.dataset.max;
+  $("#gamePaneMax").setAttribute("aria-pressed",on?"true":"false");
+  $("#gamePaneMax").textContent=on?"⤡":"⤢";
+};
 $("#safetyClose").onclick=()=>{$("#safetyModal").hidden=true};
 $("#menuDrop").querySelector('[data-menu="safety"]').onclick=()=>{$("#menuDrop").hidden=true;openSafety()};
 

@@ -46,6 +46,20 @@ const servers = [
   { port: 8791, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000" }, suites: [
     { name: "games", file: "tests/games.js" }
   ] },
+  // Chess: its own server because the clock is shortened to four seconds, so a flag can fall inside the test
+  // instead of five minutes into it.
+  { port: 8795, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000", "CHESS_CLOCK_MS:4000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000", CHESS_CLOCK_MS: "4000" }, suites: [
+    { name: "chess", file: "tests/chess.js" }
+  ] },
+  // Draw & Guess: short turns, a short reveal and a short choosing window, so a whole three-round game runs in
+  // seconds and the timers can be watched rather than waited out.
+  { port: 8797, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000", "DRAW_SECONDS:20", "DRAW_REVEAL_MS:400", "DRAW_CHOOSE_MS:2000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000", DRAW_SECONDS: "20", DRAW_REVEAL_MS: "400", DRAW_CHOOSE_MS: "2000" }, suites: [
+    { name: "draw", file: "tests/draw.js" }
+  ] },
+  // Draw & Guess in two browsers: the drawer's word, the pointer strokes and the chat-sentence guess.
+  { port: 8815, vars: ["AWAY_GRACE_MS:1500", "ENDED_GAME_TTL_MS:6000", "DRAW_SECONDS:30", "DRAW_REVEAL_MS:600", "DRAW_CHOOSE_MS:20000"], env: { AWAY_GRACE_MS: "1500", ENDED_GAME_TTL_MS: "6000", DRAW_SECONDS: "30", DRAW_REVEAL_MS: "600", DRAW_CHOOSE_MS: "20000" }, suites: [
+    { name: "draw-ui", file: "tests/draw-ui.js" }
+  ] },
   // The games dock drives two browsers through the paths a stranded player used to be stuck in, and its own
   // accounts and room would otherwise share the signup and room-create budgets with the suite above.
   { port: 8811, vars: [], env: {}, suites: [

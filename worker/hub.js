@@ -4,6 +4,11 @@ import { issueAuthToken, verifyAuthToken, hashProfileKey, generateProfileKey } f
 import { USER_COLUMNS, USER_UPSERT, ROOM_UPSERT, rowToUser, userToRow, roomToRow, saveUser, saveRoom, deleteRoom, deleteUser, loadUsers, loadRooms } from "./lib/db.js";
 import { parseSubscription, saveSubscription, removeSubscription, subscriptionsFor, roomSubscription, setRoomSubscription, removeRoomSubscriptions, pushToUser, pushToRoomSubscribers, pushToAll, pushConfigured } from "./lib/push.js";
 import { D1_SCHEMA, D1_SCHEMA_VERSION } from "./lib/schema.js";
+// Chess rules come from chess.js (BSD-2-Clause) rather than from hand-written move generation: castling,
+// en passant, promotion, checkmate, stalemate and the threefold/50-move draws are exactly the places a
+// home-made board gets quietly wrong, and every one of them has to be autoritative on the server.
+import { Chess } from "chess.js";
+import { DRAW_WORDS, drawMask, drawGuessMatches } from "./lib/words.js";
 
 const MAX_MESSAGES = 100;
 const TRIM_INTERVAL = 25;
@@ -30,9 +35,16 @@ const GROUP_CALL_MAX = 6;
 const GAME_KINDS = {
   "connect-four": { name: "Connect Four", seats: 2, solo: false, board: "columns", columns: 7, rows: 6 },
   "tic-tac-toe": { name: "Tic-tac-toe", seats: 2, solo: false, board: "grid", size: 3 },
-  "othello": { name: "Reversi", seats: 2, solo: false, board: "grid", size: 8 }
+  "othello": { name: "Reversi", seats: 2, solo: false, board: "grid", size: 8 },
+  "chess": { name: "Chess", seats: 2, solo: false, board: "chess", size: 8 },
+  // Draw & Guess is the only game with a range of seats: two people can play it, and a full room of eight fits
+  // too. The drawing itself is a shared canvas rather than a board array.
+  "draw-guess": { name: "Draw & Guess", seats: 8, minSeats: 2, maxSeats: 8, solo: false, board: "canvas", size: 0 }
 };
-const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-sync"];
+// The seat helpers keep the older games honest: they have one number, so min and max are the same.
+const gameMinSeats = kind => Math.max(1, kind?.minSeats || kind?.seats || 2);
+const gameMaxSeats = kind => Math.max(1, kind?.maxSeats || kind?.seats || 2);
+const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-sync", "game-resign", "game-offer-draw", "game-accept-draw", "game-pick-word", "game-draw", "game-clear"];
 const GAME_EVENT_LIMIT = 60;
 // A slot in a room belongs to a game still being waited on or played. A finished board is history and
 // must never take a slot: four dead boards at the cap used to close a room to new games for good, which
@@ -48,6 +60,47 @@ const AWAY_GRACE_MS = 45000;
 const CONNECT_FOUR_COLUMNS = 7, CONNECT_FOUR_ROWS = 6;
 const TIC_TAC_TOE_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 const OTHELLO_DIRECTIONS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+// Standard casual chess: five minutes on each clock, no increment, and a clock that runs out is a loss on
+// time. CHESS_CLOCK_MS is env-overridable so the test suite can watch a flag fall in seconds.
+const CHESS_CLOCK_MS = 300000;
+const CHESS_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const CHESS_PROMOTIONS = ["q", "r", "b", "n"];
+// The board the client draws, in visual order (rank 8 first, the way a player reads it). Codes are
+// "wK"/"bP", so the client needs no chess library at all: the server owns the position and the rules.
+const chessPieces = fen => {
+  const pieces = new Array(64).fill("");
+  const ranks = String(fen || CHESS_START_FEN).split(" ")[0].split("/");
+  for (let row = 0; row < 8 && row < ranks.length; row++) {
+    let column = 0;
+    for (const character of ranks[row]) {
+      if (character >= "1" && character <= "8") { column += Number(character); continue; }
+      if (column > 7) break;
+      pieces[row * 8 + column] = (character === character.toUpperCase() ? "w" : "b") + character.toUpperCase();
+      column++;
+    }
+  }
+  return pieces;
+};
+// Every legal move for the side to move: the panel marks these instead of letting a player click into a
+// refusal, and a promotion appears once per piece it could become.
+const chessLegalMoves = fen => {
+  try { return new Chess(fen || CHESS_START_FEN).moves({ verbose: true }).map(move => ({ from: move.from, to: move.to, promotion: move.promotion || null })); }
+  catch { return []; }
+};
+const chessTurnColor = fen => (String(fen || CHESS_START_FEN).split(" ")[1] === "b" ? "b" : "w");
+// Draw & Guess, standard settings: three rounds, all players drawing once per round, 80 seconds a turn, three
+// words offered and 15 seconds to choose before the first is used. Strokes are one event per stroke with the
+// points batched, never one event per point (see "Budgets" in GAMES.md).
+const DRAW_ROUNDS = 3;
+const DRAW_SECONDS = 80;
+const DRAW_CHOOSE_MS = 15000;
+const DRAW_REVEAL_MS = 5000;
+const DRAW_CHOICES = 3;
+const DRAW_STROKE_POINTS_MAX = 200;
+const DRAW_STROKES_MAX = 400;
+const DRAW_POINTS_MAX = 1024;
+const DRAW_COLORS = ["#172033", "#ef476f", "#f9c74f", "#43aa8b", "#4f8cff", "#a259ff", "#ff8c42", "#ffffff"];
+const DRAW_SCORE_FOR_GUESS = 200, DRAW_SCORE_FOR_DRAWER = 50;
 // A board is one flat array for every game: columns (Connect Four) or a square grid (tic-tac-toe, Reversi).
 // 0 is empty, 1 and 2 are the seats.
 const boardCells = kind => kind.board === "columns" ? kind.columns * kind.rows : kind.size * kind.size;
@@ -142,6 +195,10 @@ export class ChatHub {
     this.uploadDailyCap = budget(env.UPLOAD_DAILY_CAP, UPLOAD_DAILY_CAP);
     this.awayGraceMs = Math.max(1000, budget(env.AWAY_GRACE_MS, AWAY_GRACE_MS));
     this.endedGameTtlMs = Math.max(1000, budget(env.ENDED_GAME_TTL_MS, ENDED_GAME_TTL_MS));
+    this.chessClockMs = Math.max(1000, budget(env.CHESS_CLOCK_MS, CHESS_CLOCK_MS));
+    this.drawSeconds = Math.max(10, budget(env.DRAW_SECONDS, DRAW_SECONDS));
+    this.drawRevealMs = Math.max(0, budget(env.DRAW_REVEAL_MS, DRAW_REVEAL_MS));
+    this.drawChooseMs = Math.max(100, budget(env.DRAW_CHOOSE_MS, DRAW_CHOOSE_MS));
     state.blockConcurrencyWhile(async () => {
       state.storage.sql.exec(MESSAGE_TABLE);
       this.migrateMessages();
@@ -490,13 +547,30 @@ export class ChatHub {
     })().catch(() => {}));
   }
   // A fresh board's first move goes to the seat that opened the last round, and that seat alternates, so a
-  // rematch never hands the same account the first move every time.
+  // rematch never hands the same account the first move every time. Chess is the exception: white always
+  // moves first, so a rematch swaps colours instead (see game-restart) and the opening seat stays seat 0.
   startGame(game) {
-    const opener = game.players.length ? (game.opener || 0) % game.players.length : 0;
+    const chess = game.kind === "chess";
+    const opener = chess || !game.players.length ? 0 : (game.opener || 0) % game.players.length;
     game.status = "playing";
     game.startedAt = Date.now();
     game.passed = false;
     game.turn = game.players[opener] ? game.players[opener].id : null;
+    if (chess) {
+      game.fen = CHESS_START_FEN;
+      game.last = null;
+      game.drawOffer = null;
+      game.clock = { ms: Object.fromEntries(game.players.map(player => [player.id, this.chessClockMs])), at: Date.now() };
+      this.scheduleChessAlarm(game);
+    }
+    if (game.kind === "draw-guess") {
+      game.roundNumber = 1;
+      game.drawerIndex = 0;
+      game.strokes = [];
+      game.guessed = [];
+      game.round = null;
+      this.startDrawTurn(game);
+    }
   }
   // Whoever is left runs the board. Without this the host's seat is the only key to restarting, approving
   // and ending, and an absent host leaves a finished game that nobody can play again.
@@ -526,9 +600,10 @@ export class ChatHub {
   }
   gameView(game) {
     const kind = GAME_KINDS[game.kind] || GAME_KINDS["connect-four"];
-    return {
+    const chess = game.kind === "chess";
+    const view = {
       id: game.id, kind: game.kind, name: kind.name, roomId: game.roomId, hostId: game.hostId,
-      policy: game.policy, status: game.status, seats: kind.seats, solo: Boolean(kind.solo),
+      policy: game.policy, status: game.status, seats: gameMaxSeats(kind), minSeats: gameMinSeats(kind), solo: Boolean(kind.solo),
       layout: { type: kind.board, columns: kind.columns || null, rows: kind.rows || null, size: kind.size || null },
       players: game.players.map(player => ({ id: player.id, username: player.username, score: player.score || 0 })),
       spectators: game.guests.length,
@@ -538,6 +613,82 @@ export class ChatHub {
       reason: game.reason || null, passed: Boolean(game.passed),
       createdAt: game.createdAt, startedAt: game.startedAt || null, endedAt: game.endedAt || null
     };
+    if (chess) {
+      view.fen = game.fen || CHESS_START_FEN;
+      // The side to move comes from the position, not from the last thing anybody said, so the panel can
+      // never offer a move the object would refuse.
+      const color = chessTurnColor(view.fen);
+      view.turn = (game.players[color === "w" ? 0 : 1] || {}).id || null;
+      view.board = chessPieces(view.fen);
+      view.moves = game.status === "playing" ? chessLegalMoves(view.fen) : [];
+      view.last = game.last || null;
+      view.check = game.status === "playing" && new Chess(view.fen).inCheck();
+      view.drawOffer = game.drawOffer || null;
+      view.clock = this.chessClock(game);
+    }
+    if (game.kind === "draw-guess") {
+      const round = game.round || null;
+      view.rounds = DRAW_ROUNDS;
+      view.roundNumber = game.roundNumber || 1;
+      view.round = round ? {
+        number: round.number, drawerId: round.drawerId,
+        mask: round.mask || (round.word ? drawMask(round.word) : ""),
+        revealed: Boolean(round.revealed),
+        // The word only travels once the turn is over; while it is live it is the drawer's secret.
+        word: round.revealed ? round.word : null,
+        endsAt: round.endsAt || null, choosingUntil: round.choosingUntil || null,
+        choosing: Boolean(!round.word && !round.revealed)
+      } : null;
+      view.strokes = (game.strokes || []).map(stroke => ({ color: stroke.color, size: stroke.size, points: stroke.points }));
+      // Guests keep their own score list (the owner's rule), so the panel can show who scored best among them.
+      view.guests = game.guests.map(person => ({ id: person.id, username: person.username, score: person.score || 0 }));
+      view.turn = round && !round.revealed ? round.drawerId : null;
+    }
+    return view;
+  }
+  // Remaining time per player as of now. The running side is derived from the position, so a hibernated
+  // object wakes up to the right numbers instead of a snapshot frozen at the last write.
+  chessClock(game, now = Date.now()) {
+    if (game.kind !== "chess") return null;
+    if (!game.clock || !game.clock.ms) {
+      // Before the first move the clocks are simply the starting allowance, so a board that is waiting for an
+      // opponent can already show what both players will have.
+      return game.status === "lobby" ? Object.fromEntries(game.players.map(player => [player.id, this.chessClockMs])) : null;
+    }
+    const remaining = {};
+    for (const player of game.players) remaining[player.id] = Math.max(0, game.clock.ms[player.id] || 0);
+    if (game.status === "playing" && game.fen) {
+      const moving = game.players[chessTurnColor(game.fen) === "w" ? 0 : 1];
+      if (moving) remaining[moving.id] = Math.max(0, (game.clock.ms[moving.id] || 0) - (now - (game.clock.at || now)));
+    }
+    return remaining;
+  }
+  // A clock that ran out ends the game even if nobody clicks: the sweep calls this on the alarm, and its
+  // next-wake calculation schedules that alarm for the moment the flag falls.
+  settleChessClock(game, now = Date.now()) {
+    if (game.kind !== "chess" || game.status !== "playing" || !game.clock || !game.clock.ms || !game.fen) return false;
+    const moving = game.players[chessTurnColor(game.fen) === "w" ? 0 : 1];
+    if (!moving) return false;
+    if ((game.clock.ms[moving.id] || 0) - (now - (game.clock.at || now)) > 0) return false;
+    game.clock.ms[moving.id] = 0;
+    const opponent = game.players.find(player => player.id !== moving.id);
+    this.endGame(game, opponent ? opponent.id : null, "time");
+    return true;
+  }
+  // Wake the object when a chess clock runs out, so a flag falls even if nobody clicks again. The sweep
+  // recomputes the same deadline for every game, so this only ever brings the alarm forward.
+  // Bring the alarm forward to a deadline, never push it back: the sweep owns the full picture and recomputes
+  // every pending deadline (away seats, results, clocks, drawing turns) on each pass.
+  wakeAt(at) {
+    if (!at) return;
+    this.background((async () => {
+      const current = await this.state.storage.getAlarm();
+      if (current === null || at < current) await this.state.storage.setAlarm(at);
+    })().catch(() => {}));
+  }
+  scheduleChessAlarm(game, now = Date.now()) {
+    if (game.kind !== "chess" || game.status !== "playing" || !game.clock || !game.clock.ms || !game.turn) return;
+    this.wakeAt((game.clock.at || now) + (game.clock.ms[game.turn] || 0));
   }
   broadcastGames(roomId, persist = true) {
     // Spectator changes are per-connection and not worth a storage write; seats, boards and status are.
@@ -589,8 +740,9 @@ export class ChatHub {
     // A seat is not a spectator seat: someone who watched the board before joining must not be counted twice.
     game.guests = game.guests.filter(person => person.id !== user.id);
     if (!game.players.some(player => player.id === user.id)) game.players.push({ id: user.id, username: user.username, score: 0 });
-    const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
-    if (game.status === "lobby" && game.players.length >= seats) this.startGame(game);
+    // A game starts when it has enough players, not when it is full: Draw & Guess seats eight but two can play.
+    const kind = GAME_KINDS[game.kind] || {};
+    if (game.status === "lobby" && game.players.length >= gameMinSeats(kind)) this.startGame(game);
   }
   endGame(game, winnerId = null, reason = null) {
     game.status = "ended"; game.turn = null; game.winnerId = winnerId; game.reason = reason; game.endedAt = Date.now();
@@ -648,6 +800,182 @@ export class ChatHub {
       return (this.endGame(game, winner ? winner.id : null, black === white ? "draw" : "discs"), this.broadcastGames(room.id));
     }
   }
+  // Chess is validated by chess.js inside the object: the position lives in FEN and every rule that people
+  // argue about (castling, en passant, promotion, check, mate, stalemate, threefold, 50-move) is the
+  // library's, not a hand-rolled approximation. A move that runs out the mover's clock never lands.
+  chessMove(socket, game, user, room, event) {
+    if (game.status !== "playing") return this.gameError(socket, "That game is not running.");
+    const seat = game.players.findIndex(player => player.id === user.id);
+    if (seat < 0) return this.gameError(socket, "Only the players can move.");
+    const fen = game.fen || CHESS_START_FEN, color = seat === 0 ? "w" : "b";
+    if (chessTurnColor(fen) !== color) return this.gameError(socket, "It is not your turn.");
+    const from = clean(event.from).slice(0, 2).toLowerCase(), to = clean(event.to).slice(0, 2).toLowerCase();
+    const promotion = clean(event.promotion).toLowerCase();
+    if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to)) return this.gameError(socket, "That square is not on the board.");
+    const chess = new Chess(fen);
+    let move = null;
+    try { move = chess.move({ from, to, promotion: CHESS_PROMOTIONS.includes(promotion) ? promotion : undefined }); }
+    catch { move = null; }
+    if (!move) return this.gameError(socket, "That move is not legal.");
+    const now = Date.now(), opponent = game.players.find(player => player.id !== user.id);
+    if (game.clock && game.clock.ms) {
+      const left = (game.clock.ms[user.id] || 0) - (now - (game.clock.at || now));
+      // A flag that fell before the move was made is a loss on time; the move does not rescue the position.
+      if (left <= 0) {
+        game.clock.ms[user.id] = 0;
+        this.endGame(game, opponent ? opponent.id : null, "time");
+        return this.broadcastGames(room.id);
+      }
+      game.clock.ms[user.id] = left;
+      game.clock.at = now;
+    }
+    // A move withdraws the mover's own offer; it only stands while the opponent has to answer it.
+    if (game.drawOffer === user.id) game.drawOffer = null;
+    game.fen = chess.fen();
+    game.last = { from: move.from, to: move.to };
+    // Mate first, then the draws in the order a player would expect to be told about them.
+    if (chess.isCheckmate()) return (this.endGame(game, user.id, "checkmate"), this.broadcastGames(room.id));
+    if (chess.isStalemate()) return (this.endGame(game, null, "stalemate"), this.broadcastGames(room.id));
+    if (chess.isInsufficientMaterial()) return (this.endGame(game, null, "material"), this.broadcastGames(room.id));
+    if (chess.isThreefoldRepetition()) return (this.endGame(game, null, "repetition"), this.broadcastGames(room.id));
+    if (chess.isDraw()) return (this.endGame(game, null, "fifty"), this.broadcastGames(room.id));
+    game.turn = opponent ? opponent.id : null;
+    this.scheduleChessAlarm(game, now);
+    return this.broadcastGames(room.id);
+  }
+  /* ------------------------------------------------------- draw & guess */
+  // Three words for the drawer, distinct, all short enough to draw.
+  drawWords(count = DRAW_CHOICES) {
+    const pool = DRAW_WORDS.filter(word => word.length <= 14), picked = [];
+    let guard = 0;
+    while (picked.length < count && guard++ < 200) {
+      const word = pool[Math.floor(Math.random() * pool.length)];
+      if (word && !picked.includes(word)) picked.push(word);
+    }
+    return picked;
+  }
+  // One turn per player per round. The drawer gets the words and a short window to choose; if they say nothing
+  // the first one is used, so a distracted drawer cannot hold the whole room hostage.
+  startDrawTurn(game, now = Date.now()) {
+    const players = game.players;
+    if (!players.length) return;
+    game.drawerIndex = (game.drawerIndex || 0) % players.length;
+    const drawer = players[game.drawerIndex];
+    game.round = {
+      number: game.roundNumber || 1, drawerId: drawer.id, word: null, mask: "",
+      options: this.drawWords(), choosingUntil: now + this.drawChooseMs, endsAt: null, revealed: false, revealUntil: null
+    };
+    game.strokes = [];
+    game.guessed = [];
+    game.turn = drawer.id;
+    this.notifyUser(drawer.id, { type: "game-word", roomId: game.roomId, gameId: game.id, options: game.round.options });
+    this.wakeAt(now + this.drawChooseMs);
+  }
+  pickDrawWord(game, word, now = Date.now()) {
+    if (!game.round || game.round.word || game.round.revealed) return false;
+    if (!game.round.options.includes(word)) return false;
+    game.round.word = word;
+    game.round.mask = drawMask(word);
+    game.round.endsAt = now + this.drawSeconds * 1000;
+    game.round.choosingUntil = null;
+    this.wakeAt(game.round.endsAt);
+    return true;
+  }
+  // Points: a guesser earns up to 200 scaled by the time left on the clock, and the drawer earns 50 for every
+  // person who gets it — drawing well has to pay, or nobody wants to be the drawer.
+  awardDrawGuess(game, guesserId, now = Date.now()) {
+    const round = game.round;
+    const remaining = Math.max(0, ((round.endsAt || now) - now) / (this.drawSeconds * 1000));
+    const points = Math.max(50, Math.round(DRAW_SCORE_FOR_GUESS * Math.min(1, remaining)));
+    const player = game.players.find(person => person.id === guesserId);
+    const guest = game.guests.find(person => person.id === guesserId);
+    if (player) player.score = (player.score || 0) + points;
+    else if (guest) guest.score = (guest.score || 0) + points;
+    else return 0;
+    const drawer = game.players.find(person => person.id === round.drawerId);
+    if (drawer) drawer.score = (drawer.score || 0) + DRAW_SCORE_FOR_DRAWER;
+    if (!game.guessed.includes(guesserId)) game.guessed.push(guesserId);
+    return points;
+  }
+  drawAllGuessed(game) {
+    const round = game.round;
+    if (!round) return false;
+    const others = [...game.players.map(person => person.id), ...game.guests.map(person => person.id)].filter(id => id !== round.drawerId);
+    return others.length > 0 && others.every(id => (game.guessed || []).includes(id));
+  }
+  finishDrawTurn(game, now = Date.now()) {
+    if (!game.round || game.round.revealed) return false;
+    game.round.revealed = true;
+    game.round.revealUntil = now + this.drawRevealMs;
+    game.round.endsAt = game.round.endsAt || now;
+    game.turn = null;
+    this.wakeAt(game.round.revealUntil);
+    return true;
+  }
+  // The next drawer in the room, and the next round once everybody has drawn once.
+  advanceDrawTurn(game, now = Date.now()) {
+    const round = game.round;
+    if (!round || !round.revealed || now < (round.revealUntil || 0)) return false;
+    const players = Math.max(1, game.players.length);
+    game.drawerIndex = ((game.drawerIndex || 0) + 1) % players;
+    if (game.drawerIndex === 0) {
+      game.roundNumber = (game.roundNumber || 1) + 1;
+      if (game.roundNumber > DRAW_ROUNDS) {
+        const best = [...game.players].sort((left, right) => (right.score || 0) - (left.score || 0))[0];
+        const tied = best && game.players.filter(player => (player.score || 0) === (best.score || 0)).length > 1;
+        this.endGame(game, tied ? null : best ? best.id : null, tied ? "draw" : "points");
+        return true;
+      }
+    }
+    this.startDrawTurn(game, now);
+    return true;
+  }
+  drawDeadline(game) {
+    const round = game.round;
+    if (!round || game.status !== "playing") return null;
+    if (round.revealed) return round.revealUntil || null;
+    if (!round.word) return round.choosingUntil || null;
+    return round.endsAt || null;
+  }
+  // Called from the sweep (and therefore from the alarm and from any game event): a turn that ran out, a drawer
+  // who never chose, and the reveal that has had its time all settle here.
+  settleDrawTurn(game, now = Date.now()) {
+    if (game.kind !== "draw-guess" || game.status !== "playing" || !game.round) return false;
+    const round = game.round;
+    if (round.revealed) return this.advanceDrawTurn(game, now);
+    if (!round.word) {
+      if (now < (round.choosingUntil || 0)) return false;
+      return this.pickDrawWord(game, round.options[0], now);
+    }
+    if (this.drawAllGuessed(game) || now >= (round.endsAt || 0)) return this.finishDrawTurn(game, now);
+    return false;
+  }
+  // A stroke is bounded at both ends: a colour from the fixed palette, a size of one to three, at most 200
+  // points, and coordinates inside the canvas. Anything else is dropped rather than stored.
+  cleanStroke(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const color = DRAW_COLORS.includes(String(raw.color)) ? String(raw.color) : DRAW_COLORS[0];
+    const size = [1, 2, 3].includes(Number(raw.size)) ? Number(raw.size) : 2;
+    const points = Array.isArray(raw.points) ? raw.points.slice(0, DRAW_STROKE_POINTS_MAX).map(point => {
+      const x = Number(point?.[0]), y = Number(point?.[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return [Math.max(0, Math.min(DRAW_POINTS_MAX, Math.round(x))), Math.max(0, Math.min(DRAW_POINTS_MAX, Math.round(y)))];
+    }).filter(Boolean) : [];
+    if (!points.length) return null;
+    return { color, size, points };
+  }
+  // A correct guess: points for the guesser (guests keep their own score), points for the drawer, a system line
+  // in the room, and the word itself never echoed into the transcript.
+  drawCorrectGuess(room, game, user, now = Date.now()) {
+    const already = (game.guessed || []).includes(user.id);
+    if (!already) this.awardDrawGuess(game, user.id, now);
+    const message = { id: crypto.randomUUID(), userId: null, username: "Chatblink", role: "user", photo: null, kind: "system", content: already ? `${user.username} guessed it too` : `${user.username} guessed the word`, createdAt: Date.now() };
+    this.addMessage(room.id, message);
+    this.broadcast(room.id, { type: "message", message });
+    this.broadcastRoomPreview(room, message);
+    if (this.drawAllGuessed(game)) this.finishDrawTurn(game, now);
+    this.broadcastGames(room.id);
+  }
   gameEvent(socket, event, user, now) {
     const meta = attachment(socket), room = this.findRoom(meta.roomId);
     if (!room || (Array.isArray(room.bans) && room.bans.includes(user.id))) return;
@@ -658,7 +986,17 @@ export class ChatHub {
 
     // Opening the dock asks for the truth rather than trusting what it last heard: the object may have
     // restarted, and "nobody is playing here" is the one wrong answer that looks like a bug.
-    if (event.type === "game-sync") return this.send(socket, { type: "game-state", roomId: room.id, games: this.gamesIn(room.id).map(item => this.gameView(item)) });
+    if (event.type === "game-sync") {
+      this.send(socket, { type: "game-state", roomId: room.id, games: this.gamesIn(room.id).map(item => this.gameView(item)) });
+      // The drawer's word never travels in the broadcast, so a reconnect (or a panel that just opened) is sent
+      // it privately: a spectator's client cannot read it out of the state packet.
+      for (const item of this.gamesIn(room.id)) {
+        if (item.kind !== "draw-guess" || item.status !== "playing" || !item.round || item.round.revealed) continue;
+        if (item.round.drawerId !== user.id) continue;
+        this.send(socket, { type: "game-word", roomId: room.id, gameId: item.id, word: item.round.word || null, options: item.round.word ? null : item.round.options });
+      }
+      return;
+    }
 
     if (event.type === "game-create") {
       const kind = GAME_KINDS[clean(event.kind).slice(0, 32)];
@@ -681,7 +1019,7 @@ export class ChatHub {
       return this.broadcastGames(room.id);
     }
     if (!game) return;
-    const seats = (GAME_KINDS[game.kind] || {}).seats || 2;
+    const seats = gameMaxSeats(GAME_KINDS[game.kind] || {});
     const isPlayer = game.players.some(player => player.id === user.id);
 
     if (event.type === "game-join" || event.type === "game-request") {
@@ -733,7 +1071,62 @@ export class ChatHub {
       if (game.hostId === user.id) this.rehostGame(room.id, game, user.id);
       return this.broadcastGames(room.id);
     }
-    if (event.type === "game-move") return this.gameMove(socket, game, user, room, event);
+    if (event.type === "game-move") return game.kind === "chess" ? this.chessMove(socket, game, user, room, event) : this.gameMove(socket, game, user, room, event);
+    // Resigning and agreeing a draw are chess mechanics: a turn-based grid game ends by its own rules, and
+    // "leave" already forfeits one. Both only ever apply to a game being played.
+    if (event.type === "game-resign") {
+      if (!isPlayer || game.status !== "playing") return this.gameError(socket, "Only a player in a running game can resign.");
+      if (game.kind !== "chess") return this.gameError(socket, "Resigning is only part of chess.");
+      const opponent = game.players.find(player => player.id !== user.id);
+      this.endGame(game, opponent ? opponent.id : null, "resign");
+      return this.broadcastGames(room.id);
+    }
+    if (event.type === "game-offer-draw") {
+      if (!isPlayer || game.status !== "playing") return this.gameError(socket, "Only a player in a running game can offer a draw.");
+      if (game.kind !== "chess") return this.gameError(socket, "Draw offers are only part of chess.");
+      if (game.drawOffer === user.id) return this.gameError(socket, "You have already offered a draw.");
+      game.drawOffer = user.id;
+      const opponent = game.players.find(player => player.id !== user.id);
+      if (opponent) this.notifyUser(opponent.id, { type: "game-draw-offer", roomId: room.id, gameId: game.id, by: { id: user.id, username: user.username } });
+      return this.broadcastGames(room.id);
+    }
+    if (event.type === "game-accept-draw") {
+      if (!isPlayer || game.status !== "playing" || !game.drawOffer) return this.gameError(socket, "There is no draw offer to accept.");
+      if (game.drawOffer === user.id) return this.gameError(socket, "That is your own offer.");
+      game.drawOffer = null;
+      this.endGame(game, null, "agreed");
+      return this.broadcastGames(room.id);
+    }
+    /* ------------------------------------------------ draw & guess turn */
+    if (event.type === "game-pick-word") {
+      if (game.kind !== "draw-guess") return this.gameError(socket, "That game has no words to pick.");
+      if (!isPlayer || game.round?.drawerId !== user.id) return this.gameError(socket, "Only the drawer picks the word.");
+      if (game.round?.word) return this.gameError(socket, "The word is already chosen.");
+      if (!this.pickDrawWord(game, clean(event.word).toLowerCase())) return this.gameError(socket, "That word is not one of the choices.");
+      // The drawer's own client still has no word in the broadcast (that is the point), so it is told privately
+      // the moment the choice is made — otherwise it would know what it is drawing only from the mask.
+      this.notifyUser(user.id, { type: "game-word", roomId: room.id, gameId: game.id, word: game.round.word, options: null });
+      return this.broadcastGames(room.id);
+    }
+    if (event.type === "game-draw") {
+      if (game.kind !== "draw-guess") return;
+      if (!isPlayer || game.round?.drawerId !== user.id) return this.gameError(socket, "Only the drawer can draw.");
+      if (!game.round?.word || game.round.revealed) return;
+      const stroke = this.cleanStroke(event.stroke);
+      if (!stroke) return;
+      game.strokes = [...(game.strokes || []), stroke].slice(-DRAW_STROKES_MAX);
+      // Every stroke is broadcast, but only every twentieth is written to storage: the free tier meters rows
+      // written, and a live drawing would otherwise cost a row per finger movement. A stroke is one event, not
+      // one event per point.
+      game.strokeCount = (game.strokeCount || 0) + 1;
+      return this.broadcastGames(room.id, game.strokeCount % 20 === 0);
+    }
+    if (event.type === "game-clear") {
+      if (game.kind !== "draw-guess") return;
+      if (!isPlayer || game.round?.drawerId !== user.id) return this.gameError(socket, "Only the drawer can clear the canvas.");
+      game.strokes = [];
+      return this.broadcastGames(room.id);
+    }
     if (event.type === "game-restart") {
       // A rematch only ever follows a result: the board screen says who won (or that it was a tie) and the
       // same seats start again. A board still in play is ended first, so nobody loses a half-played position
@@ -746,13 +1139,17 @@ export class ChatHub {
       const here = this.usersInRoom(room.id);
       game.players = game.players.filter(player => player.id === user.id || here.has(player.id));
       game.pending = game.pending.filter(person => here.has(person.id));
+      // Chess alternates colours between games because white always moves first: the seats swap instead of
+      // the opening seat. The clock and any outstanding offer belonged to the game that just finished.
+      if (game.kind === "chess") { game.players.reverse(); game.fen = CHESS_START_FEN; game.last = null; game.drawOffer = null; game.clock = null; }
+      if (game.kind === "draw-guess") { game.round = null; game.strokes = []; game.guessed = []; game.roundNumber = 1; game.drawerIndex = 0; }
       // Same seats, fresh board, and the opening seat alternates. With a seat empty it drops back to the
       // lobby rather than starting short-handed.
       game.board = initialBoard(GAME_KINDS[game.kind] || GAME_KINDS["connect-four"]);
       game.winnerId = null; game.reason = null; game.passed = false; game.endedAt = null; game.startedAt = null;
       game.turn = null;
       game.opener = ((game.opener || 0) + 1) % seats;
-      if (game.players.length >= seats) this.startGame(game);
+      if (game.players.length >= gameMinSeats(GAME_KINDS[game.kind] || {})) this.startGame(game);
       else game.status = "lobby";
       this.rehostGame(room.id, game);
       return this.broadcastGames(room.id);
@@ -822,6 +1219,10 @@ export class ChatHub {
           touched.add(roomId);
           continue;
         }
+        // A chess clock that ran out ends the game even with both players sitting there doing nothing.
+        if (this.settleChessClock(game, now)) { touched.add(roomId); continue; }
+        // A drawing turn that ran out (or whose drawer never chose) settles here too.
+        if (this.settleDrawTurn(game, now)) { touched.add(roomId); continue; }
         let changed = false;
         for (const [userId, since] of Object.entries(game.away || {})) {
           // A seat settled earlier in this loop can have taken the whole game with it (the last player left).
@@ -882,6 +1283,19 @@ export class ChatHub {
       if (game.status === "ended") {
         const at = (game.endedAt || 0) + this.endedGameTtlMs;
         if (at > now && (next === null || at < next)) next = at;
+      }
+      // A running chess clock is the other reason to wake up: the alarm is what makes a flag fall on time.
+      if (game.kind === "chess" && game.status === "playing" && game.clock && game.clock.ms && game.fen) {
+        const moving = game.players[chessTurnColor(game.fen) === "w" ? 0 : 1];
+        if (moving) {
+          const at = (game.clock.at || now) + (game.clock.ms[moving.id] || 0);
+          if (at > now && (next === null || at < next)) next = at;
+        }
+      }
+      // So is a drawing turn: the word choice, the turn itself and the reveal each have a moment to wake for.
+      if (game.kind === "draw-guess") {
+        const at = this.drawDeadline(game);
+        if (at && at > now && (next === null || at < next)) next = at;
       }
     }
     if (next !== null) this.background(this.state.storage.setAlarm(next).catch(() => {}));
@@ -1023,6 +1437,18 @@ export class ChatHub {
     const media = roomMedia(room);
     if (kind === "emoji" && !media.emojis.includes(content)) return;
     if (kind === "sticker" && !media.stickers.includes(content)) return;
+    // A guess in a live Draw & Guess turn is checked before it can reach the transcript: the word must never
+    // appear in the room, not even inside the message that got it right. Any sentence containing the word
+    // counts, and that whole message becomes the highlighted "guessed the word" line instead of being posted.
+    if (kind === "text") {
+      const drawing = this.gamesIn(meta.roomId).find(game => game.kind === "draw-guess" && game.status === "playing" && game.round?.word && !game.round.revealed);
+      if (drawing && drawGuessMatches(content, drawing.round.word)) {
+        // The drawer typing the answer would spoil the round for everybody, so it is refused rather than posted.
+        if (user.id === drawing.round.drawerId) { this.gameError(socket, "You cannot say the word while you are drawing."); return; }
+        this.drawCorrectGuess(room, drawing, user, now);
+        return;
+      }
+    }
     const message = { id: crypto.randomUUID(), userId: user.id, username: user.username, role: user.role || "user", photo: user.profile?.photo || null, kind, content, createdAt: Date.now(), reply: this.replyContext(meta.roomId, event.replyTo) };
     if (this.dailyLimited("message", user.id, this.messageDailyCap)) return;
     this.addMessage(meta.roomId, message);

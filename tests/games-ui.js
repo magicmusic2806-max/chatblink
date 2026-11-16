@@ -36,12 +36,12 @@ async function player(browser, cookie, room, errors) {
 }
 const openDock = async page => {
   await page.locator("#gamesButton").click();
-  await page.locator("#gamesModal:not([hidden])").waitFor();
+  await page.locator("#gamePane:not([hidden])").waitFor();
 };
-const dockText = page => page.locator("#gamesBody").innerText();
+const dockText = page => page.locator("#gameBody").innerText();
 // Waiting on the dock's own text rather than a locator keeps case-sensitivity: the header says "your turn"
 // while the line under the board says "Your turn", and only the second one is a state check.
-const waitDock = (page, text) => page.waitForFunction(needle => document.querySelector("#gamesBody")?.innerText.includes(needle), text, { timeout: 8000 });
+const waitDock = (page, text) => page.waitForFunction(needle => document.querySelector("#gameBody")?.innerText.includes(needle), text, { timeout: 8000 });
 
 (async () => {
   console.log(`\ngames dock e2e on ${BASE}`);
@@ -61,6 +61,16 @@ const waitDock = (page, text) => page.waitForFunction(needle => document.querySe
 
     await openDock(host);
     ok("the Games button opens the dock with the create form", (await dockText(host)).includes("Nobody is playing here yet"));
+    // The reason for the split: playing never hides the conversation. At phone width the two stack, and the
+    // chat keeps its 60% of the height.
+    const split = await host.evaluate(() => {
+      const pane = document.querySelector("#gamePane").getBoundingClientRect();
+      const messages = document.querySelector("#messageList").getBoundingClientRect();
+      const chat = document.querySelector("#chatSplit").getBoundingClientRect();
+      return { pane: Math.round(pane.height), messages: Math.round(messages.height), chat: Math.round(chat.height) };
+    });
+    ok("the game panel sits beside the chat instead of over it", split.pane > 0 && split.messages > 0, JSON.stringify(split));
+    ok("the split is 60/40 in the chat's favour", Math.abs(split.pane / split.chat - 0.4) < 0.06, JSON.stringify(split));
     await host.locator('.game-kind[data-kind="tic-tac-toe"]').click();
     await host.locator('.game-policy input[value="open"]').check();
     await host.locator(".game-create button.primary").click();

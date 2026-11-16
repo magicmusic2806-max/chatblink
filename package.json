@@ -27,12 +27,16 @@
     "db:remote": "wrangler d1 execute chatblink --remote --file=schema.sql",
     "test:schema": "node --no-warnings tests/schema-parity.js",
     "test:games": "node tests/games.js",
+    "test:chess": "node tests/chess.js",
+    "test:draw": "node tests/draw.js",
+    "test:draw-ui": "node tests/draw-ui.js",
     "test:games-ui": "node tests/games-ui.js",
     "test:boot": "node tests/boot-e2e.js",
     "test:notice": "node tests/notice-board.js"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^2.0.0",
+    "chess.js": "^1.4.0",
     "firebase-admin": "^14.5.0",
     "ws": "^8.18.0"
   },
