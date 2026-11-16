@@ -155,6 +155,21 @@ async function main() {
   const synced = gameById(await waitFor(aSocket, packet => packet.type === "game-state"), game.id);
   ok("a sync still carries the whole drawing and its sequence", (synced.strokes || []).length === 2 && synced.strokeSeq === 2, `${(synced.strokes || []).length}/${synced.strokeSeq}`);
 
+  // Undo takes back the drawer's last line on every screen, and only the drawer may do it.
+  bSocket.inbox.length = 0;
+  send(bSocket, { type: "game-undo", gameId: game.id });
+  ok("a guesser cannot undo the drawer's work", /only the drawer/i.test((await waitFor(bSocket, packet => packet.type === "game-error")).message));
+  aSocket.inbox.length = 0;
+  bSocket.inbox.length = 0;
+  send(aSocket, { type: "game-undo", gameId: game.id });
+  const undone = await waitFor(bSocket, packet => packet.type === "game-undo" && packet.gameId === game.id, 5000).catch(() => null);
+  ok("the drawer's undo reaches the room", Boolean(undone), JSON.stringify(undone));
+  ok("undo moves the stroke sequence on rather than backwards", undone?.seq === 3, JSON.stringify(undone?.seq));
+  aSocket.inbox.length = 0;
+  send(aSocket, { type: "game-sync" });
+  const afterUndo = gameById(await waitFor(aSocket, packet => packet.type === "game-state"), game.id);
+  ok("undo leaves one line of the two", (afterUndo.strokes || []).length === 1, String((afterUndo.strokes || []).length));
+
   /* ------------------------------------------------------------ guesses */
   bSocket.inbox.length = 0;
   send(bSocket, { type: "message", kind: "text", content: "no idea at all" });

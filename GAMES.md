@@ -489,3 +489,28 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
 - The quick chess clock offered is now **10 min** (`CHESS_TIME_OPTIONS = [10, 20, 40, 0]`), and 5 is no longer
   accepted - a create that names it falls back to `CHESS_CLOCK_MS` like any other un-offered allowance, which
   `tests/chess.js` now proves by asking for 5.
+
+## As built (`v=102`, boards bigger again, and the drawing board's own bugs)
+
+- **A board takes 70% of a phone split** (the chat keeps 30%) and its rows go edge to edge: only the text keeps an
+  8 px margin, so a canvas gains the last 16 px of width. The chess clocks also absorbed the "Your turn" line into
+  their own row, and every board's height cap was corrected to what the rows actually cost (`fitDrawCanvas` still
+  trims the remainder). Measured at 390×844, all with zero scroll: a drawing **390×293** (the full width of the
+  phone - only a bigger screen can grow it), chess **361×361** (was 261 at the start of this pass), tic-tac-toe
+  **371×371**, Connect Four **390×335**.
+- **The colour and brush no longer reset.** Every game-state packet rebuilt the board and with it the tools, so a
+  correct guess put the drawer back on the default navy at the default width. The choice is module state
+  (`drawChoice`) now, and the tool buttons render their active state from it.
+- **A stroke in progress keeps its canvas.** A state packet that lands mid-drag used to tear the canvas out from
+  under the finger (the pointer capture died with the element). `renderGames` now defers while `drawStrokeActive`,
+  and the deferred render runs the moment the line is sent.
+- **Undo (↶) exists**, and **Clear (⌫) asks first.** A stroke was the unit of everything and one bad line cost the
+  whole picture. The object takes back the drawer's last line (`game-undo`, drawer only, sequence bumped like a
+  stroke) and every canvas repaints from the shortened list; Clear goes through the confirm dialog because it is the
+  one destructive control in the state line.
+- **The tools are thumb-sized**: 24 px colour swatches (was 18) and 30 px brush buttons (was 22), in one row of eight
+  colours and three widths that still fits 390 px without scrolling.
+- **Covered by** `tests/draw.js` (54 checks: undo reaching the room, a guesser being refused it, the sequence moving
+  on, and the drawing one line shorter) and `.forge/tmp/draw-issues.js` (10 checks at 390×844: full-width canvas,
+  thumb-sized tools, colour and brush surviving a guess, a mid-stroke packet not replacing the canvas, undo taking a
+  line back, Clear asking first and a cancel leaving the drawing alone).

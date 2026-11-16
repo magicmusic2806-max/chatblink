@@ -88,7 +88,7 @@ $("#chatPanel").removeAttribute("data-loaded");
 loadRoomSubscription(room);stopRequestPoll();stopViewPolls();if(socket){socket.onclose=null;socket.close();socket=null}clearTimeout(reconnectTimer);$("#chatPanel").style.setProperty("--accent",room.accent);$("#chatPanel").style.setProperty("--soft",room.soft);$("#chatPanel").dataset.roomPattern=roomPattern(room);$("#roomIcon").textContent=room.icon;$("#roomName").textContent=room.name;$("#roomVibe").textContent=room.vibe;$("#accessPill").textContent="REQUEST ONLY";$("#accessPill").hidden=room.access!=="request";$("#chatInput").placeholder=`Message ${room.name}…`;$("#requestsButton").hidden=!(room.isOwner&&room.access==="request");$("#requestCount").textContent=room.pendingCount||0;closePicker();updateComposeTools();applyBanState();loadRoomBans();hideAllViews();markActiveNav("rooms");$("#chatPanel").hidden=false;if(mode==="push"){const path=roomPath(room.id);if(location.pathname!==path)history.pushState({roomId:room.id},"",path)}else if(mode==="replace")history.replaceState({roomId:room.id},"",roomPath(room.id));if(room.canEnter){$("#lockedView").hidden=true;$("#messageList").hidden=false;$("#composerArea").hidden=false;if(switching)startRoomOpening();connectRoom()}else{$("#messageList").hidden=true;$("#composerArea").hidden=true;$("#lockedView").hidden=false;const button=$("#requestAccess");button.disabled=room.requestStatus==="pending";button.textContent=room.requestStatus==="pending"?"Request pending":"Request to join";if(room.requestStatus==="pending")startRequestPoll();else stopRequestPoll()}}
 function updateComposeTools(){const allowed=Boolean(currentRoom&&currentRoom.canEnter&&!currentRoom.builtIn&&currentRoom.access==="request"&&!currentRoom.banned);document.querySelectorAll("[data-compose]").forEach(button=>{button.hidden=!allowed});renderRoomCall()}
 function applyBanState(){const banned=Boolean(currentRoom&&currentRoom.banned),input=$("#chatInput"),sendButton=$("#chatForm button");input.disabled=banned;sendButton.disabled=banned;input.placeholder=banned?"You are banned from messaging in this room":`Message ${currentRoom?currentRoom.name:"this room"}…`;$("#composerArea .tool-row").hidden=banned;updateComposeTools()}
-function handleSocketEvent(event){if(event.type==="history"){stopRoomOpening();liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);$("#chatPanel").dataset.loaded="1"}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message);noteDrawChat(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamePane").hidden&&gamesMode!=="all")renderGames()}}if(event.type==="game-stroke")noteDrawStroke(event);if(event.type==="game-cleared")noteDrawCleared(event);if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-word"){gameWords.set(event.gameId,event);if(!$("#gamePane").hidden)renderGames();else if(event.options?.length)toast("Your turn to draw - open Games")}if(event.type==="game-approved")toast("You are in");if(event.type==="game-draw-offer")toast(`${event.by?.username||"Your opponent"} offers a draw`);if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
+function handleSocketEvent(event){if(event.type==="history"){stopRoomOpening();liveMessages=event.messages||[];renderVisibleMessages();updatePresence(event.users||[],event.online);$("#chatPanel").dataset.loaded="1"}if(event.type==="message"){liveMessages.push(event.message);if(liveMessages.length>100)liveMessages.shift();if(!isHiddenMessage(event.message))appendMessage(event.message);noteDrawChat(event.message)};if(event.type==="presence")updatePresence(event.users||[],event.online);if(event.type==="room-updated")refreshRoomAccess(event.roomId);if(event.type==="room-preview")handleRoomPreview(event);if(event.type==="dm")handleDm(event);if(event.type==="dm-permission")handleDmPermission(event);if(String(event.type||"").startsWith("call-"))handleCallSignal(event);if(event.type==="rooms-changed")refreshRoomsList();if(event.type==="room-online"){const onlineRoom=rooms.find(item=>item.id===event.roomId);if(onlineRoom){onlineRoom.online=event.online;if(!$("#roomsView").hidden)renderRoomsGrid()}}if(event.type==="users-changed")refreshUsersSoon();if(event.type==="room-deleted"){rooms=rooms.filter(item=>item.id!==event.roomId);if(currentRoom&&currentRoom.id===event.roomId){currentRoom=null;if(socket){socket.onclose=null;socket.close();socket=null}toast("This room was deleted");showRoomsPage("none")}else renderRoomsGrid()};if(event.type==="room-ban"){if(currentRoom&&event.roomId===currentRoom.id){currentRoom.banned=event.banned;applyBanState();toast(event.banned?"You are banned from messaging in this room":"You can message in this room again")}}if(event.type==="message-reactions")applyMessageReactions(event.messageId,event.reactions||{});if(event.type==="message-deleted")markMessageDeleted(event.messageId);if(event.type==="notice-changed"){siteNotice=event.notice||null;if(!$("#roomsView").hidden)renderNotice()};if(String(event.type||"").startsWith("group-call-"))handleRoomCallEvent(event).catch(()=>{});if(event.type==="game-state"){if(!event.roomId||!currentRoom||event.roomId===currentRoom.id){noteGameChanges(event.games||[]);roomGames=event.games||[];if(creatingGame){creatingGame=false;const fresh=roomGames.filter(game=>gameIsMine(game.hostId)).sort((left,right)=>right.createdAt-left.createdAt)[0];if(fresh)activeGameId=fresh.id}renderGameBadge();if(!$("#gamePane").hidden&&gamesMode!=="all")renderGames()}}if(event.type==="game-stroke")noteDrawStroke(event);if(event.type==="game-undo")noteDrawUndo(event);if(event.type==="game-cleared")noteDrawCleared(event);if(event.type==="game-host")toast(`You are now running ${event.name||"the game"}`);if(event.type==="game-error")toast(event.message||"That move was refused");if(event.type==="game-request"){toast(`${event.by?.username||"Someone"} asked to join the game`);if(!$("#gamePane").hidden)renderGames()}if(event.type==="game-word"){gameWords.set(event.gameId,event);if(!$("#gamePane").hidden)renderGames();else if(event.options?.length)toast("Your turn to draw - open Games")}if(event.type==="game-approved")toast("You are in");if(event.type==="game-draw-offer")toast(`${event.by?.username||"Your opponent"} offers a draw`);if(event.type==="game-denied")toast("The host did not let you into that game");if(event.type==="games-changed"){clearTimeout(gamesRefreshTimer);gamesRefreshTimer=setTimeout(()=>{if(!$("#roomsView").hidden)loadLiveGames()},400)}if(event.type==="account-deleted"){toast("This account was deleted by the admin");forgetToken();leaveApp()}}
 function handleRoomPreview(event){const room=rooms.find(item=>item.id===event.roomId),message=event.message;if(!room||!message||room.access==="request")return;const preview=Array.isArray(room.preview)?room.preview.filter(item=>item.id!==message.id):[];preview.push(message);room.preview=preview.slice(-3);if(!$("#roomsView").hidden)renderRoomsGrid()}
 async function refreshRoomsList(){try{await loadRooms();if(!$("#roomsView").hidden)renderRoomsGrid();if(currentRoom){const room=rooms.find(item=>item.id===currentRoom.id);if(room){currentRoom=room;$("#requestCount").textContent=room.pendingCount||0}}}catch{}}
 async function refreshUsers(){if(!currentUser)return;await loadUsers();renderPeopleList();if(!$("#dmInbox").hidden)renderDmInbox();renderDmHeadDot();if(!$("#onlineModal").hidden)renderOnlineList();refreshMessageAvatars()}
@@ -809,6 +809,9 @@ function closeGames(){
   activeGameId=null;creatingGame=false;gamePage="board";
 }
 function renderGames(){
+  // A line being drawn owns the canvas: a state packet that arrives mid-stroke is deferred, never allowed to tear the
+  // board down under the finger (see the pointer handlers in renderDrawBoard).
+  if(drawStrokeActive){deferredGamesRender=true;return}
   const all=gamesMode==="all",body=all?$("#gamesBody"):$("#gameBody");
   if(!body)return;
   stopChessClock();
@@ -1077,7 +1080,7 @@ function renderGameBoardPage(body,game){
     bar.append(who,text,count,yes,no);
     body.appendChild(bar);
   }
-  if(game.layout?.type!=="canvas"){
+  if(game.layout?.type!=="canvas"&&game.kind!=="chess"){
     const bar=document.createElement("p");bar.className="game-bar";
     bar.textContent=gameBoardLine(game);
     body.appendChild(bar);
@@ -1275,6 +1278,11 @@ function renderChessBoard(body,game){
     clockNodes.set(player.id,{time,box,base:remaining});
   });
   if(game.clock)body.appendChild(clocks);
+  // The state ("Your turn", "Waiting for x") rides in the clock row rather than on a line of its own: on a phone every
+  // row above the board is board it does not get. A game with no clock still needs the words.
+  const state=document.createElement("span");state.className="chess-turn";state.textContent=gameBoardLine(game);
+  if(game.clock)clocks.prepend(state);
+  else{const row=document.createElement("div");row.className="chess-state-row";row.appendChild(state);body.appendChild(row)}
   if(playing&&game.clock){
     const running=game.turn;
     chessClockTimer=setInterval(()=>{
@@ -1365,6 +1373,13 @@ function renderChessBoard(body,game){
 const gameWords=new Map();
 const DRAW_COLORS=["#172033","#ef476f","#f9c74f","#43aa8b","#4f8cff","#a259ff","#ff8c42","#ffffff"];
 const DRAW_SIZES=[1,2,3];
+// The chosen colour and brush outlive a re-render: every game-state packet used to rebuild the board, and with it the
+// tools, so the drawer had to pick their colour again after every guess. The choice belongs to the player, not to the
+// DOM node that happened to show it.
+const drawChoice={color:DRAW_COLORS[0],size:2};
+// A line being drawn keeps its canvas: while the finger is down a queued render waits, and the state it would have
+// shown is painted the moment the stroke is sent.
+let drawStrokeActive=false,deferredGamesRender=false;
 let drawTimer=null;
 function stopDrawTimer(){if(drawTimer){clearInterval(drawTimer);drawTimer=null}}
 const drawClock=ms=>{const total=Math.max(0,Math.ceil(ms/1000));return `${Math.floor(total/60)}:${String(total%60).padStart(2,"0")}`};
@@ -1412,6 +1427,14 @@ function noteDrawCleared(event){
   game.strokes=[];game.strokeSeq=event.seq;
   if(activeGameId===event.gameId&&!$("#gamePane").hidden)repaintDrawCanvas();
 }
+// Undo takes back the last line the object still holds, so the canvas on every screen agrees with it.
+function noteDrawUndo(event){
+  const game=roomGames.find(item=>item.id===event.gameId);
+  if(!game)return;
+  game.strokes=(game.strokes||[]).slice(0,-1);
+  game.strokeSeq=event.seq;
+  if(activeGameId===event.gameId&&!$("#gamePane").hidden)repaintDrawCanvas();
+}
 // The guesses are the room's chat, and the maximised panel hides the chat. The last few lines are echoed in the
 // game panel so the drawer (and anybody whose pane covers the conversation) can still see what people are saying.
 const recentDrawLines=[];
@@ -1442,7 +1465,6 @@ function renderDrawBoard(body,game){
   const iAmDrawer=Boolean(me&&drawerId===me);
   const secret=iAmDrawer?gameWords.get(game.id)||null:null;
   const drawing=Boolean(iAmDrawer&&secret&&secret.word&&round&&!round.revealed);
-  const choice={color:DRAW_COLORS[0],size:2};
   const guessed=Array.isArray(game.guessed)?game.guessed:[];
   // Guests guess too and the turn waits for them, so they are counted here: a line that says "1 of 1" while the
   // turn runs on would be a lie.
@@ -1463,7 +1485,12 @@ function renderDrawBoard(body,game){
   else state.textContent=others.length?`${done} of ${others.length} guessed`:"nobody to guess";
   const timer=document.createElement("span");timer.className="draw-timer";
   bar.append(roundLabel,state,timer);
-  if(drawing)bar.appendChild(iconButton("⌫","Clear the canvas",()=>sendGame("game-clear",{gameId:game.id})));
+  if(drawing){
+    // Undo takes back one line; Clear wipes the picture, so it asks first - a misplaced thumb must not cost the
+    // whole drawing.
+    bar.appendChild(iconButton("↶","Undo the last line",()=>sendGame("game-undo",{gameId:game.id})));
+    bar.appendChild(iconButton("⌫","Clear the canvas",()=>openConfirm("Clear the drawing?","Every line on the canvas goes. The turn keeps running.",()=>sendGame("game-clear",{gameId:game.id}))));
+  }
   body.appendChild(bar);
 
   // Word line: the drawer reads the answer, everybody else reads the mask.
@@ -1501,15 +1528,15 @@ function renderDrawBoard(body,game){
     // the state line rather than the end of this row, because the row must never scroll sideways on a phone.
     const tools=document.createElement("div");tools.className="draw-tools";
     DRAW_COLORS.forEach((color,index)=>{
-      const swatch=document.createElement("button");swatch.type="button";swatch.className=`draw-swatch${index===0?" active":""}`;
+      const swatch=document.createElement("button");swatch.type="button";swatch.className=`draw-swatch${color===drawChoice.color?" active":""}`;
       swatch.style.setProperty("--swatch",color);swatch.setAttribute("aria-label",`Colour ${index+1}`);
-      swatch.onclick=()=>{choice.color=color;tools.querySelectorAll(".draw-swatch").forEach(item=>item.classList.toggle("active",item===swatch))};
+      swatch.onclick=()=>{drawChoice.color=color;tools.querySelectorAll(".draw-swatch").forEach(item=>item.classList.toggle("active",item===swatch))};
       tools.appendChild(swatch);
     });
     const sizes=document.createElement("div");sizes.className="draw-sizes";
     DRAW_SIZES.forEach(size=>{
-      const button=document.createElement("button");button.type="button";button.className=`draw-size${size===2?" active":""}`;
-      button.setAttribute("aria-label",`Brush ${size}`);button.onclick=()=>{choice.size=size;sizes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
+      const button=document.createElement("button");button.type="button";button.className=`draw-size${drawChoice.size===size?" active":""}`;
+      button.setAttribute("aria-label",`Brush ${size}`);button.onclick=()=>{drawChoice.size=size;sizes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
       const dot=document.createElement("i");dot.style.width=`${size*3+2}px`;dot.style.height=`${size*3+2}px`;button.appendChild(dot);sizes.appendChild(button);
     });
     tools.appendChild(sizes);
@@ -1521,7 +1548,10 @@ function renderDrawBoard(body,game){
     canvas.addEventListener("pointerdown",event=>{
       if(event.button!==undefined&&event.button!==0)return;
       canvas.setPointerCapture(event.pointerId);
-      stroke={color:choice.color,size:choice.size,points:[point(event)]};
+      // A stroke in progress holds the board together: a state packet that lands now (a guess, a seat change) is
+      // queued instead of rebuilding the canvas under the finger, and painted once the line is sent.
+      drawStrokeActive=true;
+      stroke={color:drawChoice.color,size:drawChoice.size,points:[point(event)]};
       repaint();paintStroke(ctx,stroke);
     });
     canvas.addEventListener("pointermove",event=>{
@@ -1534,7 +1564,12 @@ function renderDrawBoard(body,game){
       // silently truncated mid-drag.
       if(stroke.points.length>=200){sendStroke(stroke);stroke={color:stroke.color,size:stroke.size,points:[next]}}
     });
-    const finish=()=>{if(!stroke)return;sendStroke(stroke);stroke=null};
+    const finish=()=>{
+      if(!stroke)return;
+      sendStroke(stroke);stroke=null;
+      drawStrokeActive=false;
+      if(deferredGamesRender){deferredGamesRender=false;renderGames()}
+    };
     canvas.addEventListener("pointerup",finish);
     canvas.addEventListener("pointercancel",finish);
     canvas.addEventListener("pointerleave",event=>{if(event.buttons===0)finish()});

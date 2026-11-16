@@ -833,6 +833,10 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .chess-square.target::after{content:"";position:absolute;width:30%;height:30%;border-radius:50%;background:#5b6cffcc}
 .chess-square.target.capture::after{width:86%;height:86%;background:transparent;border:3px solid #ef4444cc}
 .chess-clocks{display:flex;gap:8px;margin:0 0 8px}
+/* The state line lives in this row on chess: a whole line of its own above the board is board it does not get. */
+.chess-turn{flex:0 0 auto;align-self:center;font-size:11.5px;font-weight:700;color:#4a5568;max-width:38%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chess-state-row{display:flex;margin:0 0 6px}
+.chess-state-row .chess-turn{font-size:12px;max-width:100%}
 .chess-clock{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;
   border:1px solid #e5eaf3;background:#fff;border-radius:10px;padding:6px 10px;font-variant-numeric:tabular-nums}
 .chess-clock b{font-size:12px;color:#26303f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -874,12 +878,12 @@ html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
 .game-pane .draw-canvas{max-width:min(100%,max(200px,calc((100cqh - 70px) * 4 / 3)));margin-inline:auto}
 .draw-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3;background:#fff;border:1px solid #cfd6e4;
   border-radius:10px;touch-action:none;margin:0 auto 6px;cursor:crosshair}
-/* One row of glyphs, never wrapped and never scrolled: eight colours, three widths. */
-.draw-tools{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;margin:0 0 4px}
-.draw-swatch{width:18px;height:18px;flex:0 0 auto;border-radius:5px;border:2px solid transparent;background:var(--swatch);padding:0}
+/* One row of glyphs, never wrapped and never scrolled: eight colours, three widths, big enough for a thumb. */
+.draw-tools{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;margin:0 0 4px}
+.draw-swatch{width:24px;height:24px;flex:0 0 auto;border-radius:6px;border:2px solid transparent;background:var(--swatch);padding:0}
 .draw-swatch.active{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff33}
-.draw-sizes{display:flex;gap:3px;flex:0 0 auto;margin-left:auto}
-.draw-size{width:22px;height:22px;flex:0 0 auto;display:grid;place-items:center;padding:0;border-radius:6px}
+.draw-sizes{display:flex;gap:4px;flex:0 0 auto;margin-left:auto}
+.draw-size{width:30px;height:30px;flex:0 0 auto;display:grid;place-items:center;padding:0;border-radius:7px}
 .draw-size i{display:block;border-radius:50%;background:#4a5568}
 .draw-size.active{border-color:#5b6cff;background:#eef1ff}
 .draw-scores{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
@@ -981,21 +985,33 @@ a.game-list-row .game-chip{color:#5b6cff}
 /* A board must fit the panel it was given: on a phone the pane is 40% of the room, and a board sized only
    by width would hang off the bottom of it. Container query units let the board follow the pane's own
    height, so a square grid is min(width, height) and Connect Four keeps its 7:6 shape. */
-.game-pane .grid-board{max-width:min(100%,calc(100cqh - 26px));margin-inline:auto}
-.game-pane .cf-board{max-width:min(100%,calc((100cqh - 26px) * 7 / 6));margin-inline:auto}
-/* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. */
-.game-pane .chess-board{max-width:min(100%,calc(100cqh - 60px));margin-inline:auto}
-/* A board needs height, and so does every other board: on a phone the split gives the pane 68% and the chat 32%,
+.game-pane .grid-board{max-width:min(100%,calc(100cqh - 18px));margin-inline:auto}
+.game-pane .cf-board{max-width:min(100%,calc((100cqh - 18px) * 7 / 6));margin-inline:auto}
+/* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. The reserve
+   is what those rows actually cost (a clock pill and its margin); fitDrawCanvas() takes back any difference. */
+.game-pane .chess-board{max-width:min(100%,calc(100cqh - 40px));margin-inline:auto}
+/* A board needs height, and so does every other board: on a phone the split gives the pane 70% and the chat 30%,
    which is still a conversation you can play beside, and makes a drawing or a chess board big enough to use. The
    list and create views keep the 60/40 default in the chat's favour. */
 @media (max-width:859px){
-  .chat-split[data-board="1"]>.messages{flex:1 1 32%}
-  .chat-split[data-board="1"]>.game-pane{flex:1 1 68%}
+  .chat-split[data-board="1"]>.messages{flex:1 1 30%}
+  .chat-split[data-board="1"]>.game-pane{flex:1 1 70%}
   /* Six glyphs and a title in a 40% pane on a 390 px phone: 24 px squares below 480 px. */
   .game-pane-head{gap:4px;padding:4px 8px}
   .game-pane-head button{width:24px;height:24px;font-size:13px}
-  /* Every pixel of padding is a pixel the board does not get. */
+  /* A board is the whole point of the page, so its rows go edge to edge and only the text keeps a margin: a canvas
+     gains 16 px of width at 390 px, which is 16 px of drawing. */
   .game-pane-body{padding:8px}
+  .game-pane-body:has(.draw-canvas),.game-pane-body:has(.chess-board),.game-pane-body:has(.cf-board),.game-pane-body:has(.grid-board){padding-left:0;padding-right:0}
+  .game-pane-body:has(.draw-canvas) .draw-bar,.game-pane-body:has(.draw-canvas) .draw-word,
+  .game-pane-body:has(.chess-board) .chess-clocks,.game-pane-body:has(.chess-board) .chess-state-row,
+  .game-pane-body:has(.cf-board) .game-bar,.game-pane-body:has(.grid-board) .game-bar,
+  .game-pane-body:has(.draw-canvas) .draw-recent,.game-pane-body:has(.draw-canvas) .draw-tools{padding-left:8px;padding-right:8px}
+  /* The chess clocks are read, not touched: a tighter pill leaves the board the height. */
+  .game-pane .chess-clocks{gap:6px}
+  .game-pane .chess-clock{padding:3px 8px}
+  .game-pane .chess-clock b{font-size:11.5px}
+  .game-pane .chess-clock span{font-size:12.5px}
   /* The options are one row, not two: every 40 px under the board is 40 px the board does not get. */
   .chat-split[data-board="1"] .game-actions button{padding:7px 10px;font-size:12px}
 }

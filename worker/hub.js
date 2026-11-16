@@ -44,7 +44,7 @@ const GAME_KINDS = {
 // The seat helpers keep the older games honest: they have one number, so min and max are the same.
 const gameMinSeats = kind => Math.max(1, kind?.minSeats || kind?.seats || 2);
 const gameMaxSeats = kind => Math.max(1, kind?.maxSeats || kind?.seats || 2);
-const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-start", "game-sync", "game-resign", "game-offer-draw", "game-accept-draw", "game-pick-word", "game-draw", "game-clear"];
+const GAME_EVENT_TYPES = ["game-create", "game-join", "game-request", "game-approve", "game-deny", "game-leave", "game-watch", "game-move", "game-end", "game-restart", "game-start", "game-sync", "game-resign", "game-offer-draw", "game-accept-draw", "game-pick-word", "game-draw", "game-undo", "game-clear"];
 const GAME_EVENT_LIMIT = 60;
 // A pen stroke is one event per finished line, and a fast scribble is a lot of lines: the drawing gets its own,
 // larger window so the room's per-connection budget can never swallow a line the drawer watched themselves draw.
@@ -1208,6 +1208,17 @@ export class ChatHub {
       // would otherwise cost a row per line. A stroke is one event, not one event per point.
       if (game.strokeSeq % 20 === 0) this.saveGames();
       return this.broadcast(room.id, { type: "game-stroke", roomId: room.id, gameId: game.id, seq: game.strokeSeq, stroke });
+    }
+    if (event.type === "game-undo") {
+      // Undo takes back the drawer's last line, which is the one thing a drawing needs beside Clear: one bad stroke
+      // should never cost the whole picture. It is the drawer's own work, so only the drawer may take it back.
+      if (game.kind !== "draw-guess") return;
+      if (!isPlayer || game.round?.drawerId !== user.id) return this.gameError(socket, "Only the drawer can undo.");
+      if (!game.strokes || !game.strokes.length) return;
+      game.strokes = game.strokes.slice(0, -1);
+      game.strokeSeq = (game.strokeSeq || 0) + 1;
+      this.saveGames();
+      return this.broadcast(room.id, { type: "game-undo", roomId: room.id, gameId: game.id, seq: game.strokeSeq });
     }
     if (event.type === "game-clear") {
       if (game.kind !== "draw-guess") return;
