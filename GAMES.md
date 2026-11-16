@@ -390,15 +390,43 @@ Everything below is a defect that only showed up once the game was played as a g
 - **Points, not wins.** `endGame` adds a win to the winner, which printed 601 for a 600-point game; Draw & Guess is
   excluded, and the seat cards print "pts" for it and "wins" for chess instead of "1 pts".
 - **A phone can actually see the drawing.** At 390 px the canvas sat below the fold in the 40% pane: the seats, the
-  word and the guessed line used every pixel, so a guesser saw the mask and no picture at all. A canvas game now
-  takes 55% of the split (the drawer's panel still opens maximised), the rows above the drawing shrink on a phone,
-  the game's actions share one line instead of one each, and the last three chat lines are echoed inside the panel
-  while the chat is hidden - guesses are typed in the chat, so a maximised panel used to hide the game's own input.
-  `fitDrawCanvas` gives back exactly the pixels the rows below the canvas need, measured after the DOM is complete.
-  Measured at 390×844: pane 647 px, content 601 px, zero scroll, canvas 366×275 with the echo line on screen.
+  word and the guessed line used every pixel, so a guesser saw the mask and no picture at all. A game that is being
+  played now takes 55% of a phone split (the chat keeps 45%), and `fitDrawCanvas` gives back exactly the pixels the
+  rows around the board need, measured after the DOM is complete. Measured at 390×844: pane 356 px, content 317 px,
+  zero scroll, canvas 301×226 for a guesser and 278×209 for the drawer, with the conversation on screen beside it.
 - **The drawer is told when it is their turn** even with the panel shut (`game-word` toast), and a phone layout
   choice survives until the panel is closed.
 - **Covered by** `tests/draw.js` (50 checks, including the lobby and the start, a third seat, the stroke delta, the
   auto-pick reaching the drawer, a player leaving a three-player game, and the whole game to a result) and
-  `tests/draw-ui.js` (20 checks in two browsers, adding the start button and the guessed line).
+  `tests/draw-ui.js` (24 checks in two browsers, adding the start button, the people page and the guessed line).
 
+## As built (`v=98`, a game panel that is a game and not a control panel)
+
+The v=97 pane still stacked seats, a scoreboard, a status line, the board and up to five full-width buttons in one
+scroll container. At 40% of a phone that is a scrollbar over a game, and the buttons were the biggest rows in it.
+
+- **Three pages behind one header.** The panel is the **board** (what a player is watching), the **people** (seats,
+  points, guest scores, join requests, seat count and watchers) and the **options** (leave, end game, clear,
+  resign, offer/accept a draw, watch, new game). `👥` and `⋯` in the panel header swap the body, a second tap returns
+  to the board, and `‹` goes back (board → room's games on the board page, sub-page → board). The title becomes the
+  page's name, so nothing needs a header row of its own.
+- **The board keeps only the action it is waiting for**: Join/Request in a lobby, Start now for a Draw & Guess
+  host, and Rematch as a `↻` glyph beside the result. Everything else is a page away, which is why a board fits a
+  40% pane again.
+- **Glyphs where a word was wasted**: `⌫` clears the canvas (in the state line, not at the end of the tool row),
+  `↻` rematches, `‹ 👥 ⋯ ⤢ ✕` are 26 px squares. The options page is one-word buttons (`Leave`, `End game`,
+  `Clear`, `New game`, `Resign`, `Watch`) two to a row instead of five full-width rows: the page's `.primary` and
+  `.secondary` are `width:100%`, which in a 40% pane made every action a row of its own.
+- **The drawing board is one line plus the picture**: `R1/3 · 2 of 3 guessed · 1:58 · ⌫`, then the word or mask,
+  then the canvas, then one row of eight colours and three widths. The seats, the scoreboard and the actions are
+  gone from it, so a guesser's canvas is 301×226 on a 390 px phone with the chat above it - the bug this pass
+  exists for. The chat echo strip (`draw-recent`) stays for the maximised panel, where the chat itself is hidden.
+- **Every board gets 55% of a phone split**, not just a canvas: a chess board in 40% of a 390 px screen was 139 px
+  wide (17 px a square) and taller than it was broad, because the piece glyph was sized in `vw` and overflowed each
+  square. Pieces are now sized in `cqw` of the board (9cqw), the board is 225×225 and square, and `fitDrawCanvas`
+  (now the fit for any board: canvas 4:3, Connect Four 7:6, grids square) trims the last few pixels so no board
+  scrolls. Measured at 390×844: chess 225×225 with both clocks and the state line visible, zero scroll.
+- **Covered by** `tests/draw-ui.js` (24 checks: the board page carries no seats, `👥` opens and closes the people
+  page, the start button, the picker, the mask, the ink, the guess line, the reveal, the seat cards with points) and
+  `tests/games-ui.js` (25 checks in two browsers: the three pages, the same stranded-player paths as before through
+  the new navigation, the `↻` rematch, the options page's Leave).

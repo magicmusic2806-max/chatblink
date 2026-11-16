@@ -775,10 +775,9 @@ function openGames(mode){
   renderGames();
   if(mode==="all")loadLiveGames();else sendGame("game-sync");
 }
-// The panel layout: 60/40 by default, everywhere. A canvas game cannot be played in 40% of a phone (the height
-// left after the word line, the tools and the scores is nothing), so it opens maximised once per game - and the
-// player's own toggle always wins afterwards, because their choice is remembered while that panel is open.
-let autoMaximisedFor=null;
+// The panel layout: 60/40 in the chat's favour, everywhere, because the point of the pane is playing while the
+// room talks. A canvas game gets a little more on a phone (`data-board`), and the maximise toggle gives the board
+// the whole room for a move. The board page carries no rows it does not need, which is what makes 40% enough.
 function setMaxButton(on){
   const button=$("#gamePaneMax");
   if(!button)return;
@@ -790,17 +789,6 @@ function setPaneMaximised(on){
   if(on)split.dataset.max="1";else delete split.dataset.max;
   setMaxButton(on);
 }
-function autoMaximise(game){
-  if(!game||game.layout?.type!=="canvas")return;
-  if(!$("#chatSplit")||$("#chatSplit").dataset.userLayout)return;
-  if(window.innerWidth>=700||autoMaximisedFor===game.id)return;
-  // A phone cannot show a drawing and a conversation side by side: in the split the canvas sat below the fold with
-  // only the mask on screen. The panel opens maximised, the composer stays where it is, and the last few lines of
-  // chat are echoed beside the canvas (see renderDrawBoard) so both players can still follow the guesses. The ⤢
-  // toggle gives the conversation back and is remembered for the rest of the panel.
-  autoMaximisedFor=game.id;
-  setPaneMaximised(true);
-}
 function closeGames(){
   stopChessClock();
   stopDrawTimer();
@@ -811,10 +799,9 @@ function closeGames(){
   // with the panel, so the next game gets the 60/40 default again.
   delete $("#chatSplit").dataset.max;
   delete $("#chatSplit").dataset.userLayout;
-  delete $("#chatSplit").dataset.canvas;
-  autoMaximisedFor=null;
+  delete $("#chatSplit").dataset.board;
   setMaxButton(false);
-  activeGameId=null;creatingGame=false;
+  activeGameId=null;creatingGame=false;gamePage="board";
 }
 function renderGames(){
   const all=gamesMode==="all",body=all?$("#gamesBody"):$("#gameBody");
@@ -823,13 +810,14 @@ function renderGames(){
   stopDrawTimer();
   body.innerHTML="";
   // A drawing needs height: the pane takes 55% of a phone split while a canvas game is open, and everything else
-  // keeps the 60/40 default (see `.chat-split[data-canvas]`).
-  if($("#chatSplit"))delete $("#chatSplit").dataset.canvas;
-  if(all){$("#gamesTitle").textContent="Games being played";renderLiveGames(body);return}
+  // keeps the 60/40 default (see `.chat-split[data-board]`).
+  if($("#chatSplit"))delete $("#chatSplit").dataset.board;
+  if(all){$("#gamesTitle").textContent="Games being played";setPaneControls(false);renderLiveGames(body);return}
   $("#gamePaneTitle").textContent=currentRoom?`Games - ${currentRoom.name}`:"Games";
-  if(!currentRoom){body.textContent="Open a room first.";return}
+  if(!currentRoom){setPaneControls(false);body.textContent="Open a room first.";return}
   const game=activeGame();
   if(game){renderGameDetail(body,game);return}
+  setPaneControls(false);
   // No history: the room's list is the games being played, so a room whose only board has finished looks
   // exactly like one nobody has played in - the result was on the board screen, and it clears itself.
   if(creatingGame||!unfinishedGames().length){renderGameCreate(body);return}
@@ -896,7 +884,7 @@ function renderGameList(body){
   if(mine){const note=document.createElement("p");note.className="game-copy";note.textContent=`You are already playing ${mine.name} here. Finish it before starting another.`;body.appendChild(note)}
 }
 function openGame(id){
-  activeGameId=id;
+  activeGameId=id;gamePage="board";
   const game=activeGame();
   if(game&&game.status!=="ended"&&!game.players.some(player=>gameIsMine(player.id)))sendGame("game-watch",{gameId:id});
   renderGames();
@@ -964,20 +952,101 @@ function renderGameCreate(body){
   }
   body.appendChild(arcadeSection());
 }
+// ---------------------------------------------------------------- the game panel's three pages
+// A 40% pane on a phone holds about 310 px of content. Seats, a scoreboard, the board and five full-width buttons
+// do not fit in that, and trying is what pushed Draw & Guess's own canvas below the fold. So the panel is three
+// pages behind one header: the board (what a player is watching), the people (seats, scores, join requests) and
+// the options (leave, end, clear, resign). The board keeps only the one action it is waiting for - join, start or
+// rematch - so a game screen is a board and a line of state, not a control panel.
+let gamePage="board";
+function setPaneControls(detail,page="board"){
+  const back=$("#gamePaneBack"),people=$("#gamePanePeople"),menu=$("#gamePaneMenu");
+  if(!back||!people||!menu)return;
+  back.hidden=!detail;people.hidden=!detail;menu.hidden=!detail;
+  people.setAttribute("aria-pressed",page==="people"?"true":"false");
+  menu.setAttribute("aria-pressed",page==="options"?"true":"false");
+}
+// Small square buttons that carry a glyph instead of a sentence: at 40% of a phone, "Leave game" in a full-width
+// button is a row of the board spent on a word.
+function iconButton(label,title,onclick,extra){
+  const button=document.createElement("button");button.type="button";button.className=`game-icon-btn${extra?" "+extra:""}`;
+  button.textContent=label;button.setAttribute("aria-label",title);button.title=title;button.onclick=onclick;
+  return button;
+}
 function renderGameDetail(body,game){
-  // The layout is settled before the board is drawn: a canvas game on a phone may open maximised, and the drawing
-  // (and the chat echo beside it) has to be laid out for the space it actually gets.
-  autoMaximise(game);
-  if(game.layout?.type==="canvas"&&$("#chatSplit"))$("#chatSplit").dataset.canvas="1";
-  const back=document.createElement("button");back.type="button";back.className="game-back";back.textContent=unfinishedGames().length>1?"← All games in this room":"← Back";
-  back.onclick=()=>{activeGameId=null;renderGames()};
-  body.appendChild(back);
+  // A board needs the pane's height more than the chat does: on a phone the split gives the pane 55% while a game
+  // is open (see `.chat-split[data-board]`), and the maximise toggle gives it everything. This is the same for
+  // every kind - a chess board in 40% of a 390 px screen is a 17 px square per piece.
+  if($("#chatSplit"))$("#chatSplit").dataset.board="1";
+  setPaneControls(true,gamePage);
+  $("#gamePaneTitle").textContent=gamePage==="people"?"Players and scores":gamePage==="options"?"Game options":game.name;
+  if(gamePage==="people")return renderGamePeople(body,game);
+  if(gamePage==="options")return renderGameOptions(body,game);
+  renderGameBoardPage(body,game);
+}
+// The one line of state a board that is not a canvas gets. It is written as its own sentence rather than reusing
+// the list's wording, which is written to be read mid-line ("your turn · open seat"): capitalising that would
+// capitalise somebody's username instead.
+function gameBoardLine(game){
+  if(game.status==="ended")return game.name;
+  const turnPlayer=game.players.find(player=>player.id===game.turn);
+  if(game.status==="lobby")return `Waiting for a player (${game.players.length}/${game.seats})`;
+  if(game.passed)return `${turnPlayer?turnPlayer.username:"They"} had no legal move and plays again`;
+  if(gameIsMine(game.turn))return "Your turn";
+  return turnPlayer?`Waiting for ${turnPlayer.username}`:"Waiting";
+}
+// The board, and only what the board is waiting for. A canvas game brings its own one-line header (round, state,
+// clock) from renderDrawBoard; the rest get the same slim line here.
+function renderGameBoardPage(body,game){
+  const mine=game.players.some(player=>gameIsMine(player.id)),mayRun=gameIsMine(game.hostId);
+  if(game.layout?.type!=="canvas"){
+    const bar=document.createElement("p");bar.className="game-bar";
+    bar.textContent=gameBoardLine(game);
+    body.appendChild(bar);
+  }
+  // A waiting chess board is worth showing: the starting position is the answer to "what am I about to play",
+  // and the clocks say how long each side gets. A drawing shows its empty canvas for the same reason. The other
+  // kinds stay empty until they start.
+  if(game.status!=="lobby"||game.kind==="chess"||game.layout?.type==="canvas")renderBoard(body,game);
 
-  const status=document.createElement("p");status.className="game-status";
-  // A finished board's own line says who won, so the header only names the game there.
-  status.textContent=game.status==="ended"?game.name:`${game.name} - ${gameStatusText(game)}`;
-  body.appendChild(status);
-
+  if(game.status==="ended"){
+    // The result belongs on the board, with the rematch beside it instead of three rows below: who won, and the one
+    // thing anybody does about it. Everything else about a finished game lives under the options.
+    const row=document.createElement("div");row.className="game-result-row";
+    const result=document.createElement("p");result.className="game-result";
+    // Chess endings have their own words: "wins on time" and "wins by resignation" are how the result reads,
+    // and a draw by stalemate is not the same thing as a tie on a grid.
+    const winner=game.players.find(player=>player.id===game.winnerId);
+    const ending=game.kind==="chess"?CHESS_ENDINGS[game.reason]:game.kind==="draw-guess"&&game.reason==="points"?"on points":null;
+    if(winner)result.textContent=ending?`🏆 ${winner.username} wins ${ending}`:`🏆 ${winner.username} wins${game.reason==="left"?" - the other player left":""}`;
+    else if(ending)result.textContent=`🤝 Draw ${ending}`;
+    else if(game.reason==="draw")result.textContent="🤝 It's a tie";
+    else if(game.reason==="left")result.textContent="The other player left - no winner";
+    else result.textContent="Nobody won - the host ended the game";
+    row.appendChild(result);
+    if(mine||mayRun)row.appendChild(iconButton("↻","Rematch",()=>sendGame("game-restart",{gameId:game.id}),"primary"));
+    body.appendChild(row);
+  }else if(game.status==="lobby"){
+    // The lobby's own action, and the only one that belongs on a board nobody can play yet.
+    if(!mine&&game.players.length<game.seats){
+      const asked=(game.pending||[]).some(person=>gameIsMine(person.id));
+      const join=document.createElement("button");join.type="button";join.className="primary game-join";
+      join.textContent=asked?"Request sent":game.policy==="open"?"Join game":"Request to join";
+      join.disabled=asked;
+      join.onclick=()=>sendGame(game.policy==="open"?"game-join":"game-request",{gameId:game.id});
+      body.appendChild(join);
+    }else if(mine&&mayRun&&game.players.length>=(game.minSeats||2)){
+      const begin=document.createElement("button");begin.type="button";begin.className="primary game-join";
+      begin.textContent=`Start now (${game.players.length} playing)`;
+      begin.onclick=()=>sendGame("game-start",{gameId:game.id});
+      body.appendChild(begin);
+    }
+  }
+  fitDrawCanvas(body);
+}
+// Who is playing, who is asking and who is watching. None of it changes between two moves, which is why it is not
+// on the board.
+function renderGamePeople(body,game){
   const seats=document.createElement("div");seats.className="game-seats";
   // Enough slots to show the seats that exist: a room of eight for Draw & Guess, plus the open seat while it is
   // still a lobby, and never more than the game allows.
@@ -985,112 +1054,26 @@ function renderGameDetail(body,game){
   for(let index=0;index<slots;index++)seats.appendChild(gamePlayerSlot(game,index));
   body.appendChild(seats);
 
-  // A waiting chess board is worth showing: the starting position is the answer to "what am I about to play",
-  // and the clocks say how long each side gets. The other kinds stay empty until they start.
-  if(game.status!=="lobby"||game.kind==="chess")renderBoard(body,game);
+  const meta=document.createElement("p");meta.className="game-copy";
+  meta.textContent=[`${game.players.length}/${game.seats} seats`,game.policy==="open"?"anyone can join":"by request",`${game.spectators} watching`].join(" · ");
+  body.appendChild(meta);
 
-  const state=document.createElement("p");state.className="game-status";
-  if(game.status==="ended"){
-    // The result lives on the board screen, right above the offer to play again: who won, or that it was a
-    // tie. A board still in play has no result yet, so the dock ends it first rather than restarting it.
-    const winner=game.players.find(player=>player.id===game.winnerId);
-    const result=document.createElement("p");result.className="game-result";
-    // Chess endings have their own words: "wins on time" and "wins by resignation" are how the result reads,
-    // and a draw by stalemate is not the same thing as a tie on a grid.
-    const ending=game.kind==="chess"?CHESS_ENDINGS[game.reason]:game.kind==="draw-guess"&&game.reason==="points"?"on points":null;
-    if(winner)result.textContent=ending?`🏆 ${winner.username} wins ${ending}`:`🏆 ${winner.username} wins${game.reason==="left"?" - the other player left":""}`;
-    else if(ending)result.textContent=`🤝 Draw ${ending}`;
-    else if(game.reason==="draw")result.textContent="🤝 It's a tie";
-    else if(game.reason==="left")result.textContent="The other player left - no winner";
-    else result.textContent="Nobody won - the host ended the game";
-    body.appendChild(result);
-  }else if(game.status==="playing"){
-    const turnPlayer=game.players.find(player=>player.id===game.turn);
-    state.textContent=game.kind==="draw-guess"
-      ?(game.round?.revealed?"Next turn in a moment":game.round?.choosing&&gameIsMine(game.round.drawerId)?"Choose a word above":"Guess in the chat")
-      :game.passed
-      ?`${turnPlayer?turnPlayer.username:"They"} had no legal move and plays again`
-      :gameIsMine(game.turn)?"Your turn":turnPlayer?`Waiting for ${turnPlayer.username}`:"Waiting";
-    body.appendChild(state);
+  // Guests keep their own score list (the owner's rule), so the panel can show who scored best among them.
+  const guestScores=(game.guests||[]).filter(guest=>guest.score);
+  if(guestScores.length){
+    const scores=document.createElement("div");scores.className="draw-scores";
+    guestScores.forEach(guest=>{
+      const row=document.createElement("span");row.className="draw-score guest";
+      const name=document.createElement("b");name.textContent=`${guest.username} (guest)`;
+      const value=document.createElement("i");value.textContent=`${guest.score||0}`;
+      row.append(name,value);scores.appendChild(row);
+    });
+    body.appendChild(scores);
   }
-
-  const actions=document.createElement("div");actions.className="game-actions";
-  const mine=game.players.some(player=>gameIsMine(player.id));
-  const mayRun=gameIsMine(game.hostId);
-  if(game.status==="lobby"&&!mine&&game.players.length<game.seats){
-    // A request already sent is not something to ask for twice: the server would ignore it anyway.
-    const asked=(game.pending||[]).some(person=>gameIsMine(person.id));
-    const join=document.createElement("button");join.type="button";join.className="primary";
-    join.textContent=asked?"Request sent - waiting for the host":game.policy==="open"?"Join game":"Request to join";
-    join.disabled=asked;
-    join.onclick=()=>sendGame(game.policy==="open"?"game-join":"game-request",{gameId:game.id});
-    actions.appendChild(join);
-  }
-  // A game with a range of seats (Draw & Guess) waits in its lobby until the host says go, so the room can gather
-  // instead of the second person to arrive starting a two-player round for everybody.
-  if(game.status==="lobby"&&mine&&mayRun&&game.players.length>=(game.minSeats||2)){
-    const begin=document.createElement("button");begin.type="button";begin.className="primary";
-    begin.textContent=`Start now (${game.players.length} playing)`;
-    begin.onclick=()=>sendGame("game-start",{gameId:game.id});
-    actions.appendChild(begin);
-  }
-  if(!mine&&game.status!=="ended"){
-    const watch=document.createElement("button");watch.type="button";watch.className="secondary";watch.textContent=`Watch (${game.spectators})`;
-    watch.onclick=()=>sendGame("game-watch",{gameId:game.id});
-    actions.appendChild(watch);
-  }
-  if(mine&&game.status!=="ended"){
-    const leave=document.createElement("button");leave.type="button";leave.className="secondary";leave.textContent="Leave game";
-    leave.onclick=()=>sendGame("game-leave",{gameId:game.id});
-    actions.appendChild(leave);
-  }
-  // Chess-only mechanics: a draw has to be offered and accepted, and resigning is not the same as walking out
-  // (leaving already forfeits, but it is the wrong word for it and it drops the seat).
-  if(mine&&game.status==="playing"&&game.kind==="chess"){
-    if(game.drawOffer&&!gameIsMine(game.drawOffer)){
-      const accept=document.createElement("button");accept.type="button";accept.className="primary";accept.textContent="Accept draw";
-      accept.onclick=()=>sendGame("game-accept-draw",{gameId:game.id});
-      actions.appendChild(accept);
-    }else{
-      const offered=Boolean(game.drawOffer&&gameIsMine(game.drawOffer));
-      const offer=document.createElement("button");offer.type="button";offer.className="secondary";offer.textContent=offered?"Draw offered":"Offer draw";
-      offer.disabled=offered;
-      offer.onclick=()=>sendGame("game-offer-draw",{gameId:game.id});
-      actions.appendChild(offer);
-    }
-    const resign=document.createElement("button");resign.type="button";resign.className="secondary danger";resign.textContent="Resign";
-    resign.onclick=()=>openConfirm("Resign this game?","Your opponent wins immediately. This cannot be undone.",()=>sendGame("game-resign",{gameId:game.id}));
-    actions.appendChild(resign);
-  }
-  if(game.status==="ended"){
-    // A rematch keeps the seats and only resets the board. Any player at the board may ask for it - the host
-    // role moves to whoever is left when a host walks out, so nobody is stuck behind an absent host - and
-    // clearing takes the finished board out of the room.
-    if(mine||mayRun){
-      const again=document.createElement("button");again.type="button";again.className="primary";again.textContent="Rematch";
-      again.onclick=()=>sendGame("game-restart",{gameId:game.id});
-      actions.appendChild(again);
-      const clear=document.createElement("button");clear.type="button";clear.className="secondary";clear.textContent="Clear from room";
-      clear.onclick=()=>{activeGameId=null;sendGame("game-end",{gameId:game.id})};
-      actions.appendChild(clear);
-    }
-    // And there is always a way into a fresh game from a finished one - even for a player still seated in it,
-    // because a dead board must never be the only thing they hold - unless they are in a game being played.
-    if(!playingHere()&&unfinishedGames().length<MAX_GAMES_PER_ROOM){
-      const fresh=document.createElement("button");fresh.type="button";fresh.className="secondary";fresh.textContent="Start another game";
-      fresh.onclick=()=>{activeGameId=null;creatingGame=true;renderGames()};
-      actions.appendChild(fresh);
-    }
-  }else if(mayRun){
-    const end=document.createElement("button");end.type="button";end.className="secondary";end.textContent="End game";
-    end.onclick=()=>sendGame("game-end",{gameId:game.id});
-    actions.appendChild(end);
-  }
-  if(actions.childElementCount)body.appendChild(actions);
 
   if(game.pending&&game.pending.length){
     const pending=document.createElement("div");pending.className="game-pending";
-    const heading=document.createElement("p");heading.className="game-copy";heading.textContent="Waiting for the host";
+    const heading=document.createElement("p");heading.className="game-copy";heading.textContent=gameIsMine(game.hostId)?"Waiting for you":"Waiting for the host";
     pending.appendChild(heading);
     game.pending.forEach(person=>{
       const row=document.createElement("div");row.className="game-pending-row";
@@ -1107,9 +1090,40 @@ function renderGameDetail(body,game){
     });
     body.appendChild(pending);
   }
-  // Last, once every row is in the DOM: a canvas that would push the controls under it past the fold gives back
-  // exactly what is missing (see fitDrawCanvas).
-  fitDrawCanvas(body);
+  if(!game.players.some(player=>gameIsMine(player.id))&&game.status!=="ended"){
+    const watch=document.createElement("button");watch.type="button";watch.className="secondary";watch.textContent=`Watch (${game.spectators})`;
+    watch.onclick=()=>sendGame("game-watch",{gameId:game.id});
+    body.appendChild(watch);
+  }
+}
+// Leaving, ending, clearing and resigning: the actions nobody needs mid-move. One word each, two to a row.
+function renderGameOptions(body,game){
+  const mine=game.players.some(player=>gameIsMine(player.id)),mayRun=gameIsMine(game.hostId);
+  const status=document.createElement("p");status.className="game-copy";
+  status.textContent=`${game.name} - ${gameStatusText(game)}`;
+  body.appendChild(status);
+
+  const actions=document.createElement("div");actions.className="game-actions";
+  const add=(label,kind,onclick,disabled)=>{
+    const button=document.createElement("button");button.type="button";button.className=kind;button.textContent=label;
+    button.disabled=Boolean(disabled);button.onclick=onclick;actions.appendChild(button);
+  };
+  if(mine&&game.status!=="ended")add("Leave","secondary",()=>sendGame("game-leave",{gameId:game.id}));
+  // Chess-only mechanics: a draw has to be offered and accepted, and resigning is not the same as walking out.
+  if(mine&&game.status==="playing"&&game.kind==="chess"){
+    if(game.drawOffer&&!gameIsMine(game.drawOffer))add("Accept draw","primary",()=>sendGame("game-accept-draw",{gameId:game.id}));
+    else{const offered=Boolean(game.drawOffer&&gameIsMine(game.drawOffer));add(offered?"Offered":"Offer draw","secondary",()=>sendGame("game-offer-draw",{gameId:game.id}),offered)}
+    add("Resign","secondary danger",()=>openConfirm("Resign this game?","Your opponent wins immediately. This cannot be undone.",()=>sendGame("game-resign",{gameId:game.id})));
+  }
+  if(game.status==="ended"){
+    if(mine||mayRun)add("Clear","secondary",()=>{activeGameId=null;sendGame("game-end",{gameId:game.id})});
+    if(!playingHere()&&unfinishedGames().length<MAX_GAMES_PER_ROOM)add("New game","secondary",()=>{activeGameId=null;gamePage="board";creatingGame=true;renderGames()});
+  }else if(mayRun){
+    add("End game","secondary",()=>sendGame("game-end",{gameId:game.id}));
+  }
+  if(!mine&&game.status!=="ended")add("Watch","secondary",()=>sendGame("game-watch",{gameId:game.id}));
+  if(actions.childElementCount)body.appendChild(actions);
+  else{const none=document.createElement("p");none.className="game-copy";none.textContent="Nothing to do here.";body.appendChild(none)}
 }
 // Three layouts, all server-owned: columns for Connect Four (dropped bottom-up like gravity), a square grid
 // for tic-tac-toe and Reversi, and a chess board drawn from the position in FEN. The object sends the legal
@@ -1336,8 +1350,8 @@ function noteDrawChat(message){
   // the next render (which may be a whole turn away).
   fitDrawCanvas($("#gameBody"));
 }
-// Draw & Guess: one shared canvas. Everyone repaints from the strokes the object holds, and a live stroke is painted
-// as it arrives instead of forcing a whole re-render.
+// Draw & Guess: one shared canvas, one line of state, and the tools. Everyone repaints from the strokes the object
+// holds, and a live stroke is painted as it arrives instead of forcing a whole re-render.
 function renderDrawBoard(body,game){
   stopDrawTimer();
   const round=game.round||null;
@@ -1348,19 +1362,28 @@ function renderDrawBoard(body,game){
   const secret=iAmDrawer?gameWords.get(game.id)||null:null;
   const drawing=Boolean(iAmDrawer&&secret&&secret.word&&round&&!round.revealed);
   const choice={color:DRAW_COLORS[0],size:2};
+  const guessed=Array.isArray(game.guessed)?game.guessed:[];
+  // Guests guess too and the turn waits for them, so they are counted here: a line that says "1 of 1" while the
+  // turn runs on would be a lie.
+  const others=round?[...game.players,...(game.guests||[])].filter(person=>person.id!==round.drawerId):[];
+  const done=others.filter(person=>guessed.includes(person.id)).length;
+  const nameOf=id=>(game.players.find(player=>player.id===id)||{}).username||"somebody";
 
-  const head=document.createElement("div");head.className="draw-head";
-  const title=document.createElement("b");
-  title.textContent=round?`Round ${Math.min(round.number||1,game.rounds||3)} of ${game.rounds||3}`:"Draw & Guess";
-  const state=document.createElement("span");
-  if(!playing)state.textContent="Not started";
-  else if(!round)state.textContent="Starting…";
-  else if(round.revealed)state.textContent=`The word was “${round.word||"?"}”`;
-  else if(round.choosing)state.textContent=iAmDrawer?"Pick a word to draw":"choosing a word…";
-  else state.textContent=iAmDrawer?"You are drawing":"Draw it and guess in the chat";
+  // One line: the round, what is happening, the clock and Clear as a glyph. Seats, scores and options are pages of
+  // their own behind the header buttons; this is all the chrome the drawing gets.
+  const bar=document.createElement("div");bar.className="draw-bar";
+  const roundLabel=document.createElement("span");roundLabel.className="draw-round";
+  roundLabel.textContent=round?`R${Math.min(round.number||1,game.rounds||3)}/${game.rounds||3}`:"Draw & Guess";
+  const state=document.createElement("span");state.className="draw-state";
+  if(!playing)state.textContent=game.status==="lobby"?(gameIsMine(game.hostId)?`${game.players.length} of ${game.seats} seated`:`${game.players.length} of ${game.seats} seated · waiting for the host`):"not started";
+  else if(!round)state.textContent="starting";
+  else if(round.revealed)state.textContent=`was ${round.word||"?"}`;
+  else if(round.choosing)state.textContent=iAmDrawer?"pick a word":`${nameOf(round.drawerId)} is choosing`;
+  else state.textContent=others.length?`${done} of ${others.length} guessed`:"nobody to guess";
   const timer=document.createElement("span");timer.className="draw-timer";
-  head.append(title,state,timer);
-  body.appendChild(head);
+  bar.append(roundLabel,state,timer);
+  if(drawing)bar.appendChild(iconButton("⌫","Clear the canvas",()=>sendGame("game-clear",{gameId:game.id})));
+  body.appendChild(bar);
 
   // Word line: the drawer reads the answer, everybody else reads the mask.
   const word=document.createElement("p");word.className="draw-word";
@@ -1369,18 +1392,6 @@ function renderDrawBoard(body,game){
     if(!word.textContent)word.textContent="…";
   }
   body.appendChild(word);
-
-  // Who is still guessing. With more than two players the drawer otherwise cannot tell an empty room from a room
-  // full of people thinking, and a guesser cannot tell whether anybody else is close. Guests guess too and the turn
-  // waits for them, so they are counted here: a line that says "1 of 1" while the turn runs on is a lie.
-  if(playing&&round&&!round.revealed&&!round.choosing){
-    const guessed=Array.isArray(game.guessed)?game.guessed:[];
-    const others=[...game.players,...(game.guests||[])].filter(person=>person.id!==round.drawerId);
-    const done=others.filter(person=>guessed.includes(person.id)).length;
-    const line=document.createElement("p");line.className="draw-guessed";
-    line.textContent=others.length?`${done} of ${others.length} guessed`:"nobody to guess yet";
-    body.appendChild(line);
-  }
 
   // The drawer's three words, offered for the short choosing window.
   if(playing&&round&&round.choosing&&iAmDrawer&&secret?.options?.length){
@@ -1405,14 +1416,8 @@ function renderDrawBoard(body,game){
   body.appendChild(canvas);
 
   if(drawing){
-    // Tools sit with the canvas, not in the chat tools, because they only mean anything while drawing. Clear goes
-    // in the header instead of the end of the row: on a 390 px phone the row is already full of palette, and the
-    // one control that must never need a sideways scroll is the one that wipes the board.
-    const clear=document.createElement("button");clear.type="button";clear.className="secondary";
-    clear.style.cssText="flex:0 0 auto;width:auto;min-width:0;max-width:max-content;padding:4px 8px;font-size:12px;border-radius:7px";
-    clear.textContent="Clear";
-    clear.onclick=()=>sendGame("game-clear",{gameId:game.id});
-    head.appendChild(clear);
+    // One row of glyphs under the canvas, where a thumb is: eight colours and three widths. Clear is the glyph in
+    // the state line rather than the end of this row, because the row must never scroll sideways on a phone.
     const tools=document.createElement("div");tools.className="draw-tools";
     DRAW_COLORS.forEach((color,index)=>{
       const swatch=document.createElement("button");swatch.type="button";swatch.className=`draw-swatch${index===0?" active":""}`;
@@ -1424,7 +1429,7 @@ function renderDrawBoard(body,game){
     DRAW_SIZES.forEach(size=>{
       const button=document.createElement("button");button.type="button";button.className=`draw-size${size===2?" active":""}`;
       button.setAttribute("aria-label",`Brush ${size}`);button.onclick=()=>{choice.size=size;sizes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
-      const dot=document.createElement("i");dot.style.width=`${size*4+2}px`;dot.style.height=`${size*4+2}px`;button.appendChild(dot);sizes.appendChild(button);
+      const dot=document.createElement("i");dot.style.width=`${size*3+2}px`;dot.style.height=`${size*3+2}px`;button.appendChild(dot);sizes.appendChild(button);
     });
     tools.appendChild(sizes);
     body.appendChild(tools);
@@ -1454,20 +1459,6 @@ function renderDrawBoard(body,game){
     canvas.addEventListener("pointerleave",event=>{if(event.buttons===0)finish()});
   }
 
-  // Guest scores only: the players are already on the seat cards above, and repeating them cost ~50 px of a
-  // 390 px phone's pane for nothing. Guests have no seat card, so this is the only place they appear.
-  const guestScores=(game.guests||[]).filter(guest=>guest.score);
-  if(guestScores.length){
-    const scores=document.createElement("div");scores.className="draw-scores";
-    guestScores.forEach(guest=>{
-      const row=document.createElement("span");row.className="draw-score guest";
-      const name=document.createElement("b");name.textContent=`${guest.username} (guest)`;
-      const value=document.createElement("i");value.textContent=`${guest.score||0}`;
-      row.append(name,value);scores.appendChild(row);
-    });
-    body.appendChild(scores);
-  }
-
   // The chat is hidden while the panel is maximised, and the chat is where the guesses are. The strip is always
   // present in that layout, even while it is empty, so a line arriving later has somewhere to go without a repaint.
   if($("#chatSplit")?.dataset.max==="1"){
@@ -1487,17 +1478,20 @@ function renderDrawBoard(body,game){
     tick();drawTimer=setInterval(tick,250);
   }else timer.textContent=round&&round.revealed?"—":"";
 }
-// The canvas has a floor so it can never shrink to nothing, which means that on a short pane it can land a few pixels
-// past the fold together with the tools and the actions under it. Give back exactly what is missing: the rows below
-// the canvas are only known once they are in the DOM, which is the one thing the container query cannot see.
+// Every board in the pane is capped by a CSS budget for the rows around it (a state line, the chess clocks, the
+// drawing tools), and a budget is always a few pixels wrong on some screen. Once the DOM is built, measure what is
+// really left and take it back: a board that fits its pane, and no scrollbar over a game.
 function fitDrawCanvas(body){
-  const canvas=body?.querySelector?.(".draw-canvas");
-  if(!canvas)return;
+  if(!body)return;
   const over=body.scrollHeight-body.clientHeight;
   if(over<=0)return;
-  const width=canvas.getBoundingClientRect().width;
-  const next=Math.max(180,Math.round(width-over*4/3));
-  if(next<width)canvas.style.maxWidth=`${next}px`;
+  const canvas=body.querySelector(".draw-canvas");
+  const board=canvas||body.querySelector(".chess-board")||body.querySelector(".grid-board")||body.querySelector(".cf-board");
+  if(!board)return;
+  const ratio=canvas?4/3:board.classList.contains("cf-board")?7/6:1;
+  const width=board.getBoundingClientRect().width;
+  const next=Math.max(160,Math.round(width-over*ratio));
+  if(next<width)board.style.maxWidth=`${next}px`;
 }
 function renderLiveGames(body){
   if(!liveGames.length){const empty=document.createElement("p");empty.className="game-copy";empty.textContent="No game is running right now. Open a room and start one.";body.appendChild(empty)}
@@ -1677,8 +1671,15 @@ async function loadNotice(){
 $("#gamesButton").onclick=()=>openGames("room");
 $("#gamesClose").onclick=closeGames;
 $("#gamePaneClose").onclick=closeGames;
-// Maximise is a per-view toggle; touching it records that the player chose their own layout, so the auto rule
-// above never takes the choice back.
+// The pane's header is the whole navigation: back is "leave the board" or "leave the game", and the two glyphs swap
+// the body for the people and the options. A second tap returns to the board, so nothing is ever two taps away.
+$("#gamePaneBack").onclick=()=>{
+  if(gamePage!=="board"){gamePage="board";renderGames();return}
+  activeGameId=null;gamePage="board";renderGames();
+};
+$("#gamePanePeople").onclick=()=>{gamePage=gamePage==="people"?"board":"people";renderGames()};
+$("#gamePaneMenu").onclick=()=>{gamePage=gamePage==="options"?"board":"options";renderGames()};
+// Maximise is a per-view toggle; touching it records that the player chose their own layout.
 $("#gamePaneMax").onclick=()=>{
   const split=$("#chatSplit");
   split.dataset.userLayout="1";

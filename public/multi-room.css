@@ -815,11 +815,13 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 /* Chess: the board is eight square files on a light/dark chequer, and every highlight is a thin inset ring so
    it never changes the square's size (a border would jog the grid). */
 .chess-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));border-radius:10px;overflow:hidden;
-  border:1px solid #c9d3e5;margin:0 0 10px;touch-action:manipulation}
+  border:1px solid #c9d3e5;margin:0 0 10px;touch-action:manipulation;container-type:inline-size}
 .chess-square{position:relative;aspect-ratio:1;min-width:0;border:0;padding:0;display:grid;place-items:center;
   line-height:1;background:#e8edf6;cursor:pointer}
 .chess-square.dark{background:#a3b1cb}
-.chess-piece{font-size:clamp(18px,5.2vw,40px);pointer-events:none}
+/* The glyph follows the square, not the viewport: 5.2vw forced an 18 px piece into a 17 px cell on a phone, which
+   stretched every row and left the board taller than it was wide. */
+.chess-piece{font-size:9cqw;pointer-events:none}
 .chess-piece.white{color:#fff;text-shadow:0 0 1px #10161f,0 0 2px #10161f,0 1px 2px #10161f99,0 2px 3px #10161f55}
 .chess-piece.black{color:#0f1420;text-shadow:0 0 1px #ffffffaa,0 1px 2px #ffffff77}
 .chess-square.last{box-shadow:inset 0 0 0 3px #eab308cc}
@@ -847,34 +849,36 @@ html[data-theme=dark] .chess-clock b{color:#e4e9f2}
 html[data-theme=dark] .chess-clock span{color:#b6c2d6}
 html[data-theme=dark] .chess-clock.running{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff33}
 html[data-theme=dark] .chess-clock.low span{color:#ff8b8b}
-/* Draw & Guess: the canvas keeps a 4:3 shape and is capped by the panel's own height, so the drawing stays a
-   usable size on a phone instead of pushing the tools off the bottom. */
+/* Draw & Guess: one line of state, the word, the canvas, one row of tools. No seat cards and no action buttons on
+   the board - those are pages of their own behind the header's 👥 and ⋯ buttons, which is what leaves the canvas
+   its height at 40% of a phone. */
 .message-system{margin:6px auto;padding:6px 12px;border-radius:999px;background:#eef1f8;color:#5a6579;
   font-size:12px;font-weight:700;text-align:center;max-width:90%}
 html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
-.draw-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 6px}
-.draw-head b{font-size:13px;color:#26303f}
-.draw-head span{font-size:12px;color:#6d788c}
+.draw-bar{display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:12px;line-height:1.2}
+.draw-round{font-weight:800;color:#26303f;font-variant-numeric:tabular-nums}
+.draw-state{flex:1;min-width:0;color:#6d788c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .draw-timer{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;color:#4a5568}
 .draw-timer.low{color:#c33b55}
-.draw-word{margin:0 0 8px;text-align:center;font-weight:800;letter-spacing:.16em;font-size:15px;color:#31406b}
-.draw-picker{display:flex;gap:6px;margin:0 0 8px;flex-wrap:wrap}
-.draw-picker button{flex:1 1 30%;font-size:13px;padding:9px 6px}
-/* A canvas needs a floor, not just a cap: in a 40% pane on a phone the height budget after the word line,
-   the tools and the scores is nearly nothing, and "fit the panel" would draw a 50 px canvas nobody can use.
-   Below the floor the pane body scrolls instead. */
-.game-pane .draw-canvas{max-width:min(100%,max(220px,calc((100cqh - 150px) * 4 / 3)));margin-inline:auto}
+/* A glyph in a square: Clear, Rematch, and anything else whose word is a symbol's worth of meaning. */
+.game-icon-btn{flex:0 0 auto;width:24px;height:24px;display:grid;place-items:center;padding:0;border-radius:7px;
+  border:1px solid #e4e9f2;background:#f7f9fc;color:#4a5568;font-size:14px;line-height:1;font-weight:800}
+.game-icon-btn.primary{border-color:#5b6cff;background:#eef1ff;color:#3146d8}
+.draw-word{margin:0 0 6px;text-align:center;font-weight:800;letter-spacing:.12em;font-size:16px;color:#31406b;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.draw-picker{display:flex;gap:6px;margin:0 0 6px;flex-wrap:wrap}
+.draw-picker button{flex:1 1 30%;font-size:13px;padding:8px 6px}
+/* The canvas keeps a 4:3 shape. Its cap leaves room for the one state line, the word and (for the drawer) the tool
+   row; fitDrawCanvas() measures the rest after the DOM is built, so a short pane never scrolls. */
+.game-pane .draw-canvas{max-width:min(100%,max(200px,calc((100cqh - 70px) * 4 / 3)));margin-inline:auto}
 .draw-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3;background:#fff;border:1px solid #cfd6e4;
-  border-radius:10px;touch-action:none;margin:0 auto 8px;cursor:crosshair}
-/* One row, never wrapped: wrapping cost 133 px of a 390 px phone's pane and pushed Clear off the bottom. If it
-   cannot all fit it scrolls sideways instead. */
-.draw-tools{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 0 8px}
-.draw-tools::-webkit-scrollbar{display:none}
-.draw-tools>button.secondary{flex:0 0 auto;padding:5px 8px;font-size:12px;border-radius:7px}
-.draw-swatch{width:20px;height:20px;flex:0 0 auto;border-radius:6px;border:2px solid transparent;background:var(--swatch);padding:0}
+  border-radius:10px;touch-action:none;margin:0 auto 6px;cursor:crosshair}
+/* One row of glyphs, never wrapped and never scrolled: eight colours, three widths. */
+.draw-tools{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;margin:0 0 4px}
+.draw-swatch{width:18px;height:18px;flex:0 0 auto;border-radius:5px;border:2px solid transparent;background:var(--swatch);padding:0}
 .draw-swatch.active{border-color:#5b6cff;box-shadow:0 0 0 2px #5b6cff33}
-.draw-sizes{display:flex;gap:4px;flex:0 0 auto}
-.draw-size{width:24px;height:24px;flex:0 0 auto;display:grid;place-items:center;padding:0;border-radius:6px}
+.draw-sizes{display:flex;gap:3px;flex:0 0 auto;margin-left:auto}
+.draw-size{width:22px;height:22px;flex:0 0 auto;display:grid;place-items:center;padding:0;border-radius:6px}
 .draw-size i{display:block;border-radius:50%;background:#4a5568}
 .draw-size.active{border-color:#5b6cff;background:#eef1ff}
 .draw-scores{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
@@ -882,19 +886,21 @@ html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
   border-radius:999px;padding:4px 10px;font-size:12px}
 .draw-score b{color:#26303f;font-weight:700}
 .draw-score i{font-style:normal;font-weight:800;color:#3146d8}
-.draw-score.drawing{border-color:#f9c74f;background:#fffaf0}
 .draw-score.guest{border-style:dashed}
-/* Who is still guessing, and the chat echo shown when the maximised panel has hidden the conversation. */
-.draw-guessed{margin:0 0 6px;text-align:center;font-size:12px;font-weight:700;color:#6d788c}
-.draw-recent{margin:0 0 8px;display:grid;gap:2px;max-height:64px;overflow:hidden}
+/* The slim state line a board that is not a canvas gets, where the old row of seat cards and a second status line
+   used to sit. */
+.game-bar{margin:0 0 6px;font-size:12px;font-weight:700;color:#4a5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The result and the one thing anybody does about it: rematch sits beside the line, not below it. */
+.game-result-row{display:flex;align-items:center;gap:6px;margin:6px 0 0}
+.game-result-row .game-result{flex:1;min-width:0;margin:0;padding:8px 10px;font-size:13px}
+.game-join{width:100%;margin:6px 0 0;padding:10px;border-radius:9px;font-size:13px}
+/* The chat echo, shown only while the maximised panel has hidden the conversation. */
+.draw-recent{margin:0 0 6px;display:grid;gap:2px;max-height:64px;overflow:hidden}
 .draw-recent:empty{display:none}
 .draw-recent-line{margin:0;font-size:12px;line-height:1.35;color:#4a5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .draw-recent-line.system{color:#3146d8;font-weight:700;text-align:center}
-html[data-theme=dark] .draw-guessed{color:#9aa7bd}
-html[data-theme=dark] .draw-recent-line{color:#b6c2d6}
-html[data-theme=dark] .draw-recent-line.system{color:#9aa4ff}
-html[data-theme=dark] .draw-head b{color:#e4e9f2}
-html[data-theme=dark] .draw-head span{color:#9aa7bd}
+html[data-theme=dark] .draw-round{color:#e4e9f2}
+html[data-theme=dark] .draw-state{color:#9aa7bd}
 html[data-theme=dark] .draw-timer{color:#c3cee0}
 html[data-theme=dark] .draw-word{color:#c9d4ff}
 html[data-theme=dark] .draw-canvas{border-color:#2c3648}
@@ -903,7 +909,11 @@ html[data-theme=dark] .draw-size.active{background:#1b2340;border-color:#5b6cff}
 html[data-theme=dark] .draw-score{background:#101725;border-color:#293243}
 html[data-theme=dark] .draw-score b{color:#e4e9f2}
 html[data-theme=dark] .draw-score i{color:#9aa4ff}
-html[data-theme=dark] .draw-score.drawing{background:#1d1a10;border-color:#8a6d1f}
+html[data-theme=dark] .draw-recent-line{color:#b6c2d6}
+html[data-theme=dark] .draw-recent-line.system{color:#9aa4ff}
+html[data-theme=dark] .game-bar{color:#c3cee0}
+html[data-theme=dark] .game-icon-btn{background:#151e2e;border-color:#2c3648;color:#b6c2d6}
+html[data-theme=dark] .game-icon-btn.primary{background:#1b2340;border-color:#5b6cff;color:#b9c8ff}
 .game-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .game-actions button{flex:1 1 auto;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}
 /* The page's primary/secondary buttons are full width, which turns every action in a 40% pane into a row of its
@@ -933,36 +943,26 @@ a.game-list-row .game-chip{color:#5b6cff}
 .chat-split>.messages{flex:1 1 60%;min-height:0}
 .game-pane{flex:0 0 40%;min-height:0;display:flex;flex-direction:column;background:#fff;border-top:1px solid #e7eaf0}
 .game-pane[hidden]{display:none}
-.game-pane-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eef1f6;flex:0 0 auto}
-.game-pane-head b{flex:1;min-width:0;font-size:13px;font-weight:800;color:#26303f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.game-pane-head button{border:0;background:#f2f4f8;border-radius:8px;width:28px;height:28px;color:#59647a;font-weight:800;font-size:13px;padding:0}
-.game-pane-body{flex:1;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;container-type:size}
+.game-pane-head{display:flex;align-items:center;gap:5px;padding:6px 10px;border-bottom:1px solid #eef1f6;flex:0 0 auto}
+.game-pane-head b{flex:1;min-width:0;font-size:12.5px;font-weight:800;color:#26303f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Five glyphs have to fit beside the title in a 40% pane on a 390 px phone, so they are 26 px squares. */
+.game-pane-head button{border:0;background:#f2f4f8;border-radius:7px;width:26px;height:26px;color:#59647a;font-weight:800;font-size:14px;padding:0;flex:0 0 auto}
+.game-pane-head button[aria-pressed="true"]{background:#eef1ff;color:#3146d8}
+.game-pane-body{flex:1;min-height:0;overflow:auto;padding:10px;overscroll-behavior:contain;container-type:size}
 /* A board must fit the panel it was given: on a phone the pane is 40% of the room, and a board sized only
    by width would hang off the bottom of it. Container query units let the board follow the pane's own
    height, so a square grid is min(width, height) and Connect Four keeps its 7:6 shape. */
-.game-pane .grid-board{max-width:min(100%,calc(100cqh - 44px));margin-inline:auto}
-.game-pane .cf-board{max-width:min(100%,calc((100cqh - 44px) * 7 / 6));margin-inline:auto}
+.game-pane .grid-board{max-width:min(100%,calc(100cqh - 26px));margin-inline:auto}
+.game-pane .cf-board{max-width:min(100%,calc((100cqh - 26px) * 7 / 6));margin-inline:auto}
 /* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. */
-.game-pane .chess-board{max-width:min(100%,calc(100cqh - 76px));margin-inline:auto}
-/* A drawing needs height. On a phone 40% of the split is about 260 px, and the seats, the word, the guessed count
-   and a canvas anybody could read do not fit in that: the picture ended up below the fold with only the mask
-   showing. While a canvas game is open the pane takes 55% of the split and the rows above the drawing shrink; the
-   drawer's panel opens maximised on top of this (see autoMaximise), and every other game keeps the 60/40 default. */
+.game-pane .chess-board{max-width:min(100%,calc(100cqh - 60px));margin-inline:auto}
+/* A drawing needs height, and so does every other board: on a phone the split gives the pane 55% and the chat 45%,
+   which is still a conversation you can play beside. The list and create views keep the 60/40 default. */
 @media (max-width:859px){
-  .chat-split[data-canvas="1"]>.messages{flex:1 1 45%}
-  .chat-split[data-canvas="1"]>.game-pane{flex:1 1 55%}
-  .chat-split[data-canvas="1"] .game-status{display:none}
-  .chat-split[data-canvas="1"] .game-seats{gap:5px;margin:0 0 6px}
-  .chat-split[data-canvas="1"] .game-seat{padding:5px 7px;gap:0}
-  .chat-split[data-canvas="1"] .game-seat b{font-size:11px}
-  .chat-split[data-canvas="1"] .game-seat small{font-size:10px}
-  .chat-split[data-canvas="1"] .game-back{margin:0 0 4px;font-size:11.5px}
-  .chat-split[data-canvas="1"] .draw-head{margin:0 0 4px}
-  .chat-split[data-canvas="1"] .draw-word{margin:0 0 4px;font-size:14px}
-  .chat-split[data-canvas="1"] .draw-guessed{margin:0 0 4px;font-size:11px}
-  /* The actions are one row, not two: every 40 px spent under the canvas is 40 px the drawing does not get. */
-  .chat-split[data-canvas="1"] .game-actions{margin:0 0 6px}
-  .chat-split[data-canvas="1"] .game-actions button{padding:7px 10px;font-size:12px}
+  .chat-split[data-board="1"]>.messages{flex:1 1 45%}
+  .chat-split[data-board="1"]>.game-pane{flex:1 1 55%}
+  /* The options are one row, not two: every 40 px under the board is 40 px the board does not get. */
+  .chat-split[data-board="1"] .game-actions button{padding:7px 10px;font-size:12px}
 }
 /* Maximise is the escape hatch for a small screen: the 60/40 split stays the default, and one tap gives the
    board the whole room for a move. */

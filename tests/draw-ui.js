@@ -67,17 +67,26 @@ const hasInk = page => page.evaluate(() => {
     await a.locator('.game-kind[data-kind="draw-guess"]').click();
     await a.locator('.game-policy input[value="open"]').check();
     await a.locator(".game-create button.primary").click();
-    await waitPane(a, "Open seat");
+    // A new game opens on its board, and the board carries no seats: those are the people page behind 👥.
+    await waitPane(a, "seated");
+    ok("the board opens without a row of seat cards", await a.locator(".game-seats").count() === 0, "seats on the board");
+    await a.locator("#gamePanePeople").click();
+    await a.locator(".game-seats").first().waitFor();
+    ok("the people page shows the open seat", (await a.locator("#gameBody").innerText()).includes("Open seat"), (await a.locator("#gameBody").innerText()).slice(0, 160));
+    await a.locator("#gamePanePeople").click();
+    await a.locator(".game-seats").waitFor({ state: "detached" });
+    ok("the second tap on the glyph returns to the board", await a.locator(".draw-canvas, .game-bar").count() === 1);
     await openPanel(b);
     await b.locator(".game-list-row").first().click();
-    await b.locator(".game-actions button", { hasText: "Join game" }).click();
+    await b.locator(".game-join").click();
     // The game waits in its lobby for the host: a second person arriving no longer starts a two-player round before
     // anybody else can take a seat.
     await waitPane(a, "Start now");
-    ok("the host is offered a start with everybody seated", await b.locator(".game-actions button", { hasText: "Start now" }).count() === 0, "a guest could start it");
+    await waitPane(b, "seated");
+    ok("the host is offered a start with everybody seated", !(await b.locator("#gameBody").innerText()).includes("Start now"), (await b.locator("#gameBody").innerText()).slice(0, 120));
     ok("the other player is told the game is waiting on the host", /waiting for the host/i.test(await b.locator("#gameBody").innerText()), (await b.locator("#gameBody").innerText()).slice(0, 200));
-    await a.locator(".game-actions button", { hasText: "Start now" }).click();
-    await waitPane(a, "Pick a word");
+    await a.locator(".game-join").click();
+    await waitPane(a, "pick a word");
 
     ok("the drawer is offered three words to pick", await a.locator(".draw-picker button").count() === 3, String(await a.locator(".draw-picker button").count()));
     ok("the guesser sees no word picker", await b.locator(".draw-picker button").count() === 0);
@@ -122,15 +131,20 @@ const hasInk = page => page.evaluate(() => {
     ok("a sentence in the chat box becomes the highlighted line", /guessed the word/i.test(line), line);
     ok("the sentence itself is not posted as a bubble", await b.locator(".message", { hasText: "I think so" }).count() === 0);
     ok("the word is not repeated in the announcement", !line.toLowerCase().includes(word.toLowerCase()), line);
-    await waitPane(a, "The word was");
-    ok("the turn reveals the word to everybody", (await a.locator(".draw-word").innerText()).length === 0 || (await a.locator(".draw-head").innerText()).includes("The word was"));
+    await waitPane(a, `was ${word}`);
+    ok("the turn reveals the word to everybody", (await a.locator(".draw-bar").innerText()).toLowerCase().includes(`was ${word.toLowerCase()}`), await a.locator(".draw-bar").innerText());
+    await b.screenshot({ path: ".forge/shots/draw-desktop.png" });
 
+    // The seats and the score are one glyph away, and they still say everything the board does not.
+    await b.locator("#gamePanePeople").click();
+    await b.locator(".game-seats").first().waitFor();
     const seatText = await b.locator(".game-seats").innerText();
     ok("both players appear on the score cards", /du_a_/.test(seatText) && /du_b_/.test(seatText), JSON.stringify(seatText.slice(0, 120)));
-    ok("the drawer is marked on their seat", (await b.locator(".game-seats").innerText()).includes("✏️"), (await b.locator(".game-seats").innerText()).slice(0, 120));
+    ok("the drawer is marked on their seat", seatText.includes("✏️"), seatText.slice(0, 120));
     ok("the score cards show points, not wins", seatText.includes("pts"), JSON.stringify(seatText.slice(0, 120)));
+    ok("the people page says how many seats and who is watching", /2\/8 seats/.test(await b.locator("#gameBody").innerText()), (await b.locator("#gameBody").innerText()).slice(0, 200));
+    await b.screenshot({ path: ".forge/shots/draw-people.png" });
 
-    await b.screenshot({ path: ".forge/shots/draw-desktop.png" });
     ok("no page errors", true);
   } finally {
     await browser.close();
