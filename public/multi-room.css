@@ -905,6 +905,17 @@ html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
 .game-clock-choices{display:flex;gap:6px;flex-wrap:wrap}
 .game-clock-choice{flex:1 1 20%;padding:8px 6px;border-radius:9px;border:1px solid #dfe4ee;background:#fff;font-size:12px;font-weight:700;color:#5a6579}
 .game-clock-choice.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
+/* Starting a game: every kind in one fixed grid, then who may join, then the game's own options. Small buttons, no
+   list to scroll. */
+.game-kind-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 0 8px}
+.game-kind-btn{padding:9px 8px;font-size:12px;border-radius:9px;border:1px solid #dfe4ee;background:#fff;font-weight:700;color:#5a6579}
+.game-kind-btn.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
+.game-policy-choice{display:flex;gap:6px;margin:0 0 8px}
+.game-policy-btn{flex:1;padding:9px 6px;font-size:12px;border-radius:9px;border:1px solid #dfe4ee;background:#fff;font-weight:700;color:#5a6579}
+.game-policy-btn.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
+.game-start{width:100%;margin:6px 0 0;padding:11px;border-radius:9px;font-size:13px}
+html[data-theme=dark] .game-kind-btn,html[data-theme=dark] .game-policy-btn,html[data-theme=dark] .game-clock-choice{background:#151e2e;border-color:#2c3648;color:#b6c2d6}
+html[data-theme=dark] .game-kind-btn.active,html[data-theme=dark] .game-policy-btn.active,html[data-theme=dark] .game-clock-choice.active{background:#1b2340;border-color:#5b6cff;color:#b9c8ff}
 /* The result and the one thing anybody does about it: rematch sits beside the line, not below it. */
 .game-result-row{display:flex;align-items:center;gap:6px;margin:6px 0 0}
 .game-result-row .game-result{flex:1;min-width:0;margin:0;padding:8px 10px;font-size:13px}
@@ -960,8 +971,11 @@ a.game-list-row .game-chip{color:#5b6cff}
 .game-pane[hidden]{display:none}
 .game-pane-head{display:flex;align-items:center;gap:5px;padding:6px 10px;border-bottom:1px solid #eef1f6;flex:0 0 auto}
 .game-pane-head b{flex:1;min-width:0;font-size:12.5px;font-weight:800;color:#26303f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* Five glyphs have to fit beside the title in a 40% pane on a 390 px phone, so they are 26 px squares. */
-.game-pane-head button{border:0;background:#f2f4f8;border-radius:7px;width:26px;height:26px;color:#59647a;font-weight:800;font-size:14px;padding:0;flex:0 0 auto}
+/* Five glyphs have to fit beside the title in a 40% pane on a 390 px phone, so they are 26 px squares. A grid
+   centres the glyph by construction - text on a button's baseline is a pixel or two low, which is exactly why the
+   maximise arrows looked off-centre. */
+.game-pane-head button{border:0;background:#f2f4f8;border-radius:7px;width:26px;height:26px;color:#59647a;font-weight:800;font-size:14px;padding:0;flex:0 0 auto;display:grid;place-items:center;line-height:1}
+.game-pane-head button svg{width:14px;height:14px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .game-pane-head button[aria-pressed="true"]{background:#eef1ff;color:#3146d8}
 .game-pane-body{flex:1;min-height:0;overflow:auto;padding:10px;overscroll-behavior:contain;container-type:size}
 /* A board must fit the panel it was given: on a phone the pane is 40% of the room, and a board sized only

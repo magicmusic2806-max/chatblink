@@ -70,19 +70,17 @@ const rematchButton = page => page.locator('.game-icon-btn[aria-label="Rematch"]
 
     await openDock(host);
     ok("the Games button opens the dock with the create form", (await dockText(host)).includes("Nobody is playing here yet"));
-    // The reason for the split: playing never hides the conversation. At phone width the two stack, and the
-    // chat keeps its 60% of the height.
-    const split = await host.evaluate(() => {
+    // The wizard is not a board, but its five kinds, the policy, the clock and Start have to fit one screen, so it
+    // gets the pane: on a phone that is 60% and the chat keeps 40%.
+    const wizardSplit = await host.evaluate(() => {
       const pane = document.querySelector("#gamePane").getBoundingClientRect();
-      const messages = document.querySelector("#messageList").getBoundingClientRect();
       const chat = document.querySelector("#chatSplit").getBoundingClientRect();
-      return { pane: Math.round(pane.height), messages: Math.round(messages.height), chat: Math.round(chat.height) };
+      return Math.round(pane.height / chat.height * 100);
     });
-    ok("the game panel sits beside the chat instead of over it", split.pane > 0 && split.messages > 0, JSON.stringify(split));
-    ok("the split is 60/40 in the chat's favour", Math.abs(split.pane / split.chat - 0.4) < 0.06, JSON.stringify(split));
-    await host.locator('.game-kind[data-kind="tic-tac-toe"]').click();
-    await host.locator('.game-policy input[value="open"]').check();
-    await host.locator(".game-create button.primary").click();
+    ok("the create wizard takes the pane so it never scrolls", wizardSplit >= 55, String(wizardSplit));
+    await host.locator('.game-kind-btn[data-kind="tic-tac-toe"]').click();
+    await host.locator('.game-policy-btn[data-policy="open"]').click();
+    await host.locator(".game-start").click();
     await waitDock(host, "Waiting for a player");
     ok("the board page opens without a row of seat cards", await host.locator(".game-seats").count() === 0, "seats on the board");
     await openPeople(host);
@@ -173,6 +171,14 @@ const rematchButton = page => page.locator('.game-icon-btn[aria-label="Rematch"]
     // seat rather than as a board they are sitting at.
     await waitDock(host, "open seat");
     ok("the other player's dock shows the replay waiting for an opponent", (await dockText(host)).includes("open seat"), (await dockText(host)).slice(0, 200));
+    // The list of running games is the one view that stays at 40%: it is a directory, and the conversation keeps the
+    // 60% the owner asked for.
+    const listSplit = await host.evaluate(() => {
+      const pane = document.querySelector("#gamePane").getBoundingClientRect();
+      const chat = document.querySelector("#chatSplit").getBoundingClientRect();
+      return Math.round(pane.height / chat.height * 100);
+    });
+    ok("the games list keeps 60% for the chat", listSplit <= 45, String(listSplit));
 
     // And the room is never closed to a new game: the create form is still one tap away from the list the host is
     // already looking at.

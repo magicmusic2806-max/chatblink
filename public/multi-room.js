@@ -776,13 +776,18 @@ function openGames(mode){
   if(mode==="all")loadLiveGames();else sendGame("game-sync");
 }
 // The panel layout: 60/40 in the chat's favour, everywhere, because the point of the pane is playing while the
-// room talks. A canvas game gets a little more on a phone (`data-board`), and the maximise toggle gives the board
-// the whole room for a move. The board page carries no rows it does not need, which is what makes 40% enough.
+// room talks. A board takes 60% on a phone (`data-board`), and the maximise toggle gives it the whole room.
+// The maximise toggle is two arrows drawn as a path rather than the ⤢ glyph, which sits off-centre in its square on
+// most platforms: a 14 px SVG on a grid-centred button is centred by construction.
+const MAX_SHOW='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>';
+const MAX_HIDE='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 2v4H2M10 14v-4h4M2 6l4.5-4.5M14 10l-4.5 4.5"/></svg>';
 function setMaxButton(on){
   const button=$("#gamePaneMax");
   if(!button)return;
-  button.textContent=on?"⤡":"⤢";
+  button.innerHTML=on?MAX_HIDE:MAX_SHOW;
   button.setAttribute("aria-pressed",on?"true":"false");
+  button.setAttribute("aria-label",on?"Return the chat beside the game":"Maximise the game panel");
+  button.title=on?"Return the chat beside the game":"Maximise the game panel";
 }
 function setPaneMaximised(on){
   const split=$("#chatSplit");
@@ -820,7 +825,13 @@ function renderGames(){
   setPaneControls(false);
   // No history: the room's list is the games being played, so a room whose only board has finished looks
   // exactly like one nobody has played in - the result was on the board screen, and it clears itself.
-  if(creatingGame||!unfinishedGames().length){renderGameCreate(body);return}
+  if(creatingGame||!unfinishedGames().length){
+    // The wizard's five kinds, the two policy buttons, the clock and Start have to fit without a scrollbar, and
+    // 40% of a phone is 213 px: a form is not a board, but it needs the same room the board gets.
+    if($("#chatSplit"))$("#chatSplit").dataset.board="1";
+    renderGameStart(body);
+    return;
+  }
   renderGameList(body);
 }
 function gameStatusText(game){
@@ -927,48 +938,74 @@ function arcadeSection(){
   wrap.append(title,list);
   return wrap;
 }
-function renderGameCreate(body){
+/* Starting a game is a small wizard rather than a form: one tap on the kind, one on who may join, then the game's
+   own options and Start. The same page is behind the room's games list and behind the game window's ⋯ button, and
+   it never scrolls: every kind is a small button in a fixed grid and the questions appear under it as they apply. */
+let createKind=null,createPolicy=null,createMinutes=20;
+const GAME_KIND_LABELS=[["connect-four","Connect Four"],["tic-tac-toe","Tic-tac-toe"],["othello","Reversi"],["chess","Chess"],["draw-guess","Draw & Guess"]];
+function renderGameStart(body,{compact=false}={}){
   const card=document.createElement("div");card.className="game-create";
-  const copy=document.createElement("p");copy.className="game-copy";
-  copy.textContent=unfinishedGames().length?"Pick another game for this room.":"Nobody is playing here yet. Start a game and people can join or watch.";
-  const kinds=[["connect-four","Connect Four"],["tic-tac-toe","Tic-tac-toe"],["othello","Reversi"],["chess","Chess"],["draw-guess","Draw & Guess"]];
-  const pick=document.createElement("div");pick.className="game-kinds";
-  // Chess is the only kind with a setting of its own: the clock. It is offered right under the kind, and only for
-  // chess, because a time control that cannot apply to the game being started is a question with no answer.
-  const clock=document.createElement("div");clock.className="game-clock";clock.hidden=true;
-  let minutes=20;
-  const clockLabel=document.createElement("p");clockLabel.className="game-copy";clockLabel.textContent="Clock";
-  const clockChoices=document.createElement("div");clockChoices.className="game-clock-choices";
-  [[5,"5 min"],[20,"20 min"],[40,"40 min"],[0,"No clock"]].forEach(([value,label])=>{
-    const button=document.createElement("button");button.type="button";button.className=`game-clock-choice${value===minutes?" active":""}`;
-    button.dataset.minutes=String(value);button.textContent=label;
-    button.onclick=()=>{
-      minutes=value;
-      clockChoices.querySelectorAll(".game-clock-choice").forEach(item=>item.classList.toggle("active",item===button));
-    };
-    clockChoices.appendChild(button);
-  });
-  clock.append(clockLabel,clockChoices);
-  const showClock=()=>{const chosen=pick.querySelector(".game-kind.active");clock.hidden=!chosen||chosen.dataset.kind!=="chess"};
-  kinds.forEach(([value,label],index)=>{
-    const button=document.createElement("button");button.type="button";button.className=`game-kind${index===0?" active":""}`;button.dataset.kind=value;button.textContent=label;
-    button.onclick=()=>{pick.querySelectorAll(".game-kind").forEach(item=>item.classList.toggle("active",item===button));showClock()};
-    pick.appendChild(button);
-  });
-  const policy=document.createElement("div");policy.className="game-policy";
-  policy.innerHTML='<label><input type="radio" name="gamePolicy" value="request" checked><span>Ask me before someone joins</span></label><label><input type="radio" name="gamePolicy" value="open"><span>Anyone can take the free seat</span></label>';
-  const start=document.createElement("button");start.type="button";start.className="primary";start.textContent="Start a game";
-  // Flagged so the state packet that follows opens the new game instead of dropping back to the list.
-  start.onclick=()=>{const chosen=policy.querySelector("input:checked"),kind=pick.querySelector(".game-kind.active");creatingGame=true;sendGame("game-create",{kind:kind?kind.dataset.kind:"connect-four",policy:chosen?chosen.value:"request",minutes})};
-  card.append(copy,pick,clock,policy,start);
-  body.appendChild(card);
-  if(roomGames.length){
-    const back=document.createElement("button");back.type="button";back.className="secondary";back.textContent="Back to the games here";
-    back.onclick=()=>{creatingGame=false;renderGames()};
-    body.appendChild(back);
+  // The intro is only there while nothing is chosen: once a kind is picked the questions and Start have to fit one
+  // screen, and a sentence nobody needs is the first thing to go.
+  if(!compact&&!createKind){
+    const copy=document.createElement("p");copy.className="game-copy";
+    copy.textContent=unfinishedGames().length?"Start another game here.":"Nobody is playing here yet. Pick a game and people can join or watch.";
+    card.appendChild(copy);
   }
-  body.appendChild(arcadeSection());
+
+  // Every kind at once, one tap each, in a grid small enough to fit a phone's pane.
+  const grid=document.createElement("div");grid.className="game-kind-grid";
+  GAME_KIND_LABELS.forEach(([value,label])=>{
+    const button=document.createElement("button");button.type="button";
+    button.className=`game-kind-btn${createKind===value?" active":""}`;button.dataset.kind=value;button.textContent=label;
+    // A different kind starts the questions over: a clock only means something for chess.
+    button.onclick=()=>{if(createKind!==value)createPolicy=null;createKind=value;renderGames()};
+    grid.appendChild(button);
+  });
+  card.appendChild(grid);
+  if(!createKind){body.appendChild(card);return}
+
+  const who=document.createElement("p");who.className="game-copy";who.textContent="Who can join?";
+  const policy=document.createElement("div");policy.className="game-policy-choice";
+  [["open","Anyone can join"],["request","Only by request"]].forEach(([value,label])=>{
+    const button=document.createElement("button");button.type="button";
+    button.className=`game-policy-btn${createPolicy===value?" active":""}`;button.dataset.policy=value;button.textContent=label;
+    button.onclick=()=>{createPolicy=value;renderGames()};
+    policy.appendChild(button);
+  });
+  card.append(who,policy);
+  if(!createPolicy){body.appendChild(card);return}
+
+  // The game's own options, only where it has any: a chess clock, and no question when there is nothing to ask.
+  if(createKind==="chess"){
+    const clockLabel=document.createElement("p");clockLabel.className="game-copy";clockLabel.textContent="Clock";
+    const choices=document.createElement("div");choices.className="game-clock-choices";
+    [[5,"5 min"],[20,"20 min"],[40,"40 min"],[0,"No clock"]].forEach(([value,label])=>{
+      const button=document.createElement("button");button.type="button";
+      button.className=`game-clock-choice${createMinutes===value?" active":""}`;button.dataset.minutes=String(value);button.textContent=label;
+      button.onclick=()=>{createMinutes=value;renderGames()};
+      choices.appendChild(button);
+    });
+    card.append(clockLabel,choices);
+  }
+  const start=document.createElement("button");start.type="button";start.className="primary game-start";
+  start.textContent=unfinishedGames().length?"Start another game":"Start game";
+  start.onclick=()=>{
+    creatingGame=true;
+    sendGame("game-create",{kind:createKind,policy:createPolicy,minutes:createMinutes});
+    createKind=null;createPolicy=null;
+  };
+  card.appendChild(start);
+  if(!compact&&roomGames.length){
+    const back=document.createElement("button");back.type="button";back.className="secondary";back.textContent="Back to the games here";
+    back.onclick=()=>{createKind=null;createPolicy=null;creatingGame=false;renderGames()};
+    card.appendChild(back);
+  }
+  body.appendChild(card);
+  // The solo arcade is linked from the all-games view; it is not repeated here, because the wizard has to fit one
+  // screen and two more rows is what would push Start under the fold.
 }
+
 // ---------------------------------------------------------------- the game panel's three pages
 // A 40% pane on a phone holds about 310 px of content. Seats, a scoreboard, the board and five full-width buttons
 // do not fit in that, and trying is what pushed Draw & Guess's own canvas below the fold. So the panel is three
@@ -1137,18 +1174,19 @@ function renderGamePeople(body,game){
     body.appendChild(watch);
   }
 }
-// Leaving, ending, clearing and resigning: the actions nobody needs mid-move. One word each, two to a row. Leaving
-// lives in the header instead (a seated player's most common exit), so this page is the rare, deliberate actions.
+// The game window's ⋯ page: start a game (the wizard), then this game's own deliberate actions. Leaving a game you
+// are playing is the header's door, so nothing here is the everyday exit.
 function renderGameOptions(body,game){
   const mine=game.players.some(player=>gameIsMine(player.id)),mayRun=gameIsMine(game.hostId);
-  const status=document.createElement("p");status.className="game-copy";
-  status.textContent=`${game.name} - ${gameStatusText(game)}`;
-  body.appendChild(status);
+  // Grading the current game first would push the games down the page on a phone; the room can take another game
+  // only when nobody is playing elsewhere and the cap is not reached.
+  const canStart=!playingHere()&&unfinishedGames().length<MAX_GAMES_PER_ROOM;
+  if(canStart)renderGameStart(body,{compact:true});
 
-  const actions=document.createElement("div");actions.className="game-actions";
+  const mine_actions=document.createElement("div");mine_actions.className="game-actions";
   const add=(label,kind,onclick,disabled)=>{
     const button=document.createElement("button");button.type="button";button.className=kind;button.textContent=label;
-    button.disabled=Boolean(disabled);button.onclick=onclick;actions.appendChild(button);
+    button.disabled=Boolean(disabled);button.onclick=onclick;mine_actions.appendChild(button);
   };
   // Chess-only mechanics: a draw has to be offered and accepted, and resigning is not the same as walking out.
   if(mine&&game.status==="playing"&&game.kind==="chess"){
@@ -1156,16 +1194,17 @@ function renderGameOptions(body,game){
     else{const offered=Boolean(game.drawOffer&&gameIsMine(game.drawOffer));add(offered?"Offered":"Offer draw","secondary",()=>sendGame("game-offer-draw",{gameId:game.id}),offered)}
     add("Resign","secondary danger",()=>openConfirm("Resign this game?","Your opponent wins immediately. This cannot be undone.",()=>sendGame("game-resign",{gameId:game.id})));
   }
-  // A host can also stop a game or a lobby nobody is going to use; leaving a game you are playing is the header's door.
+  // A host can also stop a game or a lobby nobody is going to use.
   if(mayRun&&game.status!=="ended")add("End game","secondary",()=>sendGame("game-end",{gameId:game.id}));
-  if(game.status==="ended"){
-    if(mine||mayRun)add("Clear","secondary",()=>{activeGameId=null;sendGame("game-end",{gameId:game.id})});
-    if(!playingHere()&&unfinishedGames().length<MAX_GAMES_PER_ROOM)add("New game","secondary",()=>{activeGameId=null;gamePage="board";creatingGame=true;renderGames()});
-  }
+  if(game.status==="ended"&&(mine||mayRun))add("Clear","secondary",()=>{activeGameId=null;sendGame("game-end",{gameId:game.id})});
   if(!mine&&game.status!=="ended")add("Watch","secondary",()=>sendGame("game-watch",{gameId:game.id}));
-  if(actions.childElementCount)body.appendChild(actions);
-  else{const none=document.createElement("p");none.className="game-copy";none.textContent="Nothing to do here.";body.appendChild(none)}
+  if(mine_actions.childElementCount){
+    const heading=document.createElement("p");heading.className="game-copy";heading.textContent="This game";
+    body.append(heading,mine_actions);
+  }
 }
+
+
 // Three layouts, all server-owned: columns for Connect Four (dropped bottom-up like gravity), a square grid
 // for tic-tac-toe and Reversi, and a chess board drawn from the position in FEN. The object sends the legal
 // moves for the side to move, so a client can highlight and disable the rest instead of letting people click
@@ -1731,6 +1770,7 @@ $("#gamePaneLeave").onclick=()=>{
   else leave();
 };
 // Maximise is a per-view toggle; touching it records that the player chose their own layout.
+setMaxButton(false);
 $("#gamePaneMax").onclick=()=>{
   const split=$("#chatSplit");
   split.dataset.userLayout="1";

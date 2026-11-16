@@ -456,3 +456,25 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
   door and its confirm) and the 390×844 phone check (14) plus `.forge/tmp/shot-new.js` (10: the clock row appearing
   only for chess, its four choices, the 20-minute clocks, the request bar and the header door).
 
+## As built (`v=100`, starting a game is a wizard, and the maximise glyph is drawn)
+
+- **The ⋯ page is where a game starts.** All five kinds are one tap each in a fixed two-column grid that never
+  scrolls; picking one asks **Who can join?** (Anyone can join / Only by request); answering it reveals the game's
+  own options where it has any (a chess clock) and a **Start game** button that creates it. The same wizard is the
+  room's empty-dock view, so there is one create surface rather than a form and a wizard. It fits a 390×844 phone
+  with no scrollbar at every step (measured in `.forge/tmp/shot-wizard.js`).
+- **It is offered where it can work.** The wizard appears on the ⋯ page when the room can take another game and the
+  player holds no seat elsewhere (one seat per person per room is a server rule, so offering it mid-game would be a
+  dead end); ending or leaving a game turns the same page into the way to start the next one. Under it, that game's
+  own deliberate actions (`End game` for a host, `Clear`, `Resign`, the draw offer, `Watch`).
+- **The create view gets the pane.** The wizard needs the same height as a board, so the dock's create view takes
+  60% on a phone instead of the 40% a list gets; the list of running games still keeps the chat's 60%. The solo
+  arcade was dropped from the create view (two rows) and stays in the all-games list.
+- **The maximise arrows are drawn, not typed.** `⤢`/`⤡` sat a pixel or two off centre because they are text on a
+  button's baseline; the toggle now carries a 14 px SVG on a grid-centred button and measures exactly centred
+  (dx 0, dy 0 in the check). Every header button is grid-centred for the same reason.
+- **Covered by** `.forge/tmp/shot-wizard.js` (17 checks: five kinds, no scrollbar at any step, the policy question
+  appearing only after a kind, Start only after the policy, the clock only for chess, the options page offering the
+  wizard only when it can work, and the maximise icon's geometry), plus `tests/draw-ui.js` (24) and
+  `tests/games-ui.js` (27, now measuring the create view's 60% and the list's 40%).
+

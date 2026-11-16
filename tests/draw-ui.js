@@ -64,9 +64,9 @@ const hasInk = page => page.evaluate(() => {
     const b = await player(browser, bobCookie, room.id);
 
     await openPanel(a);
-    await a.locator('.game-kind[data-kind="draw-guess"]').click();
-    await a.locator('.game-policy input[value="open"]').check();
-    await a.locator(".game-create button.primary").click();
+    await a.locator('.game-kind-btn[data-kind="draw-guess"]').click();
+    await a.locator('.game-policy-btn[data-policy="open"]').click();
+    await a.locator(".game-start").click();
     // A new game opens on its board, and the board carries no seats: those are the people page behind 👥.
     await waitPane(a, "seated");
     ok("the board opens without a row of seat cards", await a.locator(".game-seats").count() === 0, "seats on the board");
