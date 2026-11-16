@@ -66,6 +66,9 @@ const OTHELLO_DIRECTIONS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1]
 // Standard casual chess: five minutes on each clock, no increment, and a clock that runs out is a loss on
 // time. CHESS_CLOCK_MS is env-overridable so the test suite can watch a flag fall in seconds.
 const CHESS_CLOCK_MS = 300000;
+// The allowances the create form offers, in minutes: five, twenty, forty, or no clock at all (0). The env override
+// stays the default for a create that names none, which is how the suites run a game on a four-second clock.
+const CHESS_TIME_OPTIONS = [5, 20, 40, 0];
 const CHESS_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const CHESS_PROMOTIONS = ["q", "r", "b", "n"];
 // The board the client draws, in visual order (rank 8 first, the way a player reads it). Codes are
@@ -567,7 +570,10 @@ export class ChatHub {
       game.fen = CHESS_START_FEN;
       game.last = null;
       game.drawOffer = null;
-      game.clock = { ms: Object.fromEntries(game.players.map(player => [player.id, this.chessClockMs])), at: Date.now() };
+      // A game carries its own allowance: the create form offers 5, 20, 40 minutes or no clock, and 0 means the
+      // clock is off entirely (no ticking, no flag, no alarm to wake for).
+      const allowance = Number.isFinite(game.clockMs) ? game.clockMs : this.chessClockMs;
+      game.clock = allowance > 0 ? { ms: Object.fromEntries(game.players.map(player => [player.id, allowance])), at: Date.now() } : null;
       this.scheduleChessAlarm(game);
     }
     if (game.kind === "draw-guess") {
@@ -632,6 +638,9 @@ export class ChatHub {
       view.check = game.status === "playing" && new Chess(view.fen).inCheck();
       view.drawOffer = game.drawOffer || null;
       view.clock = this.chessClock(game);
+      // The allowance this game was created with, so the panel can say "20 minutes" and a game with no clock shows
+      // no clocks at all rather than two frozen ones.
+      view.clockMs = Number.isFinite(game.clockMs) ? game.clockMs : this.chessClockMs;
     }
     if (game.kind === "draw-guess") {
       const round = game.round || null;
@@ -665,8 +674,9 @@ export class ChatHub {
     if (game.kind !== "chess") return null;
     if (!game.clock || !game.clock.ms) {
       // Before the first move the clocks are simply the starting allowance, so a board that is waiting for an
-      // opponent can already show what both players will have.
-      return game.status === "lobby" ? Object.fromEntries(game.players.map(player => [player.id, this.chessClockMs])) : null;
+      // opponent can already show what both players will have. A game created with no clock shows none.
+      const allowance = Number.isFinite(game.clockMs) ? game.clockMs : this.chessClockMs;
+      return game.status === "lobby" && allowance > 0 ? Object.fromEntries(game.players.map(player => [player.id, allowance])) : null;
     }
     const remaining = {};
     for (const player of game.players) remaining[player.id] = Math.max(0, game.clock.ms[player.id] || 0);
@@ -1072,6 +1082,12 @@ export class ChatHub {
         turn: null, board: initialBoard(kind), winnerId: null, reason: null, passed: false, opener: 0,
         createdAt: Date.now(), startedAt: null, endedAt: null
       };
+      // Chess carries its own allowance. Only the offered ones are accepted, and no allowance at all (or 0) means
+      // the game has no clock rather than a default nobody chose.
+      if (fresh.kind === "chess") {
+        const minutes = Number(event.minutes);
+        fresh.clockMs = CHESS_TIME_OPTIONS.includes(minutes) ? minutes * 60000 : this.chessClockMs;
+      }
       if (kind.solo) { fresh.status = "playing"; fresh.startedAt = fresh.createdAt; fresh.turn = user.id; }
       this.roomGames.get(room.id).set(fresh.id, fresh);
       return this.broadcastGames(room.id);

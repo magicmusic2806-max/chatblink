@@ -210,6 +210,36 @@ async function main() {
   const mated = gameById(await apply(blackSocket, game.id, "d8", "h4", ended), game.id);
   ok("fool's mate is detected as checkmate", mated.reason === "checkmate" && mated.winnerId === black.user.id, `${mated.reason}/${mated.winnerId}`);
   ok("the mate is not also offered back to the loser as a tie", mated.reason !== "draw");
+  await clear(whiteSocket, game.id);
+
+  /* ---------------------------------------------------------------- the clock the host chooses */
+  // The create form offers 5, 20, 40 minutes or no clock, and the object has to take the game's own allowance
+  // rather than a default: a 20-minute game and a game with no clock at all both have to play.
+  const startWith = async minutes => {
+    whiteSocket.inbox.length = 0;
+    send(whiteSocket, { type: "game-create", kind: "chess", policy: "open", minutes });
+    const made = (await waitFor(whiteSocket, packet => packet.type === "game-state" && packet.games.length === 1)).games[0];
+    blackSocket.inbox.length = 0;
+    send(blackSocket, { type: "game-join", gameId: made.id });
+    const running = gameById(await waitFor(blackSocket, packet => packet.type === "game-state" && gameById(packet, made.id)?.status === "playing"), made.id);
+    return { id: made.id, view: running };
+  };
+  const twenty = await startWith(20);
+  // The side to move is already a millisecond or two into its clock by the time the packet arrives, so the check is
+  // "twenty minutes, minus at most a second" rather than an exact equality.
+  const twentyWhite = twenty.view.clock?.[white.user.id], twentyBlack = twenty.view.clock?.[black.user.id];
+  ok("a 20-minute game carries twenty minutes each", twenty.view.clockMs === 1200000 && twentyWhite > 1199000 && twentyWhite <= 1200000 && twentyBlack === 1200000, JSON.stringify(twenty.view.clock));
+  await clear(whiteSocket, twenty.id);
+
+  const untimed = await startWith(0);
+  ok("a game created with no clock has no clock", untimed.view.clock === null && untimed.view.clockMs === 0, JSON.stringify(untimed.view.clock));
+  const moved = gameById(await apply(whiteSocket, untimed.id, "e2", "e4", turnIs(black.user.id)), untimed.id);
+  ok("a game with no clock still plays, and its clock never appears", moved.status === "playing" && moved.clock === null, `${moved.status}/${JSON.stringify(moved.clock)}`);
+  await clear(whiteSocket, untimed.id);
+
+  const odd = await startWith(7);
+  ok("an allowance that is not offered falls back to the room default", odd.view.clockMs === 4000, JSON.stringify(odd.view.clockMs));
+  await clear(whiteSocket, odd.id);
 
   whiteSocket.close(); blackSocket.close();
   await fetch(`${BASE}/api/rooms/${room.id}`, { method: "DELETE", headers: { Origin: ORIGIN, Cookie: white.cookie } });

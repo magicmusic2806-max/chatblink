@@ -933,17 +933,34 @@ function renderGameCreate(body){
   copy.textContent=unfinishedGames().length?"Pick another game for this room.":"Nobody is playing here yet. Start a game and people can join or watch.";
   const kinds=[["connect-four","Connect Four"],["tic-tac-toe","Tic-tac-toe"],["othello","Reversi"],["chess","Chess"],["draw-guess","Draw & Guess"]];
   const pick=document.createElement("div");pick.className="game-kinds";
+  // Chess is the only kind with a setting of its own: the clock. It is offered right under the kind, and only for
+  // chess, because a time control that cannot apply to the game being started is a question with no answer.
+  const clock=document.createElement("div");clock.className="game-clock";clock.hidden=true;
+  let minutes=20;
+  const clockLabel=document.createElement("p");clockLabel.className="game-copy";clockLabel.textContent="Clock";
+  const clockChoices=document.createElement("div");clockChoices.className="game-clock-choices";
+  [[5,"5 min"],[20,"20 min"],[40,"40 min"],[0,"No clock"]].forEach(([value,label])=>{
+    const button=document.createElement("button");button.type="button";button.className=`game-clock-choice${value===minutes?" active":""}`;
+    button.dataset.minutes=String(value);button.textContent=label;
+    button.onclick=()=>{
+      minutes=value;
+      clockChoices.querySelectorAll(".game-clock-choice").forEach(item=>item.classList.toggle("active",item===button));
+    };
+    clockChoices.appendChild(button);
+  });
+  clock.append(clockLabel,clockChoices);
+  const showClock=()=>{const chosen=pick.querySelector(".game-kind.active");clock.hidden=!chosen||chosen.dataset.kind!=="chess"};
   kinds.forEach(([value,label],index)=>{
     const button=document.createElement("button");button.type="button";button.className=`game-kind${index===0?" active":""}`;button.dataset.kind=value;button.textContent=label;
-    button.onclick=()=>pick.querySelectorAll(".game-kind").forEach(item=>item.classList.toggle("active",item===button));
+    button.onclick=()=>{pick.querySelectorAll(".game-kind").forEach(item=>item.classList.toggle("active",item===button));showClock()};
     pick.appendChild(button);
   });
   const policy=document.createElement("div");policy.className="game-policy";
   policy.innerHTML='<label><input type="radio" name="gamePolicy" value="request" checked><span>Ask me before someone joins</span></label><label><input type="radio" name="gamePolicy" value="open"><span>Anyone can take the free seat</span></label>';
   const start=document.createElement("button");start.type="button";start.className="primary";start.textContent="Start a game";
   // Flagged so the state packet that follows opens the new game instead of dropping back to the list.
-  start.onclick=()=>{const chosen=policy.querySelector("input:checked"),kind=pick.querySelector(".game-kind.active");creatingGame=true;sendGame("game-create",{kind:kind?kind.dataset.kind:"connect-four",policy:chosen?chosen.value:"request"})};
-  card.append(copy,pick,policy,start);
+  start.onclick=()=>{const chosen=policy.querySelector("input:checked"),kind=pick.querySelector(".game-kind.active");creatingGame=true;sendGame("game-create",{kind:kind?kind.dataset.kind:"connect-four",policy:chosen?chosen.value:"request",minutes})};
+  card.append(copy,pick,clock,policy,start);
   body.appendChild(card);
   if(roomGames.length){
     const back=document.createElement("button");back.type="button";back.className="secondary";back.textContent="Back to the games here";
@@ -960,11 +977,18 @@ function renderGameCreate(body){
 // rematch - so a game screen is a board and a line of state, not a control panel.
 let gamePage="board";
 function setPaneControls(detail,page="board"){
-  const back=$("#gamePaneBack"),people=$("#gamePanePeople"),menu=$("#gamePaneMenu");
+  const back=$("#gamePaneBack"),people=$("#gamePanePeople"),menu=$("#gamePaneMenu"),leave=$("#gamePaneLeave");
   if(!back||!people||!menu)return;
   back.hidden=!detail;people.hidden=!detail;menu.hidden=!detail;
   people.setAttribute("aria-pressed",page==="people"?"true":"false");
   menu.setAttribute("aria-pressed",page==="options"?"true":"false");
+  // Leaving is the one action a seated player reaches for at any moment, so it lives in the header with the rest of
+  // the navigation rather than under a menu; it is shown only while a seat is held. A game that has ended has
+  // nothing to leave, and a spectator is watching, not seated.
+  if(leave){
+    const game=detail?activeGame():null;
+    leave.hidden=!game||game.status==="ended"||!game.players.some(player=>gameIsMine(player.id));
+  }
 }
 // Small square buttons that carry a glyph instead of a sentence: at 40% of a phone, "Leave game" in a full-width
 // button is a row of the board spent on a word.
@@ -999,6 +1023,23 @@ function gameBoardLine(game){
 // clock) from renderDrawBoard; the rest get the same slim line here.
 function renderGameBoardPage(body,game){
   const mine=game.players.some(player=>gameIsMine(player.id)),mayRun=gameIsMine(game.hostId);
+  // Somebody asking to join is the one thing that needs an answer while a board is being looked at, so the request
+  // is offered above the board, one at a time: approve or refuse, the next one takes its place. The people page
+  // still lists them all for a host working through a queue.
+  const firstPending=(game.pending||[])[0];
+  if(firstPending&&(mayRun||currentUser?.role==="admin")){
+    const bar=document.createElement("div");bar.className="game-request-bar";
+    const who=document.createElement("b");who.textContent=firstPending.username;
+    const text=document.createElement("span");text.textContent="wants to join";
+    const count=document.createElement("small");
+    count.textContent=(game.pending||[]).length>1?`1 of ${game.pending.length}`:"";
+    const yes=document.createElement("button");yes.type="button";yes.className="primary small";yes.textContent="Let in";
+    yes.onclick=()=>sendGame("game-approve",{gameId:game.id,userId:firstPending.id});
+    const no=document.createElement("button");no.type="button";no.className="secondary small";no.textContent="No";
+    no.onclick=()=>sendGame("game-deny",{gameId:game.id,userId:firstPending.id});
+    bar.append(who,text,count,yes,no);
+    body.appendChild(bar);
+  }
   if(game.layout?.type!=="canvas"){
     const bar=document.createElement("p");bar.className="game-bar";
     bar.textContent=gameBoardLine(game);
@@ -1096,7 +1137,8 @@ function renderGamePeople(body,game){
     body.appendChild(watch);
   }
 }
-// Leaving, ending, clearing and resigning: the actions nobody needs mid-move. One word each, two to a row.
+// Leaving, ending, clearing and resigning: the actions nobody needs mid-move. One word each, two to a row. Leaving
+// lives in the header instead (a seated player's most common exit), so this page is the rare, deliberate actions.
 function renderGameOptions(body,game){
   const mine=game.players.some(player=>gameIsMine(player.id)),mayRun=gameIsMine(game.hostId);
   const status=document.createElement("p");status.className="game-copy";
@@ -1108,18 +1150,17 @@ function renderGameOptions(body,game){
     const button=document.createElement("button");button.type="button";button.className=kind;button.textContent=label;
     button.disabled=Boolean(disabled);button.onclick=onclick;actions.appendChild(button);
   };
-  if(mine&&game.status!=="ended")add("Leave","secondary",()=>sendGame("game-leave",{gameId:game.id}));
   // Chess-only mechanics: a draw has to be offered and accepted, and resigning is not the same as walking out.
   if(mine&&game.status==="playing"&&game.kind==="chess"){
     if(game.drawOffer&&!gameIsMine(game.drawOffer))add("Accept draw","primary",()=>sendGame("game-accept-draw",{gameId:game.id}));
     else{const offered=Boolean(game.drawOffer&&gameIsMine(game.drawOffer));add(offered?"Offered":"Offer draw","secondary",()=>sendGame("game-offer-draw",{gameId:game.id}),offered)}
     add("Resign","secondary danger",()=>openConfirm("Resign this game?","Your opponent wins immediately. This cannot be undone.",()=>sendGame("game-resign",{gameId:game.id})));
   }
+  // A host can also stop a game or a lobby nobody is going to use; leaving a game you are playing is the header's door.
+  if(mayRun&&game.status!=="ended")add("End game","secondary",()=>sendGame("game-end",{gameId:game.id}));
   if(game.status==="ended"){
     if(mine||mayRun)add("Clear","secondary",()=>{activeGameId=null;sendGame("game-end",{gameId:game.id})});
     if(!playingHere()&&unfinishedGames().length<MAX_GAMES_PER_ROOM)add("New game","secondary",()=>{activeGameId=null;gamePage="board";creatingGame=true;renderGames()});
-  }else if(mayRun){
-    add("End game","secondary",()=>sendGame("game-end",{gameId:game.id}));
   }
   if(!mine&&game.status!=="ended")add("Watch","secondary",()=>sendGame("game-watch",{gameId:game.id}));
   if(actions.childElementCount)body.appendChild(actions);
@@ -1178,7 +1219,8 @@ function renderChessBoard(body,game){
   for(let row=0;row<8;row++)for(let col=0;col<8;col++)pieces[files[col]+(8-row)]=game.board[row*8+col]||"";
 
   // Clocks tick locally from the number the server last sent, so the display moves between moves without a
-  // packet every second. The server's own arithmetic is the truth; this is only the readout.
+  // packet every second. The server's own arithmetic is the truth; this is only the readout. A game created with
+  // no clock has no clock row at all - two frozen dashes say less than the state line does.
   const clocks=document.createElement("div");clocks.className="chess-clocks";
   const clockNodes=new Map(),renderedAt=Date.now();
   game.players.forEach(player=>{
@@ -1193,7 +1235,7 @@ function renderChessBoard(body,game){
     box.append(name,time);clocks.appendChild(box);
     clockNodes.set(player.id,{time,box,base:remaining});
   });
-  body.appendChild(clocks);
+  if(game.clock)body.appendChild(clocks);
   if(playing&&game.clock){
     const running=game.turn;
     chessClockTimer=setInterval(()=>{
@@ -1679,6 +1721,15 @@ $("#gamePaneBack").onclick=()=>{
 };
 $("#gamePanePeople").onclick=()=>{gamePage=gamePage==="people"?"board":"people";renderGames()};
 $("#gamePaneMenu").onclick=()=>{gamePage=gamePage==="options"?"board":"options";renderGames()};
+// Leaving is the header's door: one tap from any page, and a running two-seat game asks first because the seat is
+// the whole game there (in a bigger game a seat goes and the game carries on).
+$("#gamePaneLeave").onclick=()=>{
+  const game=activeGame();
+  if(!game)return;
+  const leave=()=>{activeGameId=null;gamePage="board";sendGame("game-leave",{gameId:game.id});renderGames()};
+  if(game.status==="playing"&&(game.seats||2)<=2)openConfirm("Leave this game?","You give up your seat and the game - your opponent wins it.",leave);
+  else leave();
+};
 // Maximise is a per-view toggle; touching it records that the player chose their own layout.
 $("#gamePaneMax").onclick=()=>{
   const split=$("#chatSplit");

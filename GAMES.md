@@ -430,3 +430,29 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
   page, the start button, the picker, the mask, the ink, the guess line, the reveal, the seat cards with points) and
   `tests/games-ui.js` (25 checks in two browsers: the three pages, the same stranded-player paths as before through
   the new navigation, the `↻` rematch, the options page's Leave).
+
+## As built (`v=99`, the board bigger, the door in the header, chess on a real clock)
+
+- **Bigger boards on a phone.** A game being played takes **60%** of the split (the chat keeps 40%) and the header
+  is 24 px glyphs below 480 px. Measured at 390×844: a drawing is 349×262 for a guesser and 327×245 for the drawer
+  (was 301×226 / 278×209), a chess board is 261×261 (was 225), and none of them scrolls.
+- **Chess pieces are two opposite tones**, not two greys: a warm ivory side (`#fff6e4`) and a cold near-black side
+  (`#0e1220`), each with a hard one-pixel rim and sized `10cqw` of the board. Black-on-slate and white-on-pale were
+  the two pairs that disappeared; the dark-theme squares moved to `#64718f` / `#333f59` for the separation.
+- **Leaving moved into the header.** `🚪` sits with the navigation and shows only while a seat is held (not for a
+  spectator, not on an ended board). A running two-seat game asks first, because there the seat is the whole game;
+  in a bigger game the seat just goes and the game carries on. The options page keeps only the deliberate actions
+  (`End game` for a host, `Clear`, `New game`, `Resign`, draw offer, `Watch`).
+- **Chess has a clock to choose.** The create form shows a `Clock` row for chess only: **5 min / 20 min / 40 min /
+  No clock** (default 20). The game carries its own `clockMs`; `startGame` builds the clock from it, `0` means no
+  clock at all (no ticking, no flag, no alarm to wake for, no clock row in the panel), and an allowance that is not
+  one of the four falls back to the room default `CHESS_CLOCK_MS` (which is how the suites run a 4 s clock). A
+  rematch keeps the same allowance.
+- **Join requests are answered above the board.** A host (or an admin) sees one request at a time in a strip above
+  the board - "name wants to join · Let in · No · 1 of 3" - so a queue is worked through without leaving the game.
+  The people page still lists them all.
+- **Covered by** `tests/chess.js` (29 checks, adding a 20-minute game, a game with no clock that still plays, and an
+  allowance outside the four falling back to the default), `tests/games-ui.js` (26 checks, leaving through the header
+  door and its confirm) and the 390×844 phone check (14) plus `.forge/tmp/shot-new.js` (10: the clock row appearing
+  only for chess, its four choices, the 20-minute clocks, the request bar and the header door).
+

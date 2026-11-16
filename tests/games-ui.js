@@ -152,11 +152,14 @@ const rematchButton = page => page.locator('.game-icon-btn[aria-label="Rematch"]
     ok("a drawn board says it is a tie", tied.includes("It's a tie"), tied);
     ok("and the tie offers a rematch too", await rematchButton(rival).count() === 1);
 
-    // The host rematches, then walks out of the running game: the other player wins it and keeps the controls.
+    // The host rematches, then walks out of the running game through the door in the header: the other player wins
+    // it and keeps the controls.
     await rematchButton(host).click();
     await waitDock(host, "Your turn");
-    await openOptions(host);
-    await host.locator(".game-actions button", { hasText: "Leave" }).click();
+    ok("a seated player has the leave door in the header", await host.locator("#gamePaneLeave").isVisible());
+    await host.locator("#gamePaneLeave").click();
+    // A running two-seat game asks first: the seat is the whole game there.
+    await host.locator("#confirmOk").click();
     await waitDock(rival, `${guestName} wins`);
     ok("leaving a running game hands it to the player who stayed", (await dockText(rival)).includes(`${guestName} wins`));
     ok("the player who stayed can still rematch", await rematchButton(rival).count() === 1);
@@ -166,12 +169,13 @@ const rematchButton = page => page.locator('.game-icon-btn[aria-label="Rematch"]
     const lobby = await dockText(rival);
     ok("the replay drops the seat of the player who left", lobby.includes("Open seat") && lobby.includes(hostName) === false, lobby.slice(0, 160));
     ok("the reopened board has no restart of its own", await rival.locator('.game-icon-btn[aria-label="Rematch"]').count() === 0);
-    await openPeople(host);
-    await waitDock(host, "Open seat");
-    ok("the other player's dock shows the replay waiting for an opponent", (await dockText(host)).includes("Open seat"));
+    // The host left the game, so their dock is the room's list: the reopened lobby shows there as a row with an open
+    // seat rather than as a board they are sitting at.
+    await waitDock(host, "open seat");
+    ok("the other player's dock shows the replay waiting for an opponent", (await dockText(host)).includes("open seat"), (await dockText(host)).slice(0, 200));
 
-    // And the room is never closed to a new game: the create form is still reachable.
-    await backToList(host);
+    // And the room is never closed to a new game: the create form is still one tap away from the list the host is
+    // already looking at.
     await waitDock(host, "Start another game");
     ok("a fresh game is still one tap away", (await dockText(host)).includes("Start another game"));
 

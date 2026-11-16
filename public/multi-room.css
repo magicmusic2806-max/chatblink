@@ -821,9 +821,12 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .chess-square.dark{background:#a3b1cb}
 /* The glyph follows the square, not the viewport: 5.2vw forced an 18 px piece into a 17 px cell on a phone, which
    stretched every row and left the board taller than it was wide. */
-.chess-piece{font-size:9cqw;pointer-events:none}
-.chess-piece.white{color:#fff;text-shadow:0 0 1px #10161f,0 0 2px #10161f,0 1px 2px #10161f99,0 2px 3px #10161f55}
-.chess-piece.black{color:#0f1420;text-shadow:0 0 1px #ffffffaa,0 1px 2px #ffffff77}
+.chess-piece{font-size:10cqw;pointer-events:none}
+/* Two opposite tones that both stand off the slate squares: a warm ivory side and a cold near-black side, each with a
+   hard one-pixel rim so it reads on the light square and the dark one alike. Black-on-slate and white-on-pale are
+   the two places a plain glyph disappears. */
+.chess-piece.white{color:#fff6e4;text-shadow:0 0 1px #0b1220,1px 0 0 #0b1220,-1px 0 0 #0b1220,0 1px 0 #0b1220,0 -1px 0 #0b1220,0 2px 3px #0b122055}
+.chess-piece.black{color:#0e1220;text-shadow:0 0 1px #f6ead2cc,1px 0 0 #f6ead2aa,-1px 0 0 #f6ead2aa,0 1px 0 #f6ead2aa,0 -1px 0 #f6ead2aa,0 2px 3px #00000044}
 .chess-square.last{box-shadow:inset 0 0 0 3px #eab308cc}
 .chess-square.check{box-shadow:inset 0 0 0 3px #ef4444dd}
 .chess-square.selected{box-shadow:inset 0 0 0 3px #5b6cff}
@@ -839,10 +842,8 @@ html[data-theme=dark] .safety-copy{color:#94a1b6}
 .chess-check{color:#c33b55;font-weight:800;margin:8px 0}
 .chess-promo{display:flex;gap:6px;margin:0 0 8px}
 .chess-promo button{flex:1;padding:8px 0;font-size:20px;line-height:1}
-html[data-theme=dark] .chess-square{background:#5a6885}
-html[data-theme=dark] .chess-square.dark{background:#2a3348}
-html[data-theme=dark] .chess-piece.white{color:#ffffff;text-shadow:0 0 1px #000,0 1px 2px #000c}
-html[data-theme=dark] .chess-piece.black{color:#0a0f18;text-shadow:0 0 1px #cfd8ea99}
+html[data-theme=dark] .chess-square{background:#64718f}
+html[data-theme=dark] .chess-square.dark{background:#333f59}
 html[data-theme=dark] .chess-board{border-color:#2c3648}
 html[data-theme=dark] .chess-clock{background:#101725;border-color:#293243}
 html[data-theme=dark] .chess-clock b{color:#e4e9f2}
@@ -890,6 +891,20 @@ html[data-theme=dark] .message-system{background:#161d2b;color:#9aa7bd}
 /* The slim state line a board that is not a canvas gets, where the old row of seat cards and a second status line
    used to sit. */
 .game-bar{margin:0 0 6px;font-size:12px;font-weight:700;color:#4a5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Somebody wants to join: one line above the board, one request at a time, so the host can answer without leaving
+   the game. */
+.game-request-bar{display:flex;align-items:center;gap:6px;margin:0 0 6px;padding:5px 8px;border-radius:9px;
+  border:1px solid #dbe3f7;background:#eef2ff}
+.game-request-bar b{font-size:12px;color:#26303f;max-width:40%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game-request-bar span{flex:1;min-width:0;font-size:12px;color:#5a6579;white-space:nowrap;overflow:hidden}
+.game-request-bar small{font-size:11px;color:#7b8497}
+.game-request-bar button{flex:0 0 auto;padding:4px 9px;font-size:11.5px;border-radius:7px;min-width:0;width:auto}
+/* The chess clock, offered only when chess is the chosen kind. */
+.game-clock{margin:0 0 10px}
+.game-clock .game-copy{margin:0 0 4px}
+.game-clock-choices{display:flex;gap:6px;flex-wrap:wrap}
+.game-clock-choice{flex:1 1 20%;padding:8px 6px;border-radius:9px;border:1px solid #dfe4ee;background:#fff;font-size:12px;font-weight:700;color:#5a6579}
+.game-clock-choice.active{border-color:#5b6cff;background:#eef1ff;color:#31406b}
 /* The result and the one thing anybody does about it: rematch sits beside the line, not below it. */
 .game-result-row{display:flex;align-items:center;gap:6px;margin:6px 0 0}
 .game-result-row .game-result{flex:1;min-width:0;margin:0;padding:8px 10px;font-size:13px}
@@ -956,11 +971,15 @@ a.game-list-row .game-chip{color:#5b6cff}
 .game-pane .cf-board{max-width:min(100%,calc((100cqh - 26px) * 7 / 6));margin-inline:auto}
 /* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. */
 .game-pane .chess-board{max-width:min(100%,calc(100cqh - 60px));margin-inline:auto}
-/* A drawing needs height, and so does every other board: on a phone the split gives the pane 55% and the chat 45%,
-   which is still a conversation you can play beside. The list and create views keep the 60/40 default. */
+/* A board needs height, and so does every other board: on a phone the split gives the pane 60% and the chat 40%,
+   which is still a conversation you can play beside, and makes a drawing or a chess board big enough to use. The
+   list and create views keep the 60/40 default in the chat's favour. */
 @media (max-width:859px){
-  .chat-split[data-board="1"]>.messages{flex:1 1 45%}
-  .chat-split[data-board="1"]>.game-pane{flex:1 1 55%}
+  .chat-split[data-board="1"]>.messages{flex:1 1 40%}
+  .chat-split[data-board="1"]>.game-pane{flex:1 1 60%}
+  /* Six glyphs and a title in a 40% pane on a 390 px phone: 24 px squares below 480 px. */
+  .game-pane-head{gap:4px;padding:5px 8px}
+  .game-pane-head button{width:24px;height:24px;font-size:13px}
   /* The options are one row, not two: every 40 px under the board is 40 px the board does not get. */
   .chat-split[data-board="1"] .game-actions button{padding:7px 10px;font-size:12px}
 }
