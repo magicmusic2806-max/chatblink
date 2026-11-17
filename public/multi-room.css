@@ -1002,13 +1002,14 @@ a.game-list-row .game-chip{color:#5b6cff}
 /* The clocks sit above the board inside the same panel, so chess leaves them room when it caps itself. The reserve
    is what those rows actually cost (a clock pill and its margin); fitDrawCanvas() takes back any difference. */
 .game-pane .chess-board{max-width:min(100%,calc(100cqh - 40px));margin-inline:auto}
-/* A board needs height, and so does every other board: on a phone the split gives the pane 70% and the chat 30%,
-   which is still a conversation you can play beside, and makes a drawing or a chess board big enough to use. The
-   list and create views keep the 60/40 default in the chat's favour. */
+/* A board needs height, and so does every other board: on a phone the split gives the pane 75% and the chat 25%,
+   which is still a conversation you can play beside (the last message or two above the composer) and is the point
+   where a chess board reaches the phone's full width - at 70% it was 361 px of a 390 px screen. The list and the
+   create wizard keep the 60/40 default in the chat's favour. */
 @media (max-width:859px){
-  .chat-split[data-board="1"]>.messages{flex:1 1 30%}
-  .chat-split[data-board="1"]>.game-pane{flex:1 1 70%}
-  /* Six glyphs and a title in a 40% pane on a 390 px phone: 24 px squares below 480 px. */
+  .chat-split[data-board="1"]>.messages{flex:1 1 25%}
+  .chat-split[data-board="1"]>.game-pane{flex:1 1 75%}
+  /* Six glyphs and a title in a 390 px pane: 24 px squares below 480 px. */
   .game-pane-head{gap:4px;padding:4px 8px}
   .game-pane-head button{width:24px;height:24px;font-size:13px}
   /* A board is the whole point of the page, so its rows go edge to edge and only the text keeps a margin: a canvas
@@ -1027,8 +1028,8 @@ a.game-list-row .game-chip{color:#5b6cff}
   /* The options are one row, not two: every 40 px under the board is 40 px the board does not get. */
   .chat-split[data-board="1"] .game-actions button{padding:7px 10px;font-size:12px}
 }
-/* Maximise is the escape hatch for a small screen: the 60/40 split stays the default, and one tap gives the
-   board the whole room for a move. */
+/* Maximise is the escape hatch for a screen that is too small for both: the split stays whatever the page asked
+   for (60/40 for the room's list, 50/50 or 75/25 for a board), and one tap gives the board the whole room. */
 .chat-split[data-max="1"]>.messages{display:none}
 .chat-split[data-max="1"]>.game-pane{flex:1 1 100%}
 html[data-theme=dark] .game-pane{background:#0d1220;border-color:#232c3d}
@@ -1039,6 +1040,12 @@ html[data-theme=dark] .game-pane-head button{background:#1b2130;color:#94a1b6}
   .chat-split{flex-direction:row}
   .chat-split>.messages{flex:1 1 60%}
   .game-pane{flex:0 0 40%;border-top:0;border-left:1px solid #e7eaf0}
+  /* On a desktop the pane's width is what caps a board long before its height does: at 40% of a 1440 px room a
+     chess board was 555 px (its height allowed 583) and a drawing 555x416 (its 4:3 shape and the pane's height would
+     have carried 699x524). A board therefore takes half the room - it grows by a quarter of its area and more - and
+     the conversation keeps the other half, which is still a conversation with the board beside it. */
+  .chat-split[data-board="1"]>.messages{flex:1 1 50%}
+  .chat-split[data-board="1"]>.game-pane{flex:0 0 50%}
   html[data-theme=dark] .game-pane{border-left-color:#232c3d}
 }
 html[data-theme=dark] .room-card.games-room-card{background:linear-gradient(135deg,#151c30,#1a1630);border-color:#2f3a5c}

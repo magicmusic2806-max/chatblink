@@ -775,8 +775,9 @@ function openGames(mode){
   renderGames();
   if(mode==="all")loadLiveGames();else sendGame("game-sync");
 }
-// The panel layout: 60/40 in the chat's favour, everywhere, because the point of the pane is playing while the
-// room talks. A board takes 60% on a phone (`data-board`), and the maximise toggle gives it the whole room.
+// The panel layout: 60/40 in the chat's favour for the room's list of games, because a directory does not need the
+// room. A board page (and the create wizard) takes three quarters of a phone split and half of a desktop one
+// (`data-board`), and the maximise toggle gives it the whole room.
 // The maximise toggle is two arrows drawn as a path rather than the ⤢ glyph, which sits off-centre in its square on
 // most platforms: a 14 px SVG on a grid-centred button is centred by construction.
 const MAX_SHOW='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5"/></svg>';
@@ -817,8 +818,8 @@ function renderGames(){
   stopChessClock();
   stopDrawTimer();
   body.innerHTML="";
-  // A drawing needs height: the pane takes 55% of a phone split while a canvas game is open, and everything else
-  // keeps the 60/40 default (see `.chat-split[data-board]`).
+  // A drawing needs height, and so does every other board: any page that shows a board (or the wizard that starts
+  // one) asks for the pane through `data-board`, and only the room's list of games keeps the 60/40 default.
   if($("#chatSplit"))delete $("#chatSplit").dataset.board;
   if(all){$("#gamesTitle").textContent="Games being played";setPaneControls(false);renderLiveGames(body);return}
   $("#gamePaneTitle").textContent=currentRoom?`Games - ${currentRoom.name}`:"Games";
@@ -1038,9 +1039,9 @@ function iconButton(label,title,onclick,extra){
   return button;
 }
 function renderGameDetail(body,game){
-  // A board needs the pane's height more than the chat does: on a phone the split gives the pane 55% while a game
-  // is open (see `.chat-split[data-board]`), and the maximise toggle gives it everything. This is the same for
-  // every kind - a chess board in 40% of a 390 px screen is a 17 px square per piece.
+  // A board needs the pane's height more than the chat does: on a phone the split gives the pane three quarters
+  // while a game is open, half of a desktop room (see `.chat-split[data-board]`), and the maximise toggle gives it
+  // everything. This is the same for every kind - a chess board in 40% of a 390 px screen is a 17 px square per piece.
   if($("#chatSplit"))$("#chatSplit").dataset.board="1";
   setPaneControls(true,gamePage);
   $("#gamePaneTitle").textContent=gamePage==="people"?"Players and scores":gamePage==="options"?"Game options":game.name;

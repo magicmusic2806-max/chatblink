@@ -546,3 +546,35 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
   at the line instead of painting over it, and a second tap going back to the pen). `.forge/tmp/draw-issues.js`
   (17 checks at 390×844) adds the tool rows never scrolling sideways, every tool staying inside the phone, the
   bucket being thumb-sized, a flood landing in the chosen colour, and the whole-canvas fill timing.
+
+## As built (`v=105`, a board takes three quarters of a phone and half of a desktop)
+
+- **A board takes 75% of a phone split** (the chat keeps 25%) instead of 70, which is the point where a chess board
+  reaches the phone's *full* width: at 390×844 it measured 361×361 and now measures **390×390** - the 29 px it was
+  short was the whole of what it was missing. A drawing goes **379×284 → 390×293** for the drawer (those 11 px of
+  width came back because with the taller pane `fitDrawCanvas` no longer has to trim for the two tool rows) and stays
+  390×293 for the guesser, which was already at full width. Neither scrolls, and the chat keeps 162 px - the last
+  message or two above the composer.
+- **A board now takes half of a desktop room** (the chat keeps the other half), where every view used to keep the
+  40%. On a desktop the pane's *width* is what capped a board, not its height: at 1440×900 the pane was 576 px wide
+  and 691 tall, so chess measured **555** where the pane's height allowed 583, and a drawing **555×416** where its
+  4:3 shape and that height allowed 699×524. With the pane at 720 px: chess **583×583**, now capped by the window's
+  height rather than by the pane (no wider a pane can beat it), and the drawing **699×524** - 58% more drawing
+  area. The list of running games keeps the 60/40 default; the create wizard gets the same half as a board.
+- **Measured before → after at nine screen shapes** (chess, then a drawing drawn and guessed, with the pane's
+  overflow checked at each and 0 everywhere except where noted): chess 320×568 **167 → 186**, 360×640 **218 → 240**,
+  390×844 **361 → 390**, 430×932 **422 → 430**, 1024×768 **389 → 451**, 1280×800 **483 → 483** (already capped by the
+  height there), 1440×900 **555 → 583**, 1920×1080 **747 → 763**; the drawing 360×640 **189×142 → 219×164**,
+  1024×768 **389×291 → 491×368**, 1280×800 **491×368 → 590×443**, 1440×900 **555×416 → 699×524**, 1920×1080
+  **747×560 → 939×704**.
+- **Two limits worth knowing, both older than this pass.** The tightest phone (320×568) gives the pane 280 px, so
+  the drawer's rows (24 + 21 + 120 + 59) still overrun the 160 px floor `fitDrawCanvas` clamps at - **10 px** of
+  scroll left, down from 29. And a phone held **landscape** (844×390) gets the stacked layout because the breakpoint
+  is a width: the room is 180 px tall there, so chess is **46 px** (was 36) and a drawing 160×120 with 84 px of
+  scroll, whatever the split says. Fixing that means a height-aware breakpoint, which is its own change.
+- **Covered by** `tests/games-ui.js` (26 checks, including the games list still keeping 60% for the chat) and
+  `tests/draw-ui.js` (31), both green on this change, plus two harnesses in `.forge/tmp/` that produced every number
+  above: `board-size.js` (before/after at a phone and a desktop, printing the pane's rows and the board's cap) and
+  `board-shapes.js` (nine shapes, a run per split, resizing one live game and re-rendering it the way a state packet
+  does). The chess board had no UI suite of its own beyond these measurements - `.forge/chess-ui.js` still looks for
+  the pre-wizard `.game-kind` buttons and fails on the current markup.
