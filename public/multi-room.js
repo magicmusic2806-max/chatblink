@@ -1372,18 +1372,75 @@ function renderChessBoard(body,game){
 // packet and dropped when the round changes. That is what keeps a spectator's client from reading the answer.
 const gameWords=new Map();
 const DRAW_COLORS=["#172033","#ef476f","#f9c74f","#43aa8b","#4f8cff","#a259ff","#ff8c42","#ffffff"];
-const DRAW_SIZES=[1,2,3];
-// The chosen colour and brush outlive a re-render: every game-state packet used to rebuild the board, and with it the
-// tools, so the drawer had to pick their colour again after every guess. The choice belongs to the player, not to the
-// DOM node that happened to show it.
-const drawChoice={color:DRAW_COLORS[0],size:2};
+// Five brushes: a thin pen for detail, a fat marker for blocking in an area. The width is size * 6 on a 1024-wide
+// canvas, so the ends of the range are 6 px and 30 px - the thin one has to stay thin for eyes and whiskers.
+const DRAW_SIZES=[1,2,3,4,5];
+const DRAW_RGB=new Map(DRAW_COLORS.map(color=>[color,[1,3,5].map(at=>parseInt(color.slice(at,at+2),16))]));
+// A bucket and a falling drip, drawn rather than typed: the emoji for one (🪣) is newer than some of the phones and
+// desktops this runs on, and a tofu box in the tool row is worse than no label at all. The drip is what keeps it
+// from reading as a bin - a lid and a straight side say "delete the drawing", which this button must never say.
+const DRAW_FILL_ICON='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.6 8.3h11.2l-1.5 10.1a2.1 2.1 0 0 1-2 1.8H7.1a2.1 2.1 0 0 1-2-1.8Z"/><path d="M3.6 8.3c0-2.2 2.5-3.9 5.6-3.9s5.6 1.7 5.6 3.9"/><path d="M5 11.6h8.4"/><path d="M19.1 11.9c1.1 1.5 1.7 2.5 1.7 3.3a1.7 1.7 0 0 1-3.4 0c0-.8.6-1.8 1.7-3.3Z"/></svg>';
+// The chosen colour, brush and tool outlive a re-render: every game-state packet used to rebuild the board, and with
+// it the tools, so the drawer had to pick their colour again after every guess. The choice belongs to the player,
+// not to the DOM node that happened to show it.
+const drawChoice={color:DRAW_COLORS[0],size:2,tool:"pen"};
 // A line being drawn keeps its canvas: while the finger is down a queued render waits, and the state it would have
 // shown is painted the moment the stroke is sent.
 let drawStrokeActive=false,deferredGamesRender=false;
 let drawTimer=null;
 function stopDrawTimer(){if(drawTimer){clearInterval(drawTimer);drawTimer=null}}
 const drawClock=ms=>{const total=Math.max(0,Math.ceil(ms/1000));return `${Math.floor(total/60)}:${String(total%60).padStart(2,"0")}`};
+// A fill is not a line: it is a seed, and the region under it is whatever already shares that pixel's colour out to
+// the nearest stroke. Only the seed travels over the socket (see cleanStroke in the object), because every screen
+// replays the same strokes onto the same 1024x768 bitmap in the same order and so covers the same pixels.
+//
+// The match is a tolerance, not an equality: an antialiased edge is a ramp, and a hard test would leave a rim of
+// unfilled pixels inside every shape. The result goes back through putImageData, so the fill's own edge is a hard
+// edge on every browser instead of a second antialiased one.
+const FILL_TOLERANCE=64;
+function fillRegion(ctx,stroke){
+  const canvas=ctx.canvas,width=canvas.width,height=canvas.height,seed=(stroke.points||[])[0];
+  if(!seed||!width||!height)return;
+  const x0=Math.max(0,Math.min(width-1,Math.round(seed[0]))),y0=Math.max(0,Math.min(height-1,Math.round(seed[1])));
+  const image=ctx.getImageData(0,0,width,height),data=image.data;
+  const start=(y0*width+x0)*4,red=data[start],green=data[start+1],blue=data[start+2];
+  const target=DRAW_RGB.get(stroke.color)||DRAW_RGB.get(DRAW_COLORS[0]);
+  // Tapping a region that is already this colour changes nothing. It is also what keeps the drawer's own optimistic
+  // fill from painting twice when the object sends the same stroke back.
+  if(Math.abs(red-target[0])<=2&&Math.abs(green-target[1])<=2&&Math.abs(blue-target[2])<=2)return;
+  const done=new Uint8Array(width*height);
+  const open=index=>{
+    if(done[index])return false;
+    const at=index*4;
+    return Math.abs(data[at]-red)<=FILL_TOLERANCE&&Math.abs(data[at+1]-green)<=FILL_TOLERANCE&&Math.abs(data[at+2]-blue)<=FILL_TOLERANCE;
+  };
+  const paint=index=>{const at=index*4;data[at]=target[0];data[at+1]=target[1];data[at+2]=target[2];done[index]=1};
+  // Scanline flood fill: walk the whole run left and right of the seed, paint it, then queue the runs above and
+  // below that touch it. A stack of runs rather than of pixels, so an empty canvas cannot grow it to a million
+  // entries and the work is one pass per row at worst.
+  const runs=[[x0,y0]];
+  while(runs.length){
+    const [sx,sy]=runs.pop(),base=sy*width;
+    if(!open(base+sx))continue;
+    let left=sx,right=sx;
+    while(left>0&&open(base+left-1))left--;
+    while(right<width-1&&open(base+right+1))right++;
+    for(let x=left;x<=right;x++)paint(base+x);
+    for(const y of [sy-1,sy+1]){
+      if(y<0||y>=height)continue;
+      const row=y*width;
+      let x=left;
+      while(x<=right){
+        if(!open(row+x)){x++;continue}
+        runs.push([x,y]);
+        while(x<=right&&open(row+x))x++;
+      }
+    }
+  }
+  ctx.putImageData(image,0,0);
+}
 function paintStroke(ctx,stroke){
+  if(stroke.fill)return fillRegion(ctx,stroke);
   const points=stroke.points||[];
   if(!points.length)return;
   ctx.strokeStyle=stroke.color||DRAW_COLORS[0];
@@ -1524,29 +1581,53 @@ function renderDrawBoard(body,game){
   body.appendChild(canvas);
 
   if(drawing){
-    // One row of glyphs under the canvas, where a thumb is: eight colours and three widths. Clear is the glyph in
-    // the state line rather than the end of this row, because the row must never scroll sideways on a phone.
+    // Two rows of glyphs under the canvas, where a thumb is: the eight colours, then the five brushes and the
+    // bucket. They wrap rather than scroll - a tool row that scrolls sideways hides the brush a player is looking
+    // for - so a narrow pane stacks the two and a wide one keeps a single line. Clear is the glyph in the state
+    // line, not the end of this row.
     const tools=document.createElement("div");tools.className="draw-tools";
+    const colours=document.createElement("div");colours.className="draw-colours";
     DRAW_COLORS.forEach((color,index)=>{
       const swatch=document.createElement("button");swatch.type="button";swatch.className=`draw-swatch${color===drawChoice.color?" active":""}`;
       swatch.style.setProperty("--swatch",color);swatch.setAttribute("aria-label",`Colour ${index+1}`);
-      swatch.onclick=()=>{drawChoice.color=color;tools.querySelectorAll(".draw-swatch").forEach(item=>item.classList.toggle("active",item===swatch))};
-      tools.appendChild(swatch);
+      swatch.onclick=()=>{drawChoice.color=color;colours.querySelectorAll(".draw-swatch").forEach(item=>item.classList.toggle("active",item===swatch))};
+      colours.appendChild(swatch);
     });
-    const sizes=document.createElement("div");sizes.className="draw-sizes";
+    tools.appendChild(colours);
+    const brushes=document.createElement("div");brushes.className="draw-brushes";
     DRAW_SIZES.forEach(size=>{
       const button=document.createElement("button");button.type="button";button.className=`draw-size${drawChoice.size===size?" active":""}`;
-      button.setAttribute("aria-label",`Brush ${size}`);button.onclick=()=>{drawChoice.size=size;sizes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
-      const dot=document.createElement("i");dot.style.width=`${size*3+2}px`;dot.style.height=`${size*3+2}px`;button.appendChild(dot);sizes.appendChild(button);
+      button.setAttribute("aria-label",`Brush ${size} of ${DRAW_SIZES.length}`);
+      button.onclick=()=>{drawChoice.size=size;brushes.querySelectorAll(".draw-size").forEach(item=>item.classList.toggle("active",item===button))};
+      const dot=document.createElement("i");dot.style.width=`${size*3+2}px`;dot.style.height=`${size*3+2}px`;button.appendChild(dot);brushes.appendChild(button);
     });
-    tools.appendChild(sizes);
+    // The bucket is a mode, not an action: it stays on until the drawer taps it again, because a picture is usually
+    // filled in several regions in a row and re-arming it each time would be a tap per region.
+    const bucket=document.createElement("button");bucket.type="button";
+    bucket.className=`draw-tool${drawChoice.tool==="fill"?" active":""}`;
+    bucket.setAttribute("aria-label","Fill: tap a region to flood it with the chosen colour");bucket.title="Fill";
+    bucket.innerHTML=DRAW_FILL_ICON;
+    const armFill=()=>{canvas.classList.toggle("filling",drawChoice.tool==="fill");bucket.classList.toggle("active",drawChoice.tool==="fill")};
+    bucket.onclick=()=>{drawChoice.tool=drawChoice.tool==="fill"?"pen":"fill";armFill()};
+    brushes.appendChild(bucket);
+    tools.appendChild(brushes);
     body.appendChild(tools);
+    if(drawChoice.tool==="fill")canvas.classList.add("filling");
 
     let stroke=null;
     const point=event=>{const rect=canvas.getBoundingClientRect();return [Math.round((event.clientX-rect.left)/rect.width*1024),Math.round((event.clientY-rect.top)/rect.height*768)]};
     const sendStroke=value=>{if(value&&value.points.length)sendGame("game-draw",{gameId:game.id,stroke:{color:value.color,size:value.size,points:value.points.slice(0,200)}})};
     canvas.addEventListener("pointerdown",event=>{
       if(event.button!==undefined&&event.button!==0)return;
+      if(drawChoice.tool==="fill"){
+        // The region is painted here as well as when the object sends the stroke back, so the drawer sees it fill
+        // under their finger instead of a round trip later. The echo is a no-op: the seed is already that colour.
+        event.preventDefault();
+        const filled={color:drawChoice.color,fill:true,points:[point(event)]};
+        paintStroke(ctx,filled);
+        sendGame("game-draw",{gameId:game.id,stroke:filled});
+        return;
+      }
       canvas.setPointerCapture(event.pointerId);
       // A stroke in progress holds the board together: a state packet that lands now (a guess, a seat change) is
       // queued instead of rebuilding the canvas under the finger, and painted once the line is sent.

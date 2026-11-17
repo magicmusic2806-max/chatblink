@@ -514,3 +514,35 @@ scroll container. At 40% of a phone that is a scrollbar over a game, and the but
   on, and the drawing one line shorter) and `.forge/tmp/draw-issues.js` (10 checks at 390×844: full-width canvas,
   thumb-sized tools, colour and brush surviving a guess, a mid-stroke packet not replacing the canvas, undo taking a
   line back, Clear asking first and a cancel leaving the drawing alone).
+
+## As built (`v=104`, five brushes and a bucket of paint)
+
+- **Five brushes, not three** (`DRAW_SIZES = [1..5]`, width `size * 6` on the 1024×768 canvas, so 6 to 30 px): a thin
+  pen for eyes and whiskers, a fat marker for blocking in a large area. The object clamps to the same five values it
+  did to three, so a client cannot smuggle in a width the palette does not offer.
+- **A bucket that floods a region.** Tap the bucket, then tap the canvas: the region under the finger - everything
+  sharing that pixel's colour out to the nearest stroke - is filled with the chosen colour. It is a **mode** that
+  stays lit until tapped again, because a picture is filled a region at a time and re-arming it per region would be a
+  tap each. White is on the palette, so a fill is also the eraser.
+- **A fill travels as its seed, not as a raster.** `game-draw` carries `{ color, fill: true, points: [seed] }`; the
+  region is computed on each client by replaying the same strokes in the same order onto the same 1024×768 bitmap, so
+  every screen covers the same pixels and the object stores one point instead of a mask it could never afford. The
+  match is a **tolerance** (`FILL_TOLERANCE = 64`) rather than equality, or a hard test would leave a rim of
+  antialiased pixels inside every shape; the result goes back through `putImageData`, so the fill's own edge is hard
+  on every browser. A 1024×768 flood - 786 432 pixels, the whole empty canvas - measured **20 ms**.
+  `cleanStroke` truncates a fill to its one seed point and gives it no brush width, and `gameView` had to learn the
+  flag too: it copies strokes field by field, and a rejoining client that got a seed without it painted a fill as a
+  zero-length line, one dot. That is what `tests/draw.js` caught.
+- **The tools are two rows under the canvas**: eight colours, then five brushes and the bucket. `.draw-tools` wraps
+  instead of scrolling - one line when the pane is wide (desktop), two on a phone - so nothing is ever hidden
+  sideways at 390 px. The bucket is drawn as an SVG (bucket plus falling drip) rather than typed: 🪣 does not exist on
+  every phone and desktop this runs on, and a bin reads as "delete the drawing". Measured at 390×844: 379 px of
+  canvas width (the second row costs `fitDrawCanvas` a sliver, 7 px of the 386 the row used to take), 30 px on every
+  tool, and 20 ms for the largest fill.
+- **Covered by** `tests/draw.js` (58 checks, adding: the widest brush surviving the cap, a fill travelling as one
+  seed with no width, and a sync replaying the fill with the drawing) and `tests/draw-ui.js` (31 checks, adding:
+  five brushes and one bucket for the drawer alone, the widest brush lighting up, the bucket arming itself and
+  turning the cursor, a tap flooding the guesser's canvas, both screens flooding the same pixels, the fill stopping
+  at the line instead of painting over it, and a second tap going back to the pen). `.forge/tmp/draw-issues.js`
+  (17 checks at 390×844) adds the tool rows never scrolling sideways, every tool staying inside the phone, the
+  bucket being thumb-sized, a flood landing in the chosen colour, and the whole-canvas fill timing.

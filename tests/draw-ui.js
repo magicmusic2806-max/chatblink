@@ -50,6 +50,15 @@ const hasInk = page => page.evaluate(() => {
   for (let index = 0; index < data.length; index += 4) if (data[index] < 240 || data[index + 1] < 240 || data[index + 2] < 240) return true;
   return false;
 });
+// One pixel of the canvas, in its own coordinates: a fill has to land on the same pixels on every screen, and a
+// pixel is the only way to say that.
+const pixelAt = (page, fx, fy) => page.evaluate(({ fx, fy }) => {
+  const canvas = document.querySelector(".draw-canvas");
+  if (!canvas) return null;
+  const at = canvas.getContext("2d").getImageData(Math.round(canvas.width * fx), Math.round(canvas.height * fy), 1, 1).data;
+  return [at[0], at[1], at[2]];
+}, { fx, fy });
+const near = (a, b) => Boolean(a && b) && a.every((value, index) => Math.abs(value - b[index]) <= 2);
 
 (async () => {
   console.log(`\ndraw ui on ${BASE}`);
@@ -121,6 +130,34 @@ const hasInk = page => page.evaluate(() => {
     }, null, { timeout: 8000 }).catch(() => null);
     ok("the drawer's stroke appears on the guesser's canvas", await hasInk(b));
     ok("the drawer's own canvas has ink", await hasInk(a));
+
+    // Five brushes and a bucket. The brush count is the feature; the bucket is a mode that stays on, because a
+    // picture is filled a region at a time.
+    ok("the drawer is offered five brushes and one bucket", await a.locator(".draw-size").count() === 5 && await a.locator(".draw-tool").count() === 1,
+      `${await a.locator(".draw-size").count()} brushes / ${await a.locator(".draw-tool").count()} buckets`);
+    await a.locator(".draw-size").nth(4).click();
+    ok("the widest brush lights up", await a.locator(".draw-size").nth(4).evaluate(node => node.classList.contains("active")),
+      await a.locator(".draw-size").evaluateAll(nodes => nodes.map(node => node.classList.contains("active"))).then(String));
+    await a.locator(".draw-tool").click();
+    ok("the bucket arms itself and the cursor says so", await a.locator(".draw-tool.active").count() === 1 && await a.locator(".draw-canvas.filling").count() === 1);
+    // A fill is a tap on a region, not a drag: the seed travels and every canvas floods the same pixels with the
+    // chosen colour. The second swatch, so the flood is a colour the line under it is not.
+    const rose = [239, 71, 111], ink = [23, 32, 51];
+    await a.locator(".draw-swatch").nth(1).click();
+    const corner = await a.locator(".draw-canvas").boundingBox();
+    await a.mouse.click(corner.x + corner.width * 0.85, corner.y + corner.height * 0.85);
+    await b.waitForFunction(expected => {
+      const canvas = document.querySelector(".draw-canvas");
+      if (!canvas) return false;
+      const at = canvas.getContext("2d").getImageData(Math.round(canvas.width * 0.85), Math.round(canvas.height * 0.85), 1, 1).data;
+      return Math.abs(at[0] - expected[0]) <= 2 && Math.abs(at[1] - expected[1]) <= 2 && Math.abs(at[2] - expected[2]) <= 2;
+    }, rose, { timeout: 8000 }).catch(() => null);
+    ok("a tap with the bucket floods the guesser's canvas", near(await pixelAt(b, 0.85, 0.85), rose), JSON.stringify(await pixelAt(b, 0.85, 0.85)));
+    ok("both screens flood the same pixels", near(await pixelAt(a, 0.85, 0.85), await pixelAt(b, 0.85, 0.85)),
+      `${JSON.stringify(await pixelAt(a, 0.85, 0.85))} vs ${JSON.stringify(await pixelAt(b, 0.85, 0.85))}`);
+    ok("the fill stops at the line instead of painting over it", near(await pixelAt(b, 0.25, 0.3), ink), JSON.stringify(await pixelAt(b, 0.25, 0.3)));
+    await a.locator(".draw-tool").click();
+    ok("a second tap on the bucket goes back to the pen", await a.locator(".draw-tool.active").count() === 0 && await a.locator(".draw-canvas.filling").count() === 0);
 
     // The guess is typed in the ordinary chat box: a sentence containing the word must become the highlighted
     // line, and the sentence itself must never be posted.

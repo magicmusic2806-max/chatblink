@@ -110,6 +110,9 @@ const DRAW_STROKES_MAX = 400;
 const DRAW_POINTS_TOTAL_MAX = 12000;
 const DRAW_POINTS_MAX = 1024;
 const DRAW_COLORS = ["#172033", "#ef476f", "#f9c74f", "#43aa8b", "#4f8cff", "#a259ff", "#ff8c42", "#ffffff"];
+// Five brushes, not three: a thin pen for detail and a fat marker for filling an area, which is the pair a
+// drawing game actually needs. The width in pixels is the client's business (size * 6 on a 1024x768 canvas).
+const DRAW_SIZES = [1, 2, 3, 4, 5];
 const DRAW_SCORE_FOR_GUESS = 200, DRAW_SCORE_FOR_DRAWER = 50;
 // A board is one flat array for every game: columns (Connect Four) or a square grid (tic-tac-toe, Reversi).
 // 0 is empty, 1 and 2 are the seats.
@@ -655,7 +658,11 @@ export class ChatHub {
         endsAt: round.endsAt || null, choosingUntil: round.choosingUntil || null,
         choosing: Boolean(!round.word && !round.revealed)
       } : null;
-      view.strokes = (game.strokes || []).map(stroke => ({ color: stroke.color, size: stroke.size, points: stroke.points }));
+      // A stroke is copied field by field rather than passed through, so the fill flag has to be named here too: a
+      // rejoining client that got the seed without it would paint a fill as a zero-length line, one dot.
+      view.strokes = (game.strokes || []).map(stroke => (stroke.fill
+        ? { color: stroke.color, fill: true, points: stroke.points }
+        : { color: stroke.color, size: stroke.size, points: stroke.points }));
       // Strokes arrive as `game-stroke` packets after this; the sequence number is how a client notices it missed
       // one and asks for the whole truth again instead of drawing a picture with a line missing.
       view.strokeSeq = game.strokeSeq || 0;
@@ -1003,19 +1010,25 @@ export class ChatHub {
     if (this.drawAllGuessed(game) || now >= (round.endsAt || 0)) return this.finishDrawTurn(game, now);
     return false;
   }
-  // A stroke is bounded at both ends: a colour from the fixed palette, a size of one to three, at most 200
-  // points, and coordinates inside the canvas. Anything else is dropped rather than stored.
+  // A stroke is bounded at both ends: a colour from the fixed palette, a brush from the five the client offers, at
+  // most 200 points, and coordinates inside the canvas. Anything else is dropped rather than stored.
+  //
+  // A fill is the one stroke with no line in it: the drawer taps a region and only the seed point travels, because
+  // the region itself is decided by the pixels already on the canvas. That is safe to leave to the clients - every
+  // screen replays the same strokes in the same order onto the same 1024x768 bitmap, so the same seed covers the
+  // same pixels everywhere, and it costs the object one point instead of a raster it could never afford to store.
   cleanStroke(raw) {
     if (!raw || typeof raw !== "object") return null;
     const color = DRAW_COLORS.includes(String(raw.color)) ? String(raw.color) : DRAW_COLORS[0];
-    const size = [1, 2, 3].includes(Number(raw.size)) ? Number(raw.size) : 2;
-    const points = Array.isArray(raw.points) ? raw.points.slice(0, DRAW_STROKE_POINTS_MAX).map(point => {
+    const size = DRAW_SIZES.includes(Number(raw.size)) ? Number(raw.size) : 2;
+    const fill = raw.fill === true;
+    const points = Array.isArray(raw.points) ? raw.points.slice(0, fill ? 1 : DRAW_STROKE_POINTS_MAX).map(point => {
       const x = Number(point?.[0]), y = Number(point?.[1]);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
       return [Math.max(0, Math.min(DRAW_POINTS_MAX, Math.round(x))), Math.max(0, Math.min(DRAW_POINTS_MAX, Math.round(y)))];
     }).filter(Boolean) : [];
     if (!points.length) return null;
-    return { color, size, points };
+    return fill ? { color, fill: true, points } : { color, size, points };
   }
   // A drawing is bounded as a whole, not just stroke by stroke: the full state travels in one WebSocket message
   // on a sync, and Cloudflare closes a socket whose message passes 1 MiB. The oldest lines go first, so the

@@ -170,6 +170,24 @@ async function main() {
   const afterUndo = gameById(await waitFor(aSocket, packet => packet.type === "game-state"), game.id);
   ok("undo leaves one line of the two", (afterUndo.strokes || []).length === 1, String((afterUndo.strokes || []).length));
 
+  // Five brushes, not three, and the bucket. The fat marker is what makes a large area worth colouring at all, so
+  // it must survive the object's cap; a fill is one seed point with a flag and no line of its own, because the
+  // region under the seed is decided by the pixels every client already has.
+  aSocket.inbox.length = 0;
+  send(aSocket, { type: "game-draw", gameId: game.id, stroke: { color: "#43aa8b", size: 5, points: [[10, 10], [200, 200]] } });
+  const fat = (await waitStroke(bSocket, game.id, 4)).stroke;
+  ok("the widest of five brushes survives the cap", fat.size === 5, JSON.stringify(fat.size));
+
+  aSocket.inbox.length = 0;
+  send(aSocket, { type: "game-draw", gameId: game.id, stroke: { color: "#f9c74f", fill: true, points: [[300, 300], [310, 310], [320, 320]] } });
+  const flooded = (await waitStroke(bSocket, game.id, 5)).stroke;
+  ok("a fill travels as its seed point alone", flooded.fill === true && flooded.points.length === 1 && flooded.color === "#f9c74f", JSON.stringify(flooded));
+  ok("a fill carries no brush width", flooded.size === undefined, JSON.stringify(flooded.size));
+  aSocket.inbox.length = 0;
+  send(aSocket, { type: "game-sync" });
+  const withFill = gameById(await waitFor(aSocket, packet => packet.type === "game-state"), game.id);
+  ok("a sync replays the fill with the drawing", (withFill.strokes || []).some(stroke => stroke.fill === true), JSON.stringify((withFill.strokes || []).map(stroke => stroke.fill || "line")));
+
   /* ------------------------------------------------------------ guesses */
   bSocket.inbox.length = 0;
   send(bSocket, { type: "message", kind: "text", content: "no idea at all" });
